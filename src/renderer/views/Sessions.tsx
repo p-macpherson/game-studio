@@ -61,7 +61,7 @@ export function Sessions() {
 				<div className="toolbar">
 					<div className="row">
 						<h2 className="grow">Sessions</h2>
-						<button className="primary" onClick={() => openNewSession(true)}>
+						<button className="primary" onClick={() => openNewSession({})}>
 							+ New session
 						</button>
 					</div>

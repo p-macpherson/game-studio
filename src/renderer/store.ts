@@ -1,9 +1,26 @@
 import { create } from "zustand";
 import type { StudioEvent } from "../shared/ipc";
-import type { AgentTypeInfo, ModelInfo, ProjectInfo, SessionSummary, Settings } from "../shared/types";
+import { type ModuleInfo, moduleOwns } from "../shared/modules";
+import type { AgentTypeInfo, ModelInfo, ProjectInfo, SessionSummary, Settings, Target } from "../shared/types";
 import { call } from "./api";
 
-export type View = "sessions" | "source-control" | "accounts" | "settings";
+export type View = "sessions" | "source-control" | "accounts" | "settings" | `module:${string}`;
+
+/** Pre-fills the New Session dialog, e.g. when started from an asset. */
+export interface NewSessionPreset {
+	agentType?: string;
+	target?: Target;
+	linkedAsset?: string;
+	/** Shown above the prompt, e.g. "About docs/design/Combat.md". */
+	context?: string;
+	placeholder?: string;
+}
+
+/** An asset a module view should show, optionally as a session's draft. */
+export interface AssetFocus {
+	path: string;
+	sessionId?: string;
+}
 
 /** A Pi message as the renderer sees it (only the fields it draws). */
 export interface ChatMessage {
@@ -40,7 +57,11 @@ interface State {
 	selectedSession: string | null;
 	transcripts: Record<string, Transcript>;
 	error: string | null;
-	newSession: boolean;
+	newSession: NewSessionPreset | null;
+	modules: ModuleInfo[];
+	focus: AssetFocus | null;
+	/** Bumped whenever assets may have changed, so module views refetch. */
+	assetsVersion: number;
 
 	refresh(): Promise<void>;
 	refreshSessions(): Promise<void>;
@@ -49,7 +70,8 @@ interface State {
 	selectSession(id: string | null): void;
 	loadTranscript(id: string): Promise<void>;
 	showError(err: unknown): void;
-	openNewSession(open: boolean): void;
+	openNewSession(preset: NewSessionPreset | null): void;
+	showAsset(focus: AssetFocus): void;
 	handleEvent(event: StudioEvent): void;
 }
 
@@ -66,11 +88,19 @@ export const useStudio = create<State>((set, get) => ({
 	selectedSession: null,
 	transcripts: {},
 	error: null,
-	newSession: false,
+	newSession: null,
+	modules: [],
+	focus: null,
+	assetsVersion: 0,
 
 	async refresh() {
-		const [project, settings, agentTypes] = await Promise.all([call("project.current"), call("settings.get"), call("agentTypes.list")]);
-		set({ project, settings, agentTypes });
+		const [project, settings, agentTypes, modules] = await Promise.all([
+			call("project.current"),
+			call("settings.get"),
+			call("agentTypes.list"),
+			call("modules.list"),
+		]);
+		set((s) => ({ project, settings, agentTypes, modules, assetsVersion: s.assetsVersion + 1 }));
 		await Promise.all([get().refreshSessions(), get().refreshModels()]);
 	},
 	async refreshSessions() {
@@ -93,7 +123,11 @@ export const useStudio = create<State>((set, get) => ({
 		}
 	},
 	showError: (err) => set({ error: err instanceof Error ? err.message : String(err) }),
-	openNewSession: (open) => set({ newSession: open }),
+	openNewSession: (preset) => set({ newSession: preset }),
+	showAsset(focus) {
+		const module = get().modules.find((m) => moduleOwns(m, focus.path));
+		if (module) set({ view: `module:${module.id}`, focus });
+	},
 
 	handleEvent(event) {
 		switch (event.type) {
@@ -102,6 +136,12 @@ export const useStudio = create<State>((set, get) => ({
 				break;
 			case "project_changed":
 				void get().refresh();
+				break;
+			case "assets_changed":
+				set((s) => ({ assetsVersion: s.assetsVersion + 1 }));
+				break;
+			case "focus_asset":
+				get().showAsset({ path: event.path, sessionId: event.sessionId });
 				break;
 			case "session_event":
 				set((s) => {

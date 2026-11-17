@@ -1,9 +1,10 @@
-import { existsSync } from "node:fs";
+import { existsSync, type FSWatcher, watch } from "node:fs";
 import { join } from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type { StudioApi, StudioEvent, StudioMethod } from "../shared/ipc";
 import type { ProjectInfo, Target } from "../shared/types";
 import { loadAgentTypes } from "./agent-types";
+import { AssetService, MODULES } from "./assets";
 import * as g from "./git";
 import { utilityHostLink } from "./host-link";
 import { createProject, readProject } from "./project";
@@ -22,6 +23,28 @@ let win: BrowserWindow | null = null;
 
 function emit(event: StudioEvent): void {
 	win?.webContents.send("studio:event", event);
+	// Assets change when an agent's tool writes files in a worktree, or a session is merged/discarded.
+	if ((event.type === "session_event" && (event.event.type === "tool_execution_end" || event.event.type === "agent_settled")) || event.type === "sessions_changed") {
+		assetsChanged();
+	}
+}
+
+let assetsTimer: NodeJS.Timeout | undefined;
+function assetsChanged(): void {
+	clearTimeout(assetsTimer);
+	assetsTimer = setTimeout(() => win?.webContents.send("studio:event", { type: "assets_changed" } satisfies StudioEvent), 250);
+}
+
+/** Watches every module's asset folders in the open project's main checkout. */
+let watchers: FSWatcher[] = [];
+function watchProject(path: string | undefined): void {
+	for (const w of watchers) w.close();
+	watchers = [];
+	if (!path) return;
+	for (const root of MODULES.flatMap((m) => m.info.roots)) {
+		const dir = join(path, root);
+		if (existsSync(dir)) watchers.push(watch(dir, { recursive: true }, assetsChanged));
+	}
 }
 
 async function main(): Promise<void> {
@@ -38,12 +61,14 @@ async function main(): Promise<void> {
 		idleTimeoutMs: 10 * 60_000,
 	});
 
+	const assets = new AssetService(() => project?.path ?? null, sessions);
 	const repo = (target: Target) => sessions.repoFor(target);
 	const setProject = (info: ProjectInfo | null) => {
 		project = info;
 		if (info) settings.rememberProject(info.path);
 		else settings.update({ lastProject: undefined });
 		sessions.load();
+		watchProject(info?.path);
 		emit({ type: "project_changed" });
 		return info;
 	};
@@ -124,6 +149,11 @@ async function main(): Promise<void> {
 
 		"agentTypes.list": async () => agentTypes(),
 
+		"modules.list": async () => MODULES.map((m) => m.info),
+		"assets.list": (moduleId) => assets.list(moduleId),
+		"assets.read": async (path, sessionId) => assets.read(path, sessionId),
+		"assets.search": async (moduleId, query) => assets.search(moduleId, query),
+
 		"sessions.list": async () => sessions.list(),
 		"sessions.create": (req) => sessions.create(req),
 		"sessions.messages": (id) => sessions.messages(id),
@@ -150,6 +180,7 @@ async function main(): Promise<void> {
 	const last = settings.get().lastProject;
 	if (last && existsSync(join(last, ".studio/project.json"))) project = readProject(last);
 	sessions.load();
+	watchProject(project?.path);
 	createWindow();
 
 	app.on("window-all-closed", () => {

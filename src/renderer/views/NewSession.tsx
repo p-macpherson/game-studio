@@ -1,16 +1,18 @@
 import { useMemo, useState } from "react";
 import type { Target } from "../../shared/types";
 import { call } from "../api";
-import { useStudio } from "../store";
+import { type NewSessionPreset, useStudio } from "../store";
 
 const TARGET_LABEL: Record<Target, string> = { project: "Game project", engine: "Engine", studio: "Game Studio" };
 
-export function NewSessionDialog() {
+export function NewSessionDialog({ preset }: { preset: NewSessionPreset }) {
 	const { agentTypes, models, project, openNewSession, selectSession, showError } = useStudio();
-	const [typeId, setTypeId] = useState(agentTypes.find((t) => t.id === "general")?.id ?? agentTypes[0]?.id);
+	const [typeId, setTypeId] = useState(
+		agentTypes.find((t) => t.id === preset.agentType)?.id ?? agentTypes.find((t) => t.id === "general")?.id ?? agentTypes[0]?.id,
+	);
 	const type = agentTypes.find((t) => t.id === typeId);
 	const targets = useMemo(() => (type?.targets ?? []).filter((t) => t !== "project" || project), [type, project]);
-	const [target, setTarget] = useState<Target | undefined>(targets[0]);
+	const [target, setTarget] = useState<Target | undefined>(preset.target && targets.includes(preset.target) ? preset.target : targets[0]);
 	const defaultModel = (ref?: string) => (ref && models.some((m) => m.ref === ref) ? ref : models[0]?.ref);
 	const [model, setModel] = useState(defaultModel(type?.defaultModel));
 	const [prompt, setPrompt] = useState("");
@@ -28,8 +30,8 @@ export function NewSessionDialog() {
 		if (!type || !target || !model) return;
 		setBusy(true);
 		try {
-			const s = await call("sessions.create", { agentType: type.id, target, model, prompt: prompt.trim() });
-			openNewSession(false);
+			const s = await call("sessions.create", { agentType: type.id, target, model, prompt: prompt.trim(), linkedAsset: preset.linkedAsset });
+			openNewSession(null);
 			selectSession(s.id);
 		} catch (err) {
 			showError(err);
@@ -38,7 +40,7 @@ export function NewSessionDialog() {
 	};
 
 	return (
-		<div className="modal-backdrop" onClick={() => openNewSession(false)}>
+		<div className="modal-backdrop" onClick={() => openNewSession(null)}>
 			<div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 680 }}>
 				<h2>New session</h2>
 				<div className="col">
@@ -77,9 +79,10 @@ export function NewSessionDialog() {
 				{models.length === 0 && <div className="msg error">No models available. Sign in to an AI account under Accounts first.</div>}
 				{type && targets.length === 0 && <div className="msg error">{type.name} sessions need a game project open.</div>}
 				<label className="field">
-					<span>What should the agent do?</span>
+					<span>{preset.context ? <code>{preset.context}</code> : "What should the agent do?"}</span>
 					<textarea
 						data-testid="new-session-prompt"
+						placeholder={preset.placeholder}
 						rows={6}
 						value={prompt}
 						onChange={(e) => setPrompt(e.target.value)}
@@ -93,7 +96,7 @@ export function NewSessionDialog() {
 					<span className="muted grow" style={{ fontSize: 12 }}>
 						Runs in its own git worktree on a new branch. Ctrl+Enter to start.
 					</span>
-					<button onClick={() => openNewSession(false)}>Cancel</button>
+					<button onClick={() => openNewSession(null)}>Cancel</button>
 					<button className="primary" disabled={busy || !prompt.trim() || !target || !model} onClick={start}>
 						{busy ? "Starting…" : "Start session"}
 					</button>

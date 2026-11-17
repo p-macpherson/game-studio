@@ -1,6 +1,7 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { onEvent } from "./api";
+import { MODULE_VIEWS } from "./modules";
 import { type View, useStudio } from "./store";
 import "./styles.css";
 import { Accounts } from "./views/Accounts";
@@ -18,7 +19,7 @@ const NAV: { view: View; label: string; icon: string }[] = [
 ];
 
 function App() {
-	const { project, view, setView, sessions, error, refresh, handleEvent, newSession } = useStudio();
+	const { project, view, setView, sessions, modules, error, refresh, handleEvent, newSession } = useStudio();
 	const [ready, setReady] = useState(false);
 	const [skipPicker, setSkipPicker] = useState(false);
 
@@ -32,6 +33,7 @@ function App() {
 	if (!project && !skipPicker) return <ProjectPicker onSkip={() => setSkipPicker(true)} />;
 
 	const active = sessions.filter((s) => s.status !== "done").length;
+	const activeModule = modules.find((m) => view === `module:${m.id}`);
 	return (
 		<div className="shell">
 			<nav className="sidebar">
@@ -43,10 +45,21 @@ function App() {
 						{n.view === "sessions" && active > 0 && <span className="count">{active}</span>}
 					</button>
 				))}
-				<h3 className="nav-section">Game</h3>
-				<div className="muted" style={{ padding: "0 10px", fontSize: 12 }}>
-					Design Docs, 3D Models, Music… arrive as modules from M2.
-				</div>
+				{project && (
+					<>
+						<h3 className="nav-section">Game</h3>
+						{modules.map((m) => (
+							<button
+								key={m.id}
+								className={`nav-item ${view === `module:${m.id}` ? "active" : ""}`}
+								onClick={() => setView(`module:${m.id}`)}
+							>
+								<span>{m.icon}</span>
+								{m.name}
+							</button>
+						))}
+					</>
+				)}
 			</nav>
 			<main className="main">
 				{error && (
@@ -61,8 +74,12 @@ function App() {
 				{view === "source-control" && <SourceControl />}
 				{view === "accounts" && <Accounts />}
 				{view === "settings" && <SettingsView />}
+				{activeModule && project && (() => {
+					const ModuleView = MODULE_VIEWS[activeModule.id];
+					return <ModuleView key={activeModule.id} module={activeModule} />;
+				})()}
 			</main>
-			{newSession && <NewSessionDialog />}
+			{newSession && <NewSessionDialog preset={newSession} />}
 		</div>
 	);
 }

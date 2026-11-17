@@ -75,6 +75,49 @@ try {
 	await page.locator(".session-detail .status-idle").waitFor();
 	await step("05-resumed", page);
 
+	// Design Docs: the template's overview is listed and rendered.
+	await page.getByRole("button", { name: "Design Docs" }).click();
+	const docs = page.getByTestId("doc-item");
+	await docs.filter({ hasText: "E2E Game" }).waitFor();
+	await page.locator(".markdown h1", { hasText: "E2E Game" }).waitFor();
+	await step("08-design-docs", page);
+
+	// "New doc" starts a Project Scoping session; its new doc shows as an unmerged draft.
+	await page.getByRole("button", { name: "+ New doc" }).click();
+	await page.locator(".agent-type.on", { hasText: "Project Scoping" }).waitFor();
+	await page.getByTestId("new-session-prompt").fill("write docs/design/Combat.md: # Combat\n\nHit things. See [the overview](Overview.md).");
+	await page.getByRole("button", { name: "Start session" }).click();
+	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
+	await page.getByRole("button", { name: "Design Docs" }).click();
+	await docs.filter({ hasText: "Combat" }).filter({ hasText: "New, not merged yet" }).click();
+	await page.locator(".markdown h1", { hasText: "Combat" }).waitFor();
+	await step("09-draft-doc", page);
+	await page.locator(".markdown a", { hasText: "the overview" }).click();
+	await page.locator(".markdown h1", { hasText: "E2E Game" }).waitFor();
+
+	// Merging the session makes it a regular doc.
+	await docs.filter({ hasText: "Combat" }).click();
+	await page.getByRole("button", { name: "Open session" }).click();
+	await page.getByRole("button", { name: "Merge" }).click();
+	await page.locator(".session-detail .status-done").waitFor();
+	await page.getByRole("button", { name: "Design Docs" }).click();
+	await docs.filter({ hasText: "Combat" }).filter({ hasText: "Hit things." }).waitFor();
+	if ((await docs.filter({ hasText: "Combat" }).textContent())?.includes("not merged")) throw new Error("merged doc still a draft");
+
+	// "Discuss / modify" links the session to the doc; its edit shows as a draft of the overview.
+	await docs.filter({ hasText: "E2E Game" }).click();
+	await page.getByRole("button", { name: "Discuss / modify" }).click();
+	await page.locator(".modal code", { hasText: "About docs/design/Overview.md" }).waitFor();
+	await page.getByTestId("new-session-prompt").fill("write docs/design/Overview.md: # E2E Game\n\nNow with [combat](Combat.md).");
+	await page.getByRole("button", { name: "Start session" }).click();
+	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
+	await page.getByRole("button", { name: "Design Docs" }).click();
+	await docs.filter({ hasText: "E2E Game" }).filter({ hasText: "1 draft in progress" }).click();
+	await page.locator(".version-bar .chip", { hasText: "Draft:" }).click();
+	await page.locator(".markdown", { hasText: "Now with combat" }).waitFor();
+	await page.getByText("Sessions on this doc").waitFor();
+	await step("10-doc-draft-of-existing", page);
+
 	// Source control and accounts render.
 	await page.getByRole("button", { name: "Source Control" }).click();
 	await page.locator(".list-row", { hasText: "studio: session" }).first().waitFor();

@@ -193,6 +193,11 @@ export class SessionService {
 			"- When your work is committed and ready, call `request_review` with a summary.",
 			"- Use `ask_user` when you need a decision from the user.",
 		];
+		if (r.linkedAsset) {
+			lines.push(`- This session was started from \`${r.linkedAsset}\` in Game Studio: that's the asset the user wants to discuss or change.`);
+		} else {
+			lines.push("- If you create a new asset (a design doc, model, track…), call `open_in_studio` with its path once it exists.");
+		}
 		const project = this.deps.projectPath();
 		if (r.target === "engine" && project) {
 			lines.push(
@@ -296,6 +301,21 @@ export class SessionService {
 			});
 		}
 		return out;
+	}
+
+	/** Files the session has changed relative to its branch point, committed or not. */
+	async changedFiles(id: string): Promise<{ path: string; change: "added" | "modified" | "deleted" }[]> {
+		const e = this.entry(id);
+		if (!this.hasWorktree(e)) return [];
+		const wt = this.worktreePath(e);
+		const kinds = { A: "added", D: "deleted" } as const;
+		const files = new Map<string, "added" | "modified" | "deleted">();
+		for (const line of (await g.git(wt, ["diff", "--name-status", "--no-renames", e.record.baseCommit])).split("\n")) {
+			const [code, path] = line.split("\t");
+			if (path) files.set(path, kinds[code as "A" | "D"] ?? "modified");
+		}
+		for (const f of (await g.status(wt)).files) if (f.index === "?") files.set(f.path, "added");
+		return [...files].map(([path, change]) => ({ path, change }));
 	}
 
 	// ── lifecycle ────────────────────────────────────────────────────────────────────────────────────
@@ -467,7 +487,11 @@ export class SessionService {
 			case "studio_tool":
 				if (event.tool === "set_session_title") r.title = event.params.title;
 				else if (event.tool === "request_review") r.reviewRequested = true;
-				else if (event.tool === "open_in_studio") this.deps.emit({ type: "focus_asset", path: event.params.path });
+				else if (event.tool === "open_in_studio") {
+					// A session started to create something adopts the first asset it shows as its own.
+					r.linkedAsset ??= event.params.path;
+					this.deps.emit({ type: "focus_asset", path: event.params.path, sessionId: r.id });
+				}
 				this.save(e);
 				break;
 			case "ask_user":

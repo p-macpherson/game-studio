@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
-import type { ChatMessage, ContentBlock, Transcript } from "../store";
+import { type ChatMessage, type ContentBlock, type Transcript, useStudio } from "../store";
+import { Markdown } from "./Markdown";
 
 function text(content: ChatMessage["content"]): string {
 	if (typeof content === "string") return content;
@@ -30,7 +31,7 @@ function Assistant({ m, results, running }: { m: ChatMessage; results: Map<strin
 	return (
 		<div className="msg assistant">
 			{blocks.map((b, i) => {
-				if (b.type === "text") return b.text ? <div key={i}>{b.text}</div> : null;
+				if (b.type === "text") return b.text ? <Markdown key={i} text={b.text} onLink={(path) => useStudio.getState().showAsset({ path })} /> : null;
 				if (b.type === "thinking") return b.thinking ? <div key={i} className="thinking">{b.thinking}</div> : null;
 				if (b.type === "toolCall") return <ToolCall key={i} block={b} result={results.get(b.id)} running={b.id in running} />;
 				return null;

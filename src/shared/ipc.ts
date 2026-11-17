@@ -1,5 +1,6 @@
 /** Contract between the renderer and the main process, exposed by the preload script as `window.studio`. */
 import type { HostInfo, PromptMode } from "./host";
+import type { AssetSearchHit, AssetSummary, ModuleInfo } from "./modules";
 import type {
 	AgentTypeInfo,
 	GitCommit,
@@ -50,6 +51,12 @@ export interface StudioApi {
 
 	"agentTypes.list"(): Promise<AgentTypeInfo[]>;
 
+	"modules.list"(): Promise<ModuleInfo[]>;
+	"assets.list"(moduleId: string): Promise<AssetSummary[]>;
+	/** From the main checkout, or from a session's worktree when `sessionId` is given. */
+	"assets.read"(path: string, sessionId?: string): Promise<string>;
+	"assets.search"(moduleId: string, query: string): Promise<AssetSearchHit[]>;
+
 	"sessions.list"(): Promise<SessionSummary[]>;
 	"sessions.create"(req: NewSessionRequest): Promise<SessionSummary>;
 	"sessions.messages"(id: string): Promise<unknown[]>;
@@ -73,7 +80,8 @@ export type StudioEvent =
 	| { type: "sessions_changed" }
 	| { type: "session_event"; id: string; event: { type: string; [k: string]: unknown } }
 	| { type: "project_changed" }
-	| { type: "focus_asset"; path: string }
+	| { type: "focus_asset"; path: string; sessionId?: string }
+	| { type: "assets_changed" }
 	| { type: "login_notice"; loginId: string; notice: LoginNotice }
 	| { type: "login_prompt"; loginId: string; prompt: LoginPrompt };
 

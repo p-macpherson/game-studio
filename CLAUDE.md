@@ -45,6 +45,8 @@ Install dependencies with `npm install --ignore-scripts` (Pi's recommendation). 
 | `src/session-host/host-core.ts` | Pi sessions, accounts and models; `studio-tools.ts` holds the agent's tools for talking to the studio |
 | `src/main/project.ts` + `templates/game/` | New-project scaffold (engine added as the `engine/` submodule) |
 | `agent-types/<id>/AGENT.md`, `skills/<name>/SKILL.md` | Built-in agent types (frontmatter + prompt) and Pi skills |
+| `src/modules/<id>/` | Studio modules (one section per part of the game): `info.ts` (the `ModuleInfo` contract from `src/shared/modules.ts`, plus summaries) and `view.tsx`. Register a new module in `MODULES` (`src/main/assets.ts`) and `MODULE_VIEWS` (`src/renderer/modules.tsx`) |
+| `src/main/assets.ts` | Asset discovery for modules: main checkout + **drafts** (files changed in active sessions' worktrees), reads, search |
 
 ## Testing
 
