@@ -1,0 +1,28 @@
+import { resolve } from "node:path";
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "electron-vite";
+
+export default defineConfig({
+	main: {
+		build: {
+			rollupOptions: {
+				input: {
+					index: resolve("src/main/index.ts"),
+					"session-host": resolve("src/session-host/index.ts"),
+				},
+			},
+		},
+	},
+	preload: {
+		build: {
+			rollupOptions: { input: { index: resolve("src/preload/index.ts") } },
+		},
+	},
+	renderer: {
+		root: "src/renderer",
+		build: {
+			rollupOptions: { input: { index: resolve("src/renderer/index.html") } },
+		},
+		plugins: [react()],
+	},
+});
