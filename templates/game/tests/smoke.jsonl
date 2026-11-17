@@ -1,0 +1,4 @@
+// Starts the game, lets it run, and checks the starter scene exists.
+{"cmd": "wait", "frames": 30}
+{"cmd": "assert", "entity": "Cube", "exists": true}
+{"cmd": "screenshot", "path": "build/smoke.png"}

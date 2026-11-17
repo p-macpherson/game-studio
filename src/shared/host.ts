@@ -1,0 +1,57 @@
+/** Protocol between the main process and the session host utility process. */
+import type { LoginNotice, LoginPrompt, ModelInfo, ProviderInfo, ThinkingLevel } from "./types";
+
+export interface HostInfo {
+	node: string;
+	piVersion: string;
+	providers: number;
+}
+
+export interface SessionOpenSpec {
+	id: string;
+	cwd: string;
+	/** Folder Pi writes its JSONL into. */
+	sessionDir: string;
+	/** Existing transcript to reopen; absent for a new session. */
+	sessionFile?: string;
+	model: string;
+	thinking?: ThinkingLevel;
+	appendSystemPrompt: string[];
+	skillPaths: string[];
+}
+
+export type PromptMode = "steer" | "followUp";
+
+export interface HostApi {
+	info(): HostInfo;
+	providers(): ProviderInfo[];
+	models(): Promise<ModelInfo[]>;
+	/** Resolves when the login finishes. Progress arrives as `login_*` events tagged with `loginId`. */
+	login(loginId: string, provider: string, type: "oauth" | "api_key"): Promise<void>;
+	loginAnswer(loginId: string, value: string | null): void;
+	logout(provider: string): Promise<void>;
+	openSession(spec: SessionOpenSpec): Promise<{ sessionFile: string }>;
+	isOpen(id: string): boolean;
+	/** Starts a run (or queues into the running one) and returns immediately; progress arrives as events. */
+	prompt(id: string, text: string, mode?: PromptMode): void;
+	abort(id: string): Promise<void>;
+	closeSession(id: string): void;
+	messages(id: string): unknown[];
+	setModel(id: string, model: string): Promise<void>;
+	answerQuestion(id: string, questionId: string, answer: string): void;
+}
+
+export type HostEvent =
+	/** A raw Pi AgentSessionEvent, JSON-sanitised. */
+	| { type: "session_event"; id: string; event: { type: string; [k: string]: unknown } }
+	| { type: "session_error"; id: string; error: string }
+	| { type: "studio_tool"; id: string; tool: "set_session_title" | "request_review" | "open_in_studio"; params: Record<string, string> }
+	| { type: "ask_user"; id: string; questionId: string; question: string; options?: string[] }
+	| { type: "login_notice"; loginId: string; notice: LoginNotice }
+	| { type: "login_prompt"; loginId: string; prompt: LoginPrompt };
+
+export type HostRequest = { id: number; method: keyof HostApi; args: unknown[] };
+export type HostMessage =
+	| { kind: "reply"; id: number; ok: true; result: unknown }
+	| { kind: "reply"; id: number; ok: false; error: string }
+	| { kind: "event"; event: HostEvent };

@@ -21,6 +21,8 @@ export default defineConfig({
 	renderer: {
 		root: "src/renderer",
 		build: {
+			// Local desktop app: readable stack traces beat a smaller bundle.
+			minify: false,
 			rollupOptions: { input: { index: resolve("src/renderer/index.html") } },
 		},
 		plugins: [react()],
