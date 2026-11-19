@@ -170,8 +170,11 @@ type Tab = "model" | "concepts" | "engine";
 
 function ModelDetail({ asset, text, sessionId }: AssetContentProps) {
 	const { showAsset, showError } = useStudio();
-	const manifest = parse(text);
-	const name = manifest?.name ?? modelName(asset.path);
+	// The name comes from the path: right after switching models, `text` can still be the previous model's
+	// manifest until the new one loads, so a manifest for another model is ignored.
+	const name = modelName(asset.path);
+	const parsed = parse(text);
+	const manifest = parsed?.name === name ? parsed : null;
 	const dir = `assets/models/${name}`;
 	const hasModel = !!manifest?.stats;
 	// The manifest loads after the first render, so the default tab follows it until the user picks one.
@@ -317,8 +320,16 @@ function ConceptsTab({ manifest, name, dir, sessionId, busy, run }: Omit<TabProp
 	const [concepts, setConcepts] = useState<ConceptImage[]>([]);
 	const [selected, setSelected] = useState<string | null>(null);
 	const [prompt, setPrompt] = useState(manifest?.description ?? "");
+	const [edited, setEdited] = useState(false);
+	// Follow the manifest (it loads after the first render, and changes when concepts are made) until edited.
+	useEffect(() => {
+		if (!edited && manifest?.description) setPrompt(manifest.description);
+	}, [manifest?.description, edited]);
 	const [count, setCount] = useState(4);
 	const [height, setHeight] = useState(manifest?.height ?? 1);
+	useEffect(() => {
+		if (manifest?.height) setHeight(manifest.height);
+	}, [manifest?.height]);
 	const [texture, setTexture] = useState(true);
 	const [rig, setRig] = useState(manifest?.rigged ?? false);
 
@@ -332,7 +343,16 @@ function ConceptsTab({ manifest, name, dir, sessionId, busy, run }: Omit<TabProp
 	return (
 		<div className="concepts-tab">
 			<div className="concept-controls col">
-				<textarea rows={2} value={prompt} placeholder="Describe the object…" onChange={(e) => setPrompt(e.target.value)} data-testid="concept-prompt" />
+				<textarea
+					rows={2}
+					value={prompt}
+					placeholder="Describe the object…"
+					onChange={(e) => {
+						setEdited(true);
+						setPrompt(e.target.value);
+					}}
+					data-testid="concept-prompt"
+				/>
 				<div className="row" style={{ flexWrap: "wrap" }}>
 					<select value={count} onChange={(e) => setCount(Number(e.target.value))} title="How many images">
 						{[1, 2, 4, 6, 8].map((n) => (

@@ -198,6 +198,10 @@ try {
 	await page.getByRole("button", { name: "Generate concepts" }).click();
 	await page.getByTestId("concept").nth(3).waitFor({ timeout: 30_000 });
 	await page.getByTestId("concept").nth(1).click();
+	// The tab shows this model's own prompt (not the previously selected model's).
+	await page.waitForFunction(
+		() => (document.querySelector("[data-testid=concept-prompt]") as HTMLTextAreaElement | null)?.value === "A wooden crate with iron corners",
+	);
 	await step("18-concepts", page);
 	await page.getByRole("button", { name: "Generate 3D model" }).click();
 	await page.locator("[data-testid=model-viewer][data-loaded=true]").waitFor({ timeout: 60_000 });

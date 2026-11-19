@@ -198,7 +198,7 @@ export class RunService {
 			// Engine paths are relative to the assets folder.
 			await client.call("spawn", { name: "StudioPreview", position: at, components: { Mesh_Renderer: { mesh: glb.replace(/^assets\//, "") } } });
 			const images: string[] = [];
-			const distance = size * 2.4 + 0.6;
+			const distance = size * 1.5 + 0.5;
 			for (const yaw of [0, 35, 180]) {
 				const a = (yaw * Math.PI) / 180;
 				// The model faces +Z (the engine's forward), so the front view looks back along -Z.

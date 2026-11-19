@@ -63,6 +63,8 @@ Install dependencies with `npm install --ignore-scripts` (Pi's recommendation). 
 | `gen/setup.sh`, `gen/patches/` | Idempotent install into `~/.local/share/game-studio/gen/` (`src/` pinned repos + patches, `models/`, `envs/`, `hf/`, `logs/`) |
 | `src/main/models.ts` | Model pipeline (`assets/models/<name>/`: `<name>.glb`, `thumbnail.png`, `model.json`, `concepts/`, `source/`) and the handler for agents' generation tools (`studio_request` from the session host) |
 | `gen/spike/` | The M4a spike scripts; findings are in the vault note `M4 3D Models.md` |
+| `src/modules/3d-models/` | 3D Models section: the asset is a model's `model.json`; concept board, three.js `ModelViewer`, in-engine render (`RunService.preview`). Its buttons run generation in a 3D Modeller session created without a prompt (a workspace) via `models3d.*` |
+| `src/main/studio-files.ts` | `studio-file://<main or session id>/<path>`: serves models and images from a checkout to the renderer (use `studioFile()` in `src/renderer/api.ts`) |
 
 ## Testing
 
