@@ -2,7 +2,7 @@
 // worktrees), and a viewer with a Merged/Draft version bar, actions and the sessions linked to the asset.
 // Each module supplies how an asset's content is drawn.
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import type { AssetDraft, AssetSearchHit, AssetSummary, ModuleInfo } from "../../shared/modules";
+import { type AssetDraft, type AssetSearchHit, type AssetSummary, type ModuleInfo, moduleOwns } from "../../shared/modules";
 import { call, relativeTime } from "../api";
 import { type NewSessionPreset, useStudio } from "../store";
 import { StatusBadge } from "./Sessions";
@@ -21,7 +21,11 @@ export interface AssetContentProps {
 export interface AssetBrowserProps {
 	module: ModuleInfo;
 	newLabel: string;
-	newPreset: NewSessionPreset;
+	/** What "New" does: open the New Session dialog with this preset, or run `onNew` instead. */
+	newPreset?: NewSessionPreset;
+	onNew?(): void;
+	/** Drawn at the top of each list item (e.g. a thumbnail); `sessionId` is the draft shown for it, if any. */
+	itemPreview?(asset: AssetSummary, sessionId?: string): ReactNode;
 	modifyLabel: string;
 	modifyPlaceholder: string;
 	emptyText: string;
@@ -66,11 +70,13 @@ export function AssetBrowser(props: AssetBrowserProps) {
 	const selected = assets?.find((a) => a.path === focus?.path);
 	const { pickDefault } = props;
 	useEffect(() => {
-		if (assets && assets.length > 0 && !selected) {
+		// A focused asset of ours that isn't listed yet was just created: the list catches up on its next refresh.
+		const waitingFor = focus && moduleOwns(module, focus.path);
+		if (assets && assets.length > 0 && !selected && !waitingFor) {
 			const first = pickDefault?.(assets) ?? assets[0];
 			showAsset({ path: first.path, sessionId: first.inMain ? undefined : first.drafts[0]?.sessionId });
 		}
-	}, [assets, selected, showAsset, pickDefault]);
+	}, [assets, selected, showAsset, pickDefault, focus, module]);
 
 	const sessionId = selected && (focus?.sessionId ?? (selected.inMain ? undefined : selected.drafts[0]?.sessionId));
 	useEffect(() => {
@@ -98,7 +104,7 @@ export function AssetBrowser(props: AssetBrowserProps) {
 				<div className="toolbar">
 					<div className="row">
 						<h2 className="grow">{module.name}</h2>
-						<button className="primary" onClick={() => openNewSession(props.newPreset)}>
+						<button className="primary" onClick={() => (props.onNew ? props.onNew() : props.newPreset && openNewSession(props.newPreset))}>
 							{props.newLabel}
 						</button>
 					</div>
@@ -113,6 +119,7 @@ export function AssetBrowser(props: AssetBrowserProps) {
 							className={`session-item asset-item ${a.path === selected?.path ? "selected" : ""}`}
 							onClick={() => showAsset({ path: a.path, sessionId: a.inMain ? undefined : a.drafts[0]?.sessionId })}
 						>
+							{props.itemPreview?.(a, a.inMain ? undefined : a.drafts[0]?.sessionId)}
 							<div className="row">
 								<span className="title grow ellipsis">{a.title}</span>
 								{a.updatedAt && (

@@ -191,6 +191,23 @@ try {
 	await page.getByTestId("gen-component").filter({ hasText: "Fake worker" }).waitFor();
 	await step("17-generation-jobs", page);
 
+	// 3D Models: a new model gets concepts, one becomes a 3D model in the viewer, and the engine renders it.
+	await nav.getByRole("button", { name: "3D Models" }).click();
+	await page.getByRole("button", { name: "+ New model" }).click();
+	await page.getByTestId("new-model-description").fill("A wooden crate with iron corners");
+	await page.getByRole("button", { name: "Generate concepts" }).click();
+	await page.getByTestId("concept").nth(3).waitFor({ timeout: 30_000 });
+	await page.getByTestId("concept").nth(1).click();
+	await step("18-concepts", page);
+	await page.getByRole("button", { name: "Generate 3D model" }).click();
+	await page.locator("[data-testid=model-viewer][data-loaded=true]").waitFor({ timeout: 60_000 });
+	await page.getByTestId("asset-item").filter({ hasText: "Wooden crate iron" }).locator("img.model-thumb").waitFor();
+	await step("19-model-viewer", page);
+	await page.getByRole("button", { name: "In engine", exact: true }).click();
+	await page.getByTestId("render-in-engine").click();
+	await page.getByTestId("engine-shot").nth(2).waitFor({ timeout: 60_000 });
+	await step("20-model-in-engine", page);
+
 	// Source control and accounts render.
 	await page.getByRole("button", { name: "Source Control" }).click();
 	await page.locator(".list-row", { hasText: "studio: session" }).first().waitFor();

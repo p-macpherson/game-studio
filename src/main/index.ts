@@ -13,10 +13,13 @@ import { generationRequests, ModelPipeline } from "./models";
 import { RunService } from "./runner";
 import { SessionService } from "./sessions";
 import { SettingsStore } from "./settings";
+import { registerStudioFileScheme, serveStudioFiles } from "./studio-files";
 import { openTerminal } from "./terminal";
 
 // A separate user-data dir lets a second studio instance (tests, studio-engineer sessions) run alongside.
 if (process.env.GAME_STUDIO_USER_DATA) app.setPath("userData", process.env.GAME_STUDIO_USER_DATA);
+
+registerStudioFileScheme();
 
 const appRoot = app.getAppPath();
 const piDir = join(app.getPath("userData"), "pi");
@@ -61,6 +64,7 @@ async function main(): Promise<void> {
 		fake: process.env.GAME_STUDIO_GEN_FAKE === "1",
 	});
 	const pipeline = new ModelPipeline(gen);
+	const genRequests = generationRequests(pipeline, gen);
 	const sessions = new SessionService({
 		host,
 		settings: () => settings.get(),
@@ -69,11 +73,22 @@ async function main(): Promise<void> {
 		skillsDir: join(appRoot, "skills"),
 		emit,
 		idleTimeoutMs: 10 * 60_000,
-		...generationRequests(pipeline, gen),
+		...genRequests,
 	});
 
 	const assets = new AssetService(() => project?.path ?? null, sessions);
 	const runner = new RunService({ projectPath: () => project?.path ?? null, sessions, emit });
+	/** The main checkout (null or "main") or a session's worktree. */
+	const checkoutRoot = (checkout: string | null): string => {
+		if (!checkout || checkout === "main") {
+			if (!project) throw new Error("No project is open");
+			return project.path;
+		}
+		const s = sessions.get(checkout);
+		if (s.worktree !== "active") throw new Error(`Session "${s.title}" has no worktree; resume it first`);
+		return s.worktreePath;
+	};
+	serveStudioFiles(checkoutRoot);
 	const repo = (target: Target) => sessions.repoFor(target);
 	const setProject = (info: ProjectInfo | null) => {
 		void runner.stop();
@@ -182,6 +197,27 @@ async function main(): Promise<void> {
 		"gen.jobs": async () => gen.list(),
 		"gen.cancel": async (jobId) => gen.cancel(jobId),
 		"gen.install": async () => gen.install(),
+		"models3d.workspace": (name, linkedAsset) => {
+			const type = agentTypes().find((t) => t.id === "3d-modeller");
+			if (!type) throw new Error("The 3D Modeller agent type is missing");
+			return sessions.create({
+				agentType: type.id,
+				target: "project",
+				model: type.defaultModel ?? "anthropic/claude-sonnet-5-5",
+				prompt: "",
+				title: `Model: ${name}`,
+				linkedAsset,
+			});
+		},
+		"models3d.run": (sessionId, method, params) =>
+			genRequests.studioRequest({ sessionId, requestId: `ui-${Date.now()}`, cwd: checkoutRoot(sessionId), method, params, progress: () => {} }),
+		"models3d.concepts": async (checkout, name) => pipeline.conceptImages({ cwd: checkoutRoot(checkout) }, name),
+		"models3d.preview": async (checkout, name) => {
+			const manifest = pipeline.manifest({ cwd: checkoutRoot(checkout) }, name);
+			if (!manifest?.stats) throw new Error(`"${name}" has no 3D model yet`);
+			return runner.preview(checkout, `assets/models/${name}/${name}.glb`, manifest.height ?? 1);
+		},
+
 		"gen.image": async (path) => {
 			// Only images from generation outputs, the open project or session worktrees.
 			const full = resolve(path);

@@ -52,7 +52,10 @@ export interface NewSessionRequest {
 	agentType: string;
 	target: Target;
 	model: string;
+	/** The first message. Empty creates the session (record and worktree) without running the agent, as a
+	 * workspace for UI actions; it can still be chatted with later. */
 	prompt: string;
+	title?: string;
 	thinking?: ThinkingLevel;
 	linkedAsset?: string;
 }

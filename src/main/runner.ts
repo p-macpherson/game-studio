@@ -175,6 +175,49 @@ export class RunService {
 		this.streaming = on;
 	}
 
+	/**
+	 * Shows a model in the game's own engine: builds the checkout, runs it hidden, spawns the model on a plain
+	 * ground plane far from the game's scene, and screenshots it from the front, three-quarter and back.
+	 * Returns JPEG data URLs plus any engine errors logged while loading it (e.g. the vertex limit).
+	 */
+	async preview(sessionId: CheckoutId, glb: string, height: number): Promise<{ images: string[]; errors: string[] }> {
+		const co = this.checkout(sessionId);
+		const built = await this.exec(co, ["build"]);
+		if (built.code !== 0) {
+			throw new Error(`The game doesn't build, so it can't show the model:\n${(built.stdout + built.stderr).trim().split("\n").slice(-12).join("\n")}`);
+		}
+		const port = await freePort();
+		const proc = spawn(join(co.cwd, "build/game"), ["--mode=hidden", `--control=${port}`, "--fps=60"], { cwd: co.cwd, env: { ...process.env, NO_COLOR: "1" } });
+		let client: EngineClient | undefined;
+		try {
+			client = await EngineClient.connect(port, () => proc.exitCode === null);
+			const at = [800, 0, 800];
+			const size = Math.max(height, 0.5);
+			await client.call("spawn", { name: "StudioPreviewGround", position: at, components: { Mesh_Renderer: { mesh: "plane", material: { color: [0.36, 0.38, 0.42, 1] } } } });
+			await client.call("set", { entity: "StudioPreviewGround", component: "Transform", value: { scale: [size * 8, 1, size * 8] } });
+			// Engine paths are relative to the assets folder.
+			await client.call("spawn", { name: "StudioPreview", position: at, components: { Mesh_Renderer: { mesh: glb.replace(/^assets\//, "") } } });
+			const images: string[] = [];
+			const distance = size * 2.4 + 0.6;
+			for (const yaw of [0, 35, 180]) {
+				const a = (yaw * Math.PI) / 180;
+				// The model faces +Z (the engine's forward), so the front view looks back along -Z.
+				const position = [at[0] + Math.sin(a) * distance, size * 0.75, at[2] + Math.cos(a) * distance];
+				await client.call("camera", { position, target: [at[0], size * 0.45, at[2]] });
+				await client.call("wait", { frames: 6 });
+				const shot = (await client.call("screenshot", { inline: true, format: "jpeg", quality: 90 })) as { jpeg_base64?: string; png_base64?: string };
+				images.push(shot.jpeg_base64 ? `data:image/jpeg;base64,${shot.jpeg_base64}` : `data:image/png;base64,${shot.png_base64}`);
+			}
+			const logs = (await client.call("logs")) as { level: string; text: string }[];
+			const errors = logs.filter((l) => l.level.trim() === "error" || (l.level.trim() === "warn" && /model|mesh|texture/i.test(l.text) && !/u32 to u16/.test(l.text))).map((l) => l.text);
+			return { images, errors };
+		} finally {
+			await client?.call("quit").catch(() => {});
+			client?.close();
+			setTimeout(() => proc.exitCode === null && proc.kill("SIGKILL"), 2000);
+		}
+	}
+
 	/** `tests/**.jsonl` in a checkout, repo-relative. */
 	tests(sessionId: CheckoutId): string[] {
 		const { cwd } = this.checkout(sessionId);

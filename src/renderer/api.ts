@@ -22,3 +22,12 @@ export function relativeTime(iso: string): string {
 	if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
 	return `${Math.floor(s / 86400)}d ago`;
 }
+
+/**
+ * A URL for a model or image in the main checkout (no checkout) or a session's worktree, served by the
+ * studio-file:// protocol. `version` busts the cache when a file is regenerated in place.
+ */
+export function studioFile(checkout: string | null | undefined, path: string, version?: string): string {
+	const url = `studio-file://${checkout || "main"}/${path.split("/").map(encodeURIComponent).join("/")}`;
+	return version ? `${url}?v=${encodeURIComponent(version)}` : url;
+}

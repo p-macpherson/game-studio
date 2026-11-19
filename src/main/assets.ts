@@ -5,6 +5,7 @@ import { join, relative, resolve, sep } from "node:path";
 import { type AssetDraft, type AssetSearchHit, type AssetSummary, type ModuleInfo, moduleOwns } from "../shared/modules";
 import { designDocs, summarizeMarkdown } from "../modules/design-docs/info";
 import { gameCode, summarizeCode } from "../modules/game-code/info";
+import { models3d, summarizeModel } from "../modules/3d-models/info";
 import type { SessionService } from "./sessions";
 
 export interface ModuleBackend {
@@ -15,6 +16,7 @@ export interface ModuleBackend {
 export const MODULES: ModuleBackend[] = [
 	{ info: designDocs, summarize: summarizeMarkdown },
 	{ info: gameCode, summarize: summarizeCode },
+	{ info: models3d, summarize: summarizeModel },
 ];
 
 export function walk(dir: string, base: string, out: string[] = []): string[] {

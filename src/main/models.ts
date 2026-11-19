@@ -5,9 +5,9 @@
 //   concepts/*.png    concept images
 //   source/           intermediates: shape.glb, textured.glb, rigged.glb, plus any edits
 // Every step reads and writes inside one checkout (the main checkout or a session's worktree).
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
-import type { ConceptRecord, GenJob, GenJobKind, ModelManifest } from "../shared/gen";
+import type { ConceptImage, ConceptRecord, GenJob, GenJobKind, ModelManifest } from "../shared/gen";
 import { safeJoin } from "./assets";
 import type { GenService } from "./gen";
 import type { StudioRequest } from "./sessions";
@@ -101,7 +101,23 @@ export class ModelPipeline {
 			};
 		});
 		writeFileSync(join(out, "concepts.json"), `${JSON.stringify(records, null, "\t")}\n`);
+		// A model exists from its first concepts on, so it shows in the 3D Models section.
+		if (!this.manifest(ctx, p.model)) {
+			this.writeManifest(ctx, { name: p.model, description: p.prompt, textured: false, rigged: false, steps: [] });
+		}
 		return { images: images.map((f) => this.rel(ctx, f)), seeds };
+	}
+
+	/** A model's concept images, newest first, with how each was made. */
+	conceptImages(ctx: PipelineContext, name: string): ConceptImage[] {
+		const dir = join(this.dir(ctx, name), "concepts");
+		if (!existsSync(dir)) return [];
+		const records = this.conceptRecords(dir);
+		return readdirSync(dir)
+			.filter((f) => /\.(png|jpe?g|webp)$/i.test(f))
+			.map((f) => ({ f, at: records[f]?.at ?? statSync(join(dir, f)).mtime.toISOString() }))
+			.sort((a, b) => b.at.localeCompare(a.at) || a.f.localeCompare(b.f))
+			.map(({ f }) => ({ path: this.rel(ctx, join(dir, f)), record: records[f] }));
 	}
 
 	private conceptRecords(conceptsDir: string): Record<string, ConceptRecord> {
@@ -119,7 +135,7 @@ export class ModelPipeline {
 		const texture = p.texture ?? true;
 		const manifest: ModelManifest = {
 			name: p.model,
-			description: p.description,
+			description: p.description ?? this.manifest(ctx, p.model)?.description,
 			concept: this.keepConcept(dir, image, "concept"),
 			conceptSource: this.conceptSource(dir, image),
 			back: back ? this.keepConcept(dir, back, "back") : undefined,
@@ -166,6 +182,12 @@ export class ModelPipeline {
 		return this.finalizeStep(ctx, manifest, from);
 	}
 
+	private writeManifest(ctx: PipelineContext, manifest: ModelManifest): void {
+		const dir = this.dir(ctx, manifest.name);
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, "model.json"), `${JSON.stringify(manifest, null, "\t")}\n`);
+	}
+
 	private async rigStep(ctx: PipelineContext, manifest: ModelManifest, from: string): Promise<string> {
 		const out = join(this.dir(ctx, manifest.name), "source/rigged.glb");
 		this.record(manifest, "rig", await this.step(ctx, "rig", `Rig for ${manifest.name}`, { mesh: from, out }));
@@ -177,10 +199,10 @@ export class ModelPipeline {
 		const dir = this.dir(ctx, manifest.name);
 		const glb = join(dir, `${manifest.name}.glb`);
 		const thumbnail = join(dir, "thumbnail.png");
-		const stats = await this.step(ctx, "finalize", `Finalize ${manifest.name}`, { in: from, out: glb, height: manifest.height, thumbnail });
+		const stats = await this.step(ctx, "finalize", `Finalize ${manifest.name}`, { in: from, out: glb, height: manifest.height ?? 1, thumbnail });
 		this.record(manifest, "finalize", stats);
 		manifest.stats = { ...stats, mesh: undefined, thumbnail: undefined };
-		writeFileSync(join(dir, "model.json"), `${JSON.stringify(manifest, null, "\t")}\n`);
+		this.writeManifest(ctx, manifest);
 		return { manifest, glb: this.rel(ctx, glb), thumbnail: this.rel(ctx, thumbnail) };
 	}
 

@@ -162,7 +162,7 @@ export class SessionService {
 			repoPath,
 			record: {
 				id,
-				title: req.prompt.split("\n")[0].slice(0, 60) || agentType.name,
+				title: req.title ?? (req.prompt.split("\n")[0].slice(0, 60) || agentType.name),
 				agentType: agentType.id,
 				target: req.target,
 				status: "starting",
@@ -183,8 +183,13 @@ export class SessionService {
 		this.save(entry);
 		try {
 			await this.ensureWorktree(entry);
-			await this.open(entry);
-			this.prompt(entry, req.prompt);
+			if (req.prompt.trim()) {
+				await this.open(entry);
+				this.prompt(entry, req.prompt);
+			} else {
+				entry.record.status = "idle";
+				this.save(entry);
+			}
 		} catch (err) {
 			entry.record.status = "idle";
 			entry.record.error = err instanceof Error ? err.message : String(err);

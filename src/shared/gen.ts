@@ -51,6 +51,13 @@ export const FAMILY_OF: Record<Exclude<GenJobKind, "finalize">, { family: GenFam
 	rig: { family: "unirig", op: "rig" },
 };
 
+/** A concept image in a model's `concepts/` folder, with how it was made when the studio made it. */
+export interface ConceptImage {
+	/** Repo-relative. */
+	path: string;
+	record?: ConceptRecord;
+}
+
 /** One generated concept image, recorded in `concepts/concepts.json` (keyed by file name). */
 export interface ConceptRecord {
 	prompt: string;
@@ -61,7 +68,11 @@ export interface ConceptRecord {
 	at: string;
 }
 
-/** `assets/models/<name>/model.json`: how a model was made, so it can be reproduced and modified. */
+/**
+ * `assets/models/<name>/model.json`: how a model was made, so it can be reproduced and modified. It's written
+ * as soon as a model has concepts, so the 3D Models section lists it from then on (`height` and `stats` appear
+ * once there's a 3D model).
+ */
 export interface ModelManifest {
 	name: string;
 	description?: string;
@@ -70,7 +81,8 @@ export interface ModelManifest {
 	/** How the concept was generated, when the studio made it (from concepts/concepts.json). */
 	conceptSource?: ConceptRecord;
 	back?: string;
-	height: number;
+	/** Metres; set when a 3D model is generated. */
+	height?: number;
 	textured: boolean;
 	rigged: boolean;
 	steps: { kind: GenJobKind; model?: string; seed?: number; seconds?: number; at: string }[];
