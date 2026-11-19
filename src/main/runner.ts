@@ -19,7 +19,12 @@ import { safeJoin, walk } from "./assets";
 import { EngineClient, freePort } from "./engine-client";
 import type { SessionService } from "./sessions";
 
-const FRAME_INTERVAL_MS = 100;
+// The live view streams JPEG screenshots. The engine encodes them off the main loop, but each takes about
+// five frames end to end, so several are kept in flight to reach the target rate.
+// See "Screenshots and streaming" in engine/docs/control-protocol.md.
+const FRAME_INTERVAL_MS = 1000 / 30;
+const FRAMES_IN_FLIGHT = 4;
+const FRAME_REQUEST = { inline: true, format: "jpeg", quality: 80 };
 const TEST_TIMEOUT_MS = 180_000;
 
 interface ActiveRun {
@@ -233,17 +238,29 @@ export class RunService {
 	}
 
 	private async pumpFrames(run: ActiveRun): Promise<void> {
+		let inFlight = 0;
+		let lastRequest = 0;
 		while (this.run === run && run.info.state === "running") {
-			const t = Date.now();
-			if (this.streaming) {
-				try {
-					const r = (await run.client!.call("screenshot", { inline: true })) as { png_base64: string; width: number; height: number };
-					this.deps.emit({ type: "run_frame", runId: run.info.id, png: r.png_base64, width: r.width, height: r.height });
-				} catch {
-					// The game is exiting; the exit handler reports it.
-				}
+			if (this.streaming && inFlight < FRAMES_IN_FLIGHT && Date.now() - lastRequest >= FRAME_INTERVAL_MS) {
+				lastRequest = Date.now();
+				inFlight++;
+				run.client!.call("screenshot", FRAME_REQUEST).then(
+					(reply) => {
+						inFlight--;
+						// Engines older than JPEG support ignore `format` and reply with a PNG.
+						const r = reply as { jpeg_base64?: string; png_base64?: string; width: number; height: number };
+						const image = r.jpeg_base64 ?? r.png_base64;
+						if (!image || this.run !== run) return;
+						const mime = r.jpeg_base64 ? "image/jpeg" : "image/png";
+						this.deps.emit({ type: "run_frame", runId: run.info.id, image, mime, width: r.width, height: r.height });
+					},
+					() => {
+						// The game is exiting; the exit handler reports it.
+						inFlight--;
+					},
+				);
 			}
-			await sleep(Math.max(10, FRAME_INTERVAL_MS - (Date.now() - t)));
+			await sleep(5);
 		}
 	}
 

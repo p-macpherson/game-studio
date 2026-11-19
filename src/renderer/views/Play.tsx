@@ -231,7 +231,7 @@ function RunPanel() {
 	);
 }
 
-function Viewport({ frame }: { frame: { png: string; width: number; height: number } }) {
+function Viewport({ frame }: { frame: { src: string; width: number; height: number } }) {
 	const img = useRef<HTMLImageElement>(null);
 	const [captured, setCaptured] = useState(false);
 	const lastMove = useRef(0);
@@ -272,7 +272,7 @@ function Viewport({ frame }: { frame: { png: string; width: number; height: numb
 			onWheel={(e) => captured && send("mouse", { wheel: -Math.sign(e.deltaY) })}
 			onContextMenu={(e) => e.preventDefault()}
 		>
-			<img ref={img} src={`data:image/png;base64,${frame.png}`} alt="Game view" draggable={false} />
+			<img ref={img} src={frame.src} alt="Game view" draggable={false} />
 			<span className="viewport-hint">{captured ? "Playing: keyboard and mouse go to the game. Click outside to stop." : "Click to play"}</span>
 		</div>
 	);

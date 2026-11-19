@@ -38,7 +38,7 @@ describe("pairReplies", () => {
 });
 
 // Builds and runs a real game from the template, so it needs the engine checkout next to this repo, odin, and a display.
-const engineRepo = resolve("../headless-game-engine");
+const engineRepo = resolve(process.env.GAME_STUDIO_TEST_ENGINE ?? "../headless-game-engine");
 const gameplay: AgentTypeInfo = { id: "gameplay-engineer", name: "Gameplay", description: "", targets: ["project"], skills: [], prompt: "", source: "builtin" };
 
 describe.skipIf(!existsSync(join(engineRepo, "third_party/lib")))("RunService", () => {
@@ -73,7 +73,17 @@ describe.skipIf(!existsSync(join(engineRepo, "third_party/lib")))("RunService", 
 		expect(run.state).toBe("running");
 		const entities = (await runner.call("entities")) as { name: string }[];
 		expect(entities.map((e) => e.name)).toContain("Cube");
-		await waitFor(() => events.some((e) => e.type === "run_frame" && e.runId === run.id && e.width === 1280));
+		const frames = () => events.filter((e) => e.type === "run_frame" && e.runId === run.id);
+		await waitFor(() => frames().length > 0);
+		expect(frames()[0]).toMatchObject({ mime: "image/jpeg", width: 1280, height: 720 });
+
+		// Streaming must not slow the game down (it used to cost a third of its frame rate).
+		const before = frames().length;
+		await new Promise((r) => setTimeout(r, 2000));
+		const perSecond = (frames().length - before) / 2;
+		const { fps } = (await runner.call("stats")) as { fps: number };
+		expect(perSecond).toBeGreaterThan(20);
+		expect(fps).toBeGreaterThan(55);
 
 		await runner.stop();
 		expect(runner.current()?.state).toBe("exited");

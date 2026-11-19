@@ -57,3 +57,5 @@ Install dependencies with `npm install --ignore-scripts` (Pi's recommendation). 
 - UI changes: build, run `e2e/smoke.ts` (or a dedicated e2e script), and look at the screenshot.
 - `runner.test.ts` and the e2e build and run a real game from the template, so they need `../headless-game-engine`
   (with its `third_party/lib` built), `odin` and a display. Those runner tests skip themselves without the engine.
+  `GAME_STUDIO_TEST_ENGINE=<path>` runs them against another engine checkout (e.g. to confirm a test catches
+  an old engine's behaviour).

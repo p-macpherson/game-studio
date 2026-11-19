@@ -98,7 +98,8 @@ export type StudioEvent =
 	| { type: "assets_changed" }
 	| { type: "run_changed"; run: RunInfo }
 	| { type: "run_output"; runId: string; text: string }
-	| { type: "run_frame"; runId: string; png: string; width: number; height: number }
+	/** A streamed frame: base64 image data of type `mime`. */
+	| { type: "run_frame"; runId: string; image: string; mime: string; width: number; height: number }
 	| { type: "test_report"; report: TestReport }
 	| { type: "login_notice"; loginId: string; notice: LoginNotice }
 	| { type: "login_prompt"; loginId: string; prompt: LoginPrompt };

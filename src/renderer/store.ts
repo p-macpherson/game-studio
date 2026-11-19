@@ -79,7 +79,7 @@ interface State {
 	playTab: PlayTab;
 	run: RunInfo | null;
 	runOutput: string;
-	frame: { runId: string; png: string; width: number; height: number } | null;
+	frame: { runId: string; src: string; width: number; height: number } | null;
 	testReports: Record<string, TestReport>;
 	testsRunning: string[];
 
@@ -195,7 +195,7 @@ export const useStudio = create<State>((set, get) => ({
 				set((s) => (s.run?.id === event.runId ? { runOutput: (s.runOutput + event.text).slice(-OUTPUT_LIMIT) } : {}));
 				break;
 			case "run_frame":
-				set({ frame: { runId: event.runId, png: event.png, width: event.width, height: event.height } });
+				set({ frame: { runId: event.runId, src: `data:${event.mime};base64,${event.image}`, width: event.width, height: event.height } });
 				break;
 			case "test_report":
 				set((s) => ({ testReports: { ...s.testReports, [testKey(event.report.sessionId, event.report.script)]: event.report } }));
