@@ -1,0 +1,26 @@
+diff --git a/src/data/exporter.py b/src/data/exporter.py
+index c84ff5f..b718fe4 100644
+--- a/src/data/exporter.py
++++ b/src/data/exporter.py
+@@ -290,6 +290,8 @@ class Exporter():
+         vertex_group_reweight = skin[np.arange(skin.shape[0])[..., None], argsorted]
+         if group_per_vertex == -1:
+             group_per_vertex = vertex_group_reweight.shape[-1]
++        # Props can have fewer bones than weights per vertex (e.g. a 3-bone chest with 4 weights).
++        group_per_vertex = min(group_per_vertex, vertex_group_reweight.shape[-1])
+         if not do_not_normalize:
+             vertex_group_reweight = vertex_group_reweight / vertex_group_reweight[..., :group_per_vertex].sum(axis=1)[...,None]
+ 
+diff --git a/src/inference/merge.py b/src/inference/merge.py
+index ebab0d9..3ec9a0d 100644
+--- a/src/inference/merge.py
++++ b/src/inference/merge.py
+@@ -277,6 +277,8 @@ def make_armature(
+     
+     argsorted = np.argsort(-skin, axis=1)
+     vertex_group_reweight = skin[np.arange(skin.shape[0])[..., None], argsorted]
++    # Props can have fewer bones than weights per vertex (e.g. a 3-bone chest with 4 weights).
++    group_per_vertex = min(group_per_vertex, vertex_group_reweight.shape[-1])
+     vertex_group_reweight = vertex_group_reweight / vertex_group_reweight[..., :group_per_vertex].sum(axis=1)[...,None]
+     vertex_group_reweight = np.nan_to_num(vertex_group_reweight)
+     tree = cKDTree(vertices)

@@ -25,5 +25,6 @@ init :: proc() {
 }
 
 update :: proc(dt: f32) {
-	engine.get(cube, engine.Transform).rotation *= engine.euler(0, 45 * dt, 0)
+	// The cube can be destroyed at runtime (by game code, a script or the studio), so check it still exists.
+	if t := engine.get(cube, engine.Transform); t != nil do t.rotation *= engine.euler(0, 45 * dt, 0)
 }

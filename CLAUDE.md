@@ -50,6 +50,7 @@ Install dependencies with `npm install --ignore-scripts` (Pi's recommendation). 
 | `src/renderer/views/AssetBrowser.tsx` | The shared module section (searchable list, drafts version bar, actions, linked sessions); a module supplies its content view |
 | `src/main/runner.ts` + `engine-client.ts` | Play & Test: build/run/test through the project's `build.sh` from main or a session worktree; the engine control-protocol client; frame streaming. Pure parsers (Odin diagnostics, script replies) in `src/shared/run.ts` |
 | `src/renderer/views/Play.tsx` | Play & Test view: live view with input injection, inspector, console, tests |
+| `gen/spike/`, `gen/patches/` | M4a spike for local 3D generation (FLUX.2 Klein, Hunyuan3D-2, UniRig, Blender scripts) and the patches it applies to upstream repos. Environments, weights and clones live in `~/.local/share/game-studio/gen/`; findings are in the vault note `M4 3D Models.md` |
 
 ## Testing
 

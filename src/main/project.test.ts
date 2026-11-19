@@ -36,6 +36,13 @@ describe("createProject", () => {
 		expect(readFileSync(join(path, "engine/third_party/lib/libraylib.a"), "utf8")).toBe("built");
 		expect(sh(path, "status", "--porcelain")).toBe("");
 		expect(sh(path, "log", "--format=%s")).toBe("Create My Game with Game Studio\n");
+
+		// Binary assets are committed as Git LFS pointers.
+		writeFileSync(join(path, "assets/textures/brick.png"), "\x89PNG fake image data");
+		sh(path, "add", "assets/textures/brick.png");
+		sh(path, "commit", "-q", "-m", "texture");
+		expect(sh(path, "lfs", "ls-files", "--name-only")).toBe("assets/textures/brick.png\n");
+		expect(sh(path, "show", "HEAD:assets/textures/brick.png")).toContain("version https://git-lfs.github.com/spec/v1");
 	});
 
 	it("refuses a folder that isn't empty", async () => {

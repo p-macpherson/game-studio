@@ -31,9 +31,15 @@ export async function createProject(opts: { path: string; name: string; template
 		await git(path, ["init", "-q", "-b", "main"]);
 	}
 	if (!(await isRepo(engineRepo))) throw new Error(`engine repo not found at ${engineRepo} (check Settings)`);
+	// Binary assets (models, textures, audio) go to Git LFS; see the template's gitattributes. --local keeps the
+	// LFS hooks and filters in this repo instead of the user's global git config.
+	await git(path, ["lfs", "install", "--local"]).catch(() => {
+		throw new Error("Git LFS is required for game projects: install git-lfs, then try again");
+	});
 
 	cpSync(templateDir, path, { recursive: true });
 	renameSync(join(path, "gitignore"), join(path, ".gitignore"));
+	renameSync(join(path, "gitattributes"), join(path, ".gitattributes"));
 	fillPlaceholders(path, { name });
 	chmodSync(join(path, "build.sh"), 0o755);
 	for (const dir of ASSET_DIRS) {
