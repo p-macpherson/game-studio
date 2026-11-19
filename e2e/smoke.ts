@@ -178,6 +178,14 @@ try {
 	await page.getByTestId("composer").press("Enter");
 	await page.getByTestId("chat").getByText(/^Result:[\s\S]*crate\.glb/).waitFor({ timeout: 60_000 });
 	await step("16-generation-chat", page);
+
+	// Codemode: a script in the session host's sandbox calls a studio tool (two concept variations at once).
+	await page.locator(".session-detail .status-idle").waitFor();
+	const code =
+		'const r = await Promise.all([1, 2].map((seed) => tools.generate_concept_images({ model: "barrel", prompt: "a barrel", count: 1, seed }))); return "made " + r.length;';
+	await page.getByTestId("composer").fill(`tool codemode ${JSON.stringify({ code })}`);
+	await page.getByTestId("composer").press("Enter");
+	await page.getByTestId("chat").getByText(/^Result:[\s\S]*made 2/).waitFor({ timeout: 60_000 });
 	await nav.getByRole("button", { name: "Settings" }).click();
 	await page.getByTestId("gen-job").filter({ hasText: "Finalize crate" }).filter({ hasText: "done" }).waitFor();
 	await page.getByTestId("gen-component").filter({ hasText: "Fake worker" }).waitFor();

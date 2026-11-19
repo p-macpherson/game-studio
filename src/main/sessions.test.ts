@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { StudioEvent } from "../shared/ipc";
 import type { AgentTypeInfo, Settings } from "../shared/types";
+import type { HostCore } from "../session-host/host-core";
 import { SessionService } from "./sessions";
 import { inProcessHost, makeRepo, sh, tempDir, waitFor } from "./test-helpers";
 
@@ -22,6 +23,7 @@ describe("SessionService", () => {
 	let settings: Settings;
 	let service: SessionService;
 	let events: StudioEvent[];
+	let core: HostCore;
 
 	beforeEach(async () => {
 		root = tempDir();
@@ -34,6 +36,7 @@ describe("SessionService", () => {
 		};
 		events = [];
 		const host = await inProcessHost(join(root, "pi"));
+		core = host.core;
 		service = new SessionService({
 			host,
 			settings: () => settings,
@@ -47,6 +50,20 @@ describe("SessionService", () => {
 	afterEach(() => service.dispose());
 
 	const settled = (id: string) => waitFor(() => service.get(id).status === "idle");
+
+	it("gives every Pi session the codemode tool", async () => {
+		const s = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: "hello" });
+		await settled(s.id);
+		const live = (core as unknown as { sessions: Map<string, { session: { getActiveToolNames(): string[] } }> }).sessions.get(s.id)!;
+		expect(live.session.getActiveToolNames()).toContain("codemode");
+
+		// A script reaches both Pi's tools and the studio's.
+		const code = 'const r = await tools.bash({ command: "echo from-a-script" }); await tools.set_session_title({ title: "Scripted" }); return r.output.trim();';
+		await service.send(s.id, `tool codemode ${JSON.stringify({ code })}`);
+		await waitFor(() => service.get(s.id).title === "Scripted", 20_000);
+		await settled(s.id);
+		expect(JSON.stringify((await service.messages(s.id)).at(-1))).toContain("from-a-script");
+	}, 30_000);
 
 	it("runs a session in its own worktree through to merge, then resumes it", async () => {
 		const s = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: "add a note" });

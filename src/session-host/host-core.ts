@@ -7,6 +7,7 @@ import type { AuthInteraction } from "@earendil-works/pi-ai";
 import {
 	type AgentSession,
 	createAgentSession,
+	createCodemodeExtension,
 	DefaultResourceLoader,
 	ModelRuntime,
 	SessionManager,
@@ -146,11 +147,15 @@ export class HostCore implements HostApi {
 	async openSession(spec: SessionOpenSpec): Promise<{ sessionFile: string }> {
 		this.closeSession(spec.id);
 		mkdirSync(spec.sessionDir, { recursive: true });
-		const settingsManager = SettingsManager.inMemory();
+		// Every session gets Pi's `codemode` tool: scripts that call the other tools (e.g. in parallel), with only
+		// their output reaching the model. The SDK doesn't load the CLI's built-in extensions, so add it here and
+		// activate it beside the default read/bash/edit/write.
+		const settingsManager = SettingsManager.inMemory({ defaultTools: ["+codemode"] });
 		const loader = new DefaultResourceLoader({
 			cwd: spec.cwd,
 			agentDir: this.opts.agentDir,
 			settingsManager,
+			extensionFactories: [createCodemodeExtension()],
 			additionalSkillPaths: spec.skillPaths,
 			appendSystemPrompt: spec.appendSystemPrompt,
 		});

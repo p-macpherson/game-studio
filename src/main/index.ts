@@ -206,7 +206,8 @@ async function main(): Promise<void> {
 		"sessions.resume": (id) => sessions.resume(id),
 		"sessions.openTerminal": async (id) => {
 			const { cwd, sessionFile } = await sessions.releaseForTerminal(id);
-			openTerminal(cwd, [join(appRoot, "node_modules/.bin/pi"), "--session", sessionFile], { PI_CODING_AGENT_DIR: piDir });
+			// Like the studio's own sessions, the CLI gets the codemode tool.
+			openTerminal(cwd, [join(appRoot, "node_modules/.bin/pi"), "--session", sessionFile, "--tools", "+codemode"], { PI_CODING_AGENT_DIR: piDir });
 		},
 	};
 

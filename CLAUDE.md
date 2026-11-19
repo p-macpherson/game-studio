@@ -39,6 +39,9 @@ Install dependencies with `npm install --ignore-scripts` (Pi's recommendation). 
   sessions) can run alongside.
 - Every session works in its own git worktree, and its record and Pi transcript are committed in the target
   repo's `.studio/sessions/<id>/`. See the vault note `Sessions & Worktrees.md`.
+- Every Pi session has the `codemode` tool (scripts that call the other tools, studio tools included). The SDK
+  doesn't load the CLI's built-in extensions, so `host-core.ts` adds `createCodemodeExtension()` and activates
+  it with `defaultTools: ["+codemode"]`. "Open in terminal" passes `--tools +codemode` to the CLI.
 
 ## Where things are
 
