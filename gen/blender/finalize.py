@@ -1,6 +1,6 @@
 """Makes a generated model engine-ready. Run headless:  blender -b --python finalize.py -- '<json params>'
 
-params: {in, out, height?: metres (default 1), thumbnail?: png path}
+params: {in, out, height?: metres (default 1), thumbnail?: png path, smooth_weights?: passes (right after auto-rigging)}
 - Removes stray helper meshes (UniRig leaves an unskinned icosphere).
 - Welds split vertices, shades smooth and clears custom split normals (otherwise the glTF exporter writes one
   vertex per triangle corner).
@@ -31,6 +31,9 @@ if armatures:
     for o in [o for o in scene.objects if o.type == "MESH" and not any(m.type == "ARMATURE" for m in o.modifiers)]:
         bpy.data.objects.remove(o)
 meshes = [o for o in scene.objects if o.type == "MESH"]
+# The importer leaves the first clip playing: measure, scale and render the rest pose, not a frame of a clip.
+for a in armatures:
+    a.data.pose_position = "REST"
 if not meshes:
     raise SystemExit("no meshes in the model")
 
@@ -48,8 +51,42 @@ def weld_and_smooth(ob) -> None:
             bpy.ops.mesh.customdata_custom_splitnormals_clear()
 
 
+def smooth_skin_weights(ob, passes: int, factor: float = 0.5) -> None:
+    """Laplacian smoothing of skin weights over the mesh, keeping each vertex's 4 strongest bones (the engine's
+    limit). A few passes soften UniRig's crumpled necks and dented shoulders; many passes turn joints lumpy."""
+    import numpy as np
+
+    me = ob.data
+    groups = list(ob.vertex_groups)
+    n = len(me.vertices)
+    weights = np.zeros((n, len(groups)), np.float32)
+    for v in me.vertices:
+        for e in v.groups:
+            weights[v.index, e.group] = e.weight
+    edges = np.array([e.vertices[:] for e in me.edges])
+    degree = np.maximum(np.bincount(edges.ravel(), minlength=n), 1).astype(np.float32)[:, None]
+    for _ in range(passes):
+        acc = np.zeros_like(weights)
+        np.add.at(acc, edges[:, 0], weights[edges[:, 1]])
+        np.add.at(acc, edges[:, 1], weights[edges[:, 0]])
+        weights = (1 - factor) * weights + factor * acc / degree
+    top = np.argsort(-weights, axis=1)[:, :4]
+    keep = np.zeros(weights.shape, dtype=bool)
+    np.put_along_axis(keep, top, True, axis=1)
+    weights = np.where(keep, weights, 0)
+    weights /= np.maximum(weights.sum(axis=1, keepdims=True), 1e-8)
+    everything = list(range(n))
+    for gi, group in enumerate(groups):
+        group.remove(everything)
+        for i in np.nonzero(weights[:, gi] > 1e-4)[0]:
+            group.add([int(i)], float(weights[i, gi]), "REPLACE")
+
+
 for ob in meshes:
     weld_and_smooth(ob)
+    # Only right after automatic rigging; re-finalizing (e.g. after an agent's edits) must not smooth again.
+    if p.get("smooth_weights") and any(m.type == "ARMATURE" for m in ob.modifiers):
+        smooth_skin_weights(ob, int(p["smooth_weights"]))
 
 # Scale and place: Blender is Z-up here; glTF export converts to Y-up.
 bpy.context.view_layer.update()
@@ -68,6 +105,8 @@ bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
 
 
 def export() -> None:
+    for a in armatures:
+        a.data.pose_position = "POSE"
     bpy.ops.export_scene.gltf(filepath=p["out"], export_format="GLB", export_skins=True, export_animations=True, export_yup=True)
 
 
@@ -117,6 +156,8 @@ result = {
 }
 
 if p.get("thumbnail"):
+    for a in armatures:
+        a.data.pose_position = "REST"
     scene.render.engine = "BLENDER_WORKBENCH"
     scene.display.shading.light = "STUDIO"
     scene.display.shading.color_type = "TEXTURE"

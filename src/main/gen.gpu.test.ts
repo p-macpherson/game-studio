@@ -29,6 +29,12 @@ describe.runIf(process.env.GAME_STUDIO_GEN_GPU === "1")("generation on the GPU",
 			expect(manifest.stats!.max_primitive_vertices as number).toBeLessThanOrEqual(65535);
 			expect(manifest.stats!.bones as number).toBeGreaterThan(5);
 			expect((manifest.stats!.size as number[])[1]).toBeCloseTo(1.2, 2);
+
+			// A generated character is recognised as a biped and gets its clips.
+			const animated = await pipeline.animate(ctx, { model: "goblin" });
+			console.log(JSON.stringify(animated.bones));
+			expect(animated.clips).toEqual(["idle", "walk", "wave"]);
+			expect(Object.keys(animated.bones ?? {})).toEqual(expect.arrayContaining(["hips", "head", "upper_arm.L", "upper_arm.R", "thigh.L", "thigh.R"]));
 		} finally {
 			await gen.dispose();
 		}

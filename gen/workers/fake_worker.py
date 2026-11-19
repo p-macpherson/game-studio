@@ -52,7 +52,8 @@ def texture(job: Job, p: dict) -> dict:
 
 def rig(job: Job, p: dict) -> dict:
     step(job, "rig", p)
-    return {"mesh": copy("cube.glb", p["out"]), "model": "fake"}
+    # A small rigged stick figure shaped like UniRig's output (fixtures/make_biped.py), so animate.py has a biped.
+    return {"mesh": copy("biped.glb", p["out"]), "model": "fake"}
 
 
 if __name__ == "__main__":

@@ -186,6 +186,11 @@ try {
 	await page.getByTestId("composer").fill(`tool codemode ${JSON.stringify({ code })}`);
 	await page.getByTestId("composer").press("Enter");
 	await page.getByTestId("chat").getByText(/^Result:[\s\S]*made 2/).waitFor({ timeout: 60_000 });
+	// preview_model: the agent gets the model as the game's engine draws it.
+	await page.locator(".session-detail .status-idle").waitFor();
+	await page.getByTestId("composer").fill('tool preview_model {"model": "crate"}');
+	await page.getByTestId("composer").press("Enter");
+	await page.getByTestId("chat").getByText(/^Result:[\s\S]*crate in the game's engine/).waitFor({ timeout: 120_000 });
 	await nav.getByRole("button", { name: "Settings" }).click();
 	await page.getByTestId("gen-job").filter({ hasText: "Finalize crate" }).filter({ hasText: "done" }).waitFor();
 	await page.getByTestId("gen-component").filter({ hasText: "Fake worker" }).waitFor();
@@ -211,6 +216,14 @@ try {
 	await page.getByTestId("render-in-engine").click();
 	await page.getByTestId("engine-shot").nth(2).waitFor({ timeout: 60_000 });
 	await step("20-model-in-engine", page);
+
+	// A hinge rig for the crate: its open/close clips show in the viewer.
+	await page.getByRole("button", { name: "Model", exact: true }).click();
+	await page.getByRole("button", { name: "Rig as prop (hinge)" }).click();
+	await page.getByRole("button", { name: "Rig prop" }).click();
+	await page.getByTestId("prop-rig").waitFor({ timeout: 60_000 });
+	await page.locator(".model-side select").filter({ hasText: "Rest pose" }).selectOption("open");
+	await step("21-prop-rig", page);
 
 	// Source control and accounts render.
 	await page.getByRole("button", { name: "Source Control" }).click();

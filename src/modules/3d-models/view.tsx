@@ -298,11 +298,7 @@ function ModelTab({ manifest, dir, sessionId, busy, run }: TabProps) {
 					</label>
 				)}
 				<h3>Change</h3>
-				{!manifest.rigged && (
-					<button disabled={busy} onClick={() => run("rig_model", {})} title="Add a skeleton and skin weights (characters and creatures)">
-						Rig it
-					</button>
-				)}
+				<RigActions manifest={manifest} busy={busy} run={run} />
 				<small className="muted">Re-texture or regenerate from the Concepts tab. For precise edits, ask the modeller agent.</small>
 				{manifest.conceptSource && (
 					<>
@@ -312,6 +308,66 @@ function ModelTab({ manifest, dir, sessionId, busy, run }: TabProps) {
 				)}
 			</div>
 		</div>
+	);
+}
+
+/** Rigging and animation: a character rig (UniRig) plus clips, or a hinge rig for props. */
+function RigActions({ manifest, busy, run }: Pick<TabProps, "manifest" | "busy" | "run">) {
+	const [prop, setProp] = useState(manifest.propRig ?? { split: 0.6, hinge: "back", angle: 100 });
+	const [editingProp, setEditingProp] = useState(false);
+	const rigProp = () => run("rig_prop", prop).then(() => setEditingProp(false));
+	return (
+		<>
+			{manifest.rig === "prop" && manifest.propRig && (
+				<small className="muted" data-testid="prop-rig">
+					Prop rig: hinged at the {manifest.propRig.hinge}, cut at {Math.round(manifest.propRig.split * 100)}% height, opens {manifest.propRig.angle}°.
+				</small>
+			)}
+			{manifest.rig !== "prop" && manifest.rigged && !manifest.clips?.length && (
+				<button disabled={busy} onClick={() => run("animate_model", {})} title="Name the bones by role and add idle, walk and wave clips (two-legged characters)">
+					Add animations
+				</button>
+			)}
+			{manifest.clips?.length ? <small className="muted">Clips: {manifest.clips.join(", ")} (play them above).</small> : null}
+			{!manifest.rigged && (
+				<button disabled={busy} onClick={() => run("rig_model", {})} title="Skeleton and skin weights for characters and creatures (UniRig)">
+					Rig as character
+				</button>
+			)}
+			{manifest.rig !== "auto" && !editingProp && (
+				<button disabled={busy} onClick={() => setEditingProp(true)} title="A hinge for a lid, door or hatch, with open and close clips">
+					{manifest.rig === "prop" ? "Change the prop rig" : "Rig as prop (hinge)"}
+				</button>
+			)}
+			{editingProp && (
+				<div className="col prop-form">
+					<label className="row">
+						Hinge
+						<select value={prop.hinge} onChange={(e) => setProp({ ...prop, hinge: e.target.value })}>
+							{["back", "front", "left", "right"].map((h) => (
+								<option key={h}>{h}</option>
+							))}
+						</select>
+					</label>
+					<label className="row" title="Where the moving part starts, as a share of the model's height">
+						Cut at
+						<input type="number" min={5} max={95} step={1} value={Math.round(prop.split * 100)} onChange={(e) => setProp({ ...prop, split: Number(e.target.value) / 100 })} style={{ width: 64 }} />%
+					</label>
+					<label className="row">
+						Opens
+						<input type="number" min={10} max={180} step={5} value={prop.angle} onChange={(e) => setProp({ ...prop, angle: Number(e.target.value) })} style={{ width: 64 }} />°
+					</label>
+					<div className="row">
+						<button className="primary" disabled={busy} onClick={rigProp}>
+							Rig prop
+						</button>
+						<button className="ghost" onClick={() => setEditingProp(false)}>
+							Cancel
+						</button>
+					</div>
+				</div>
+			)}
+		</>
 	);
 }
 
@@ -403,7 +459,7 @@ function ConceptsTab({ manifest, name, dir, sessionId, busy, run }: Omit<TabProp
 					<label className="check">
 						<input type="checkbox" checked={texture} onChange={() => setTexture(!texture)} /> Texture
 					</label>
-					<label className="check">
+					<label className="check" title="Characters and creatures. They rig best from concepts with the arms held clear of the body and props (hands resting on a bag bind the bag to the hands).">
 						<input type="checkbox" checked={rig} onChange={() => setRig(!rig)} /> Rig
 					</label>
 					{manifest?.stats && (

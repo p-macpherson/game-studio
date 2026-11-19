@@ -3,7 +3,11 @@
 /** A Python environment with its worker; only one runs at a time, since only one model family fits in VRAM. */
 export type GenFamily = "image" | "hunyuan3d" | "unirig";
 
-export type GenJobKind = "image" | "shape" | "texture" | "rig" | "finalize";
+export type GenJobKind = "image" | "shape" | "texture" | "rig" | BlenderJobKind;
+
+/** Jobs that run a script in gen/blender/ (on the CPU, beside the GPU queue's model workers). */
+export type BlenderJobKind = "finalize" | "animate" | "rig_prop";
+export const BLENDER_JOBS: readonly BlenderJobKind[] = ["finalize", "animate", "rig_prop"];
 
 export type GenJobStatus = "queued" | "running" | "done" | "failed" | "cancelled";
 
@@ -43,8 +47,8 @@ export interface GenStatus {
 	installing: boolean;
 }
 
-/** Which worker runs each GPU job kind (`finalize` runs in Blender on the CPU). */
-export const FAMILY_OF: Record<Exclude<GenJobKind, "finalize">, { family: GenFamily; op: string }> = {
+/** Which worker runs each GPU job kind (Blender jobs run on the CPU). */
+export const FAMILY_OF: Record<Exclude<GenJobKind, BlenderJobKind>, { family: GenFamily; op: string }> = {
 	image: { family: "image", op: "image" },
 	shape: { family: "hunyuan3d", op: "shape" },
 	texture: { family: "hunyuan3d", op: "texture" },
@@ -85,6 +89,14 @@ export interface ModelManifest {
 	height?: number;
 	textured: boolean;
 	rigged: boolean;
+	/** `auto`: UniRig (characters, creatures); `prop`: a hinge rig made by gen/blender/rig_prop.py. */
+	rig?: "auto" | "prop";
+	/** The hinge settings of a prop rig, so it can be remade after re-texturing. */
+	propRig?: { split: number; hinge: string; angle: number };
+	/** Bone roles of an animated biped: role (e.g. "upper_arm.L") -> UniRig's original name. */
+	bones?: Record<string, string>;
+	/** Clips added by the animate step (remade after re-texturing or re-rigging). */
+	clips?: string[];
 	steps: { kind: GenJobKind; model?: string; seed?: number; seconds?: number; at: string }[];
 	stats?: Record<string, unknown>;
 }

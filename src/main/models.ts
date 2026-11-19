@@ -13,6 +13,8 @@ import type { GenService } from "./gen";
 import type { StudioRequest } from "./sessions";
 
 export const MODELS_DIR = "assets/models";
+/** Compared on the robot: 3 passes fix most joint artefacts; 12 start to make joints lumpy. */
+const SKIN_SMOOTHING_PASSES = 3;
 const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 export interface PipelineContext {
@@ -28,7 +30,14 @@ export interface PipelineContext {
  * Serves agents' generation tools (see studio-tools.ts) in their session's worktree, and cancels a tool call's
  * jobs when the agent is stopped. Plug into SessionService's `studioRequest` / `cancelStudioRequest`.
  */
-export function generationRequests(pipeline: ModelPipeline, gen: GenService) {
+export function generationRequests(
+	pipeline: ModelPipeline,
+	gen: GenService,
+	opts: {
+		/** Renders a model in the game's engine (RunService.preview), for `preview_model`. */
+		preview?(sessionId: string, model: string): Promise<{ images: string[]; errors: string[] }>;
+	} = {},
+) {
 	const jobs = new Map<string, Set<string>>();
 	return {
 		async studioRequest(req: StudioRequest): Promise<unknown> {
@@ -46,8 +55,15 @@ export function generationRequests(pipeline: ModelPipeline, gen: GenService) {
 						return await pipeline.retexture(ctx, p);
 					case "rig_model":
 						return await pipeline.rig(ctx, p);
+					case "rig_prop":
+						return await pipeline.rigProp(ctx, p);
+					case "animate_model":
+						return await pipeline.animate(ctx, p);
 					case "finalize_model":
 						return await pipeline.finalize(ctx, p);
+					case "preview_model":
+						if (!opts.preview) throw new Error("In-engine previews aren't available here");
+						return await opts.preview(req.sessionId, (req.params as { model: string }).model);
 				}
 			} finally {
 				jobs.delete(req.requestId);
@@ -164,15 +180,35 @@ export class ModelPipeline {
 		const textured = join(dir, "source/textured.glb");
 		this.record(manifest, "texture", await this.step(ctx, "texture", `Texture for ${p.model}`, { mesh: join(dir, "source/shape.glb"), image, out: textured }));
 		manifest.textured = true;
-		const latest = manifest.rigged ? await this.rigStep(ctx, manifest, textured) : textured;
-		return this.finalizeStep(ctx, manifest, latest);
+		return this.remakeRig(ctx, manifest, textured);
 	}
 
 	async rig(ctx: PipelineContext, p: { model: string }) {
 		const { dir, manifest } = this.existing(ctx, p.model);
-		const from = existsSync(join(dir, "source/textured.glb")) ? join(dir, "source/textured.glb") : join(dir, "source/shape.glb");
-		manifest.rigged = true;
-		return this.finalizeStep(ctx, manifest, await this.rigStep(ctx, manifest, from));
+		manifest.rig = "auto";
+		manifest.propRig = undefined;
+		manifest.clips = undefined;
+		manifest.bones = undefined;
+		return this.finalizeStep(ctx, manifest, await this.rigStep(ctx, manifest, this.unrigged(dir)));
+	}
+
+	/** A hinge rig for a prop (lid, door), with `open` and `close` clips. Replaces any rig the model had. */
+	async rigProp(ctx: PipelineContext, p: { model: string; split?: number; hinge?: string; angle?: number }) {
+		const { dir, manifest } = this.existing(ctx, p.model);
+		manifest.rig = "prop";
+		manifest.propRig = { split: p.split ?? 0.6, hinge: p.hinge ?? "back", angle: p.angle ?? 100 };
+		manifest.clips = undefined;
+		manifest.bones = undefined;
+		return this.finalizeStep(ctx, manifest, await this.propRigStep(ctx, manifest, this.unrigged(dir)));
+	}
+
+	/** Names a rigged character's bones by role and adds clips (idle, walk, wave by default). */
+	async animate(ctx: PipelineContext, p: { model: string; clips?: string[] }) {
+		const { manifest } = this.existing(ctx, p.model);
+		if (manifest.rig === "prop") throw new Error(`"${p.model}" has a prop rig, which comes with its own open/close clips`);
+		if (!manifest.rigged || !manifest.stats) throw new Error(`"${p.model}" isn't rigged yet: rig it first`);
+		const result = await this.animateStep(ctx, manifest, p.clips);
+		return { ...(await this.finalizeStep(ctx, manifest, result)), bones: manifest.bones, clips: manifest.clips };
 	}
 
 	async finalize(ctx: PipelineContext, p: { model: string; from?: string; height?: number }) {
@@ -188,10 +224,45 @@ export class ModelPipeline {
 		writeFileSync(join(dir, "model.json"), `${JSON.stringify(manifest, null, "\t")}\n`);
 	}
 
+	/** After the mesh or texture changed: remake whatever rig and clips the model had, then finalize. */
+	private async remakeRig(ctx: PipelineContext, manifest: ModelManifest, from: string) {
+		if (manifest.rig === "prop" && manifest.propRig) return this.finalizeStep(ctx, manifest, await this.propRigStep(ctx, manifest, from));
+		if (!manifest.rigged) return this.finalizeStep(ctx, manifest, from);
+		const finalized = await this.finalizeStep(ctx, manifest, await this.rigStep(ctx, manifest, from));
+		if (!manifest.clips?.length) return finalized;
+		return this.finalizeStep(ctx, manifest, await this.animateStep(ctx, manifest, manifest.clips));
+	}
+
+	private async propRigStep(ctx: PipelineContext, manifest: ModelManifest, from: string): Promise<string> {
+		const out = join(this.dir(ctx, manifest.name), "source/prop-rig.glb");
+		this.record(manifest, "rig_prop", await this.step(ctx, "rig_prop", `Prop rig for ${manifest.name}`, { in: from, out, ...manifest.propRig }));
+		manifest.rigged = true;
+		return out;
+	}
+
+	/** Runs on the engine-ready model (right scale), writing source/animated.glb. */
+	private async animateStep(ctx: PipelineContext, manifest: ModelManifest, clips?: string[]): Promise<string> {
+		const dir = this.dir(ctx, manifest.name);
+		const out = join(dir, "source/animated.glb");
+		const r = await this.step(ctx, "animate", `Animations for ${manifest.name}`, { in: join(dir, `${manifest.name}.glb`), out, clips });
+		if (!r.biped) throw new Error(`Can't animate "${manifest.name}" automatically: ${(r.problems as string[]).join("; ")}`);
+		this.record(manifest, "animate", r);
+		manifest.bones = r.roles as Record<string, string>;
+		manifest.clips = r.clips as string[];
+		return out;
+	}
+
+	/** The newest mesh without a rig: textured if there is one, else the bare shape. */
+	private unrigged(dir: string): string {
+		const textured = join(dir, "source/textured.glb");
+		return existsSync(textured) ? textured : join(dir, "source/shape.glb");
+	}
+
 	private async rigStep(ctx: PipelineContext, manifest: ModelManifest, from: string): Promise<string> {
 		const out = join(this.dir(ctx, manifest.name), "source/rigged.glb");
 		this.record(manifest, "rig", await this.step(ctx, "rig", `Rig for ${manifest.name}`, { mesh: from, out }));
 		manifest.rigged = true;
+		manifest.rig = "auto";
 		return out;
 	}
 
@@ -199,7 +270,10 @@ export class ModelPipeline {
 		const dir = this.dir(ctx, manifest.name);
 		const glb = join(dir, `${manifest.name}.glb`);
 		const thumbnail = join(dir, "thumbnail.png");
-		const stats = await this.step(ctx, "finalize", `Finalize ${manifest.name}`, { in: from, out: glb, height: manifest.height ?? 1, thumbnail });
+		// UniRig's raw weights crumple necks and dent shoulders; a light smoothing fixes most of it. It always starts
+		// from the raw rig in source/, so re-finalizing gives the same result. An agent's own edits aren't touched.
+		const smooth_weights = from === join(dir, "source/rigged.glb") ? SKIN_SMOOTHING_PASSES : 0;
+		const stats = await this.step(ctx, "finalize", `Finalize ${manifest.name}`, { in: from, out: glb, height: manifest.height ?? 1, thumbnail, smooth_weights });
 		this.record(manifest, "finalize", stats);
 		manifest.stats = { ...stats, mesh: undefined, thumbnail: undefined };
 		this.writeManifest(ctx, manifest);
@@ -235,9 +309,13 @@ export class ModelPipeline {
 		return { dir: this.dir(ctx, name), manifest };
 	}
 
+	/** The most recently written source mesh (an edit, clips, a rig, the texture or the shape). */
 	private latestSource(dir: string): string {
-		for (const f of ["rigged.glb", "textured.glb", "shape.glb"]) if (existsSync(join(dir, "source", f))) return join(dir, "source", f);
-		throw new Error(`Nothing to finalize in ${dir}/source`);
+		const candidates = ["edited.glb", "animated.glb", "prop-rig.glb", "rigged.glb", "textured.glb", "shape.glb"]
+			.map((f) => join(dir, "source", f))
+			.filter((f) => existsSync(f));
+		if (!candidates.length) throw new Error(`Nothing to finalize in ${dir}/source`);
+		return candidates.reduce((a, b) => (statSync(b).mtimeMs > statSync(a).mtimeMs ? b : a));
 	}
 
 	/** The record of a concept the studio generated into this model's concepts/ folder. */

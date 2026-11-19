@@ -46,7 +46,15 @@ export interface HostApi {
 }
 
 /** Studio services an agent's tools can call in the main process (`studio_request`). */
-export type StudioRequestMethod = "generate_concepts" | "generate_model" | "retexture_model" | "rig_model" | "finalize_model";
+export type StudioRequestMethod =
+	| "generate_concepts"
+	| "generate_model"
+	| "retexture_model"
+	| "rig_model"
+	| "rig_prop"
+	| "animate_model"
+	| "finalize_model"
+	| "preview_model";
 
 export type HostEvent =
 	/** A raw Pi AgentSessionEvent, JSON-sanitised. */

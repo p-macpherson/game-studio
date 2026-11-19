@@ -146,4 +146,33 @@ describe.skipIf(!hasBlender)("ModelPipeline", () => {
 		await expect(pipeline.generate(ctx, { model: "Crate!", image: images[0], height: 1 })).rejects.toThrow(/lower-kebab-case/);
 		await expect(pipeline.generate(ctx, { model: "x", image: "../../etc/passwd", height: 1 })).rejects.toThrow(/escapes/);
 	}, 60_000);
+
+	it("animates a rigged character, rigs a prop with a hinge, and remakes both after re-texturing", async () => {
+		const { gen } = service();
+		const pipeline = new ModelPipeline(gen);
+		const ctx = { cwd: tempDir() };
+		const read = (name: string) => JSON.parse(readFileSync(join(ctx.cwd, `assets/models/${name}/model.json`), "utf8")) as ModelManifest;
+		const { images } = await pipeline.concepts(ctx, { model: "hero", prompt: "a hero", count: 1, seed: 1 });
+
+		// The fake rig is a UniRig-shaped stick figure (bone_N names).
+		await pipeline.generate(ctx, { model: "hero", image: images[0], height: 1.8, rig: true });
+		const animated = await pipeline.animate(ctx, { model: "hero" });
+		expect(animated.clips).toEqual(["idle", "walk", "wave"]);
+		expect(animated.bones).toMatchObject({ hips: "bone_1", "upper_arm.L": "bone_5", "thigh.R": "bone_14" });
+		expect(read("hero").stats?.animations).toEqual(["idle", "walk", "wave"]);
+		await pipeline.retexture(ctx, { model: "hero", image: images[0] });
+		expect(read("hero")).toMatchObject({ rig: "auto", clips: ["idle", "walk", "wave"], stats: { animations: ["idle", "walk", "wave"] } });
+
+		// A prop: the hinge rig replaces nothing (it wasn't rigged) and survives a re-texture.
+		await pipeline.concepts(ctx, { model: "chest", prompt: "a chest", count: 1, seed: 1 });
+		await pipeline.generate(ctx, { model: "chest", image: "assets/models/chest/concepts/chest-1.png", height: 0.6 });
+		await expect(pipeline.animate(ctx, { model: "chest" })).rejects.toThrow(/isn't rigged/);
+		await pipeline.rigProp(ctx, { model: "chest", split: 0.6, hinge: "back" });
+		expect(read("chest")).toMatchObject({ rig: "prop", rigged: true, stats: { bones: 2, animations: ["close", "open"] } });
+		// Measured in the rest pose, not a frame of the imported clip (which would have opened the lid).
+		expect((read("chest").stats?.size as number[]).map((v) => Math.round(v * 100) / 100)).toEqual([0.6, 0.6, 0.6]);
+		await expect(pipeline.animate(ctx, { model: "chest" })).rejects.toThrow(/prop rig/);
+		await pipeline.retexture(ctx, { model: "chest", image: "assets/models/chest/concepts/chest-1.png" });
+		expect(read("chest")).toMatchObject({ rig: "prop", stats: { bones: 2, animations: ["close", "open"] } });
+	}, 120_000);
 });

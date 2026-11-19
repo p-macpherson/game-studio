@@ -64,7 +64,7 @@ async function main(): Promise<void> {
 		fake: process.env.GAME_STUDIO_GEN_FAKE === "1",
 	});
 	const pipeline = new ModelPipeline(gen);
-	const genRequests = generationRequests(pipeline, gen);
+	const genRequests = generationRequests(pipeline, gen, { preview: (sessionId, name) => previewModel(sessionId, name) });
 	const sessions = new SessionService({
 		host,
 		settings: () => settings.get(),
@@ -89,6 +89,12 @@ async function main(): Promise<void> {
 		return s.worktreePath;
 	};
 	serveStudioFiles(checkoutRoot);
+	/** A model rendered by the game's engine (for the In engine tab and the agents' preview_model tool). */
+	async function previewModel(checkout: string | null, name: string) {
+		const manifest = pipeline.manifest({ cwd: checkoutRoot(checkout) }, name);
+		if (!manifest?.stats) throw new Error(`"${name}" has no 3D model yet`);
+		return runner.preview(checkout, `assets/models/${name}/${name}.glb`, manifest.height ?? 1);
+	}
 	const repo = (target: Target) => sessions.repoFor(target);
 	const setProject = (info: ProjectInfo | null) => {
 		void runner.stop();
@@ -212,11 +218,7 @@ async function main(): Promise<void> {
 		"models3d.run": (sessionId, method, params) =>
 			genRequests.studioRequest({ sessionId, requestId: `ui-${Date.now()}`, cwd: checkoutRoot(sessionId), method, params, progress: () => {} }),
 		"models3d.concepts": async (checkout, name) => pipeline.conceptImages({ cwd: checkoutRoot(checkout) }, name),
-		"models3d.preview": async (checkout, name) => {
-			const manifest = pipeline.manifest({ cwd: checkoutRoot(checkout) }, name);
-			if (!manifest?.stats) throw new Error(`"${name}" has no 3D model yet`);
-			return runner.preview(checkout, `assets/models/${name}/${name}.glb`, manifest.height ?? 1);
-		},
+		"models3d.preview": (checkout, name) => previewModel(checkout, name),
 
 		"gen.image": async (path) => {
 			// Only images from generation outputs, the open project or session worktrees.

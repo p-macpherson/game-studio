@@ -36,20 +36,11 @@ segmentation first. Nearest-bone rigid weights (per vertex, or per face with the
 make things worse: spikes, holes and torn flaps. If one joint deforms badly, smooth the weights locally
 around it (Weight Paint → Smooth on the vertices near that joint) rather than re-weighting the whole mesh.
 
-## A hand-made rig for a prop (outline: fill in the hinge position and weights)
-
-```python
-from mathutils import Vector
-arm_data = bpy.data.armatures.new("Rig"); arm = bpy.data.objects.new("Rig", arm_data)
-bpy.context.scene.collection.objects.link(arm); bpy.context.view_layer.objects.active = arm
-bpy.ops.object.mode_set(mode="EDIT")
-root = arm_data.edit_bones.new("root"); root.head, root.tail = (0, 0, 0), (0, 0, 0.2)
-lid = arm_data.edit_bones.new("lid"); lid.parent = root
-lid.head = Vector((0, hinge_y, hinge_z)); lid.tail = lid.head + Vector((0, -0.2, 0))   # hinge at the back edge
-bpy.ops.object.mode_set(mode="OBJECT")
-# Weights: vertices above the lid seam -> "lid", the rest -> "root".
-ob.parent = arm; ob.modifiers.new("Armature", "ARMATURE").object = arm
-```
+## Prop rigs
+Use the `rig_prop` tool for hinges (lids, doors, hatches): it cuts, caps, rigs and adds `open`/`close` clips
+(see `gen/blender/rig_prop.py` in the studio for how). Hand-rig in Blender only for mechanisms it can't express
+(two hinges, sliding parts), following the same pattern: split the moving part off along its seam, cap the
+cut, give each piece one bone with weight 1, and key rotations about the hinge axis.
 
 ## Clips
 One action per clip; the action name becomes the engine's clip name (`Animator.clip`).
@@ -61,7 +52,7 @@ action = bpy.data.actions.new("open"); arm.animation_data.action = action
 pb = arm.pose.bones["lid"]; pb.rotation_mode = "XYZ"
 for frame, deg in ((1, 0), (24, -100)):
     pb.rotation_euler = (math.radians(deg), 0, 0); pb.keyframe_insert("rotation_euler", frame=frame)
-# For several clips, push each action to an NLA track (arm.animation_data.nla_tracks.new()) before the next.
+# For several clips: set action.use_fake_user = True on each, and export with export_animation_mode="ACTIONS".
 ```
 Check clips in the engine: the `assets` command lists each model's `animations`, and an entity with
 `{"Animator": {"clip": "open"}}` plays one.

@@ -59,7 +59,9 @@ Install dependencies with `npm install --ignore-scripts` (Pi's recommendation). 
 | `src/renderer/views/Play.tsx` | Play & Test view: live view with input injection, inspector, console, tests |
 | `src/main/gen.ts` | Generation service: job queue over Python model workers, one GPU worker at a time (warm per family, stopped when idle), Blender finalize jobs, setup/status |
 | `gen/workers/` | Model workers speaking JSON lines (`protocol.py`): `image_worker.py` (FLUX.2 Klein), `hunyuan_worker.py` (shape, texture), `unirig_worker.py` (rig), `fake_worker.py` (tests) |
-| `gen/blender/finalize.py` | Makes a model engine-ready: weld, ≤65,535 vertices per primitive, scale/origin, export, thumbnail, stats |
+| `gen/blender/finalize.py` | Makes a model engine-ready: weld, ≤65,535 vertices per primitive, scale/origin (measured in the rest pose), light skin-weight smoothing right after auto-rigging, export, thumbnail, stats |
+| `gen/blender/animate.py`, `gen/blender/rig_prop.py` | Biped analysis (bone roles, `idle`/`walk`/`wave` clips) and hinge rigs for props (cut, cap, `open`/`close`); Blender job kinds `animate` and `rig_prop` |
+| `gen/workers/fixtures/` | Fake worker outputs; `biped.glb` (from `make_biped.py`) is a UniRig-shaped stick figure so animation can be tested without a GPU |
 | `gen/setup.sh`, `gen/patches/` | Idempotent install into `~/.local/share/game-studio/gen/` (`src/` pinned repos + patches, `models/`, `envs/`, `hf/`, `logs/`) |
 | `src/main/models.ts` | Model pipeline (`assets/models/<name>/`: `<name>.glb`, `thumbnail.png`, `model.json`, `concepts/`, `source/`) and the handler for agents' generation tools (`studio_request` from the session host) |
 | `gen/spike/` | The M4a spike scripts; findings are in the vault note `M4 3D Models.md` |

@@ -84,6 +84,53 @@ export function studioTools(ctx: StudioToolContext) {
 			execute: generation("rig_model"),
 		}),
 		defineTool({
+			name: "rig_prop",
+			label: "Rig a prop",
+			description:
+				"Give a prop a hinge (a chest lid, a door, a hatch): the mesh is cut at `split` of its height (the part above moves), both sides are capped, " +
+				"a `lid` bone is hinged on the `hinge` side, and clips `open` and `close` are added. Replaces any rig the model had. Check it with preview_model.",
+			parameters: Type.Object({
+				model: MODEL_NAME,
+				split: Type.Optional(Type.Number({ description: "Where the moving part starts, as a fraction of the height (default 0.6)" })),
+				hinge: Type.Optional(Type.Union([Type.Literal("back"), Type.Literal("front"), Type.Literal("left"), Type.Literal("right")])),
+				angle: Type.Optional(Type.Number({ description: "How far it opens, in degrees (default 100)" })),
+			}),
+			execute: generation("rig_prop"),
+		}),
+		defineTool({
+			name: "animate_model",
+			label: "Animate 3D model",
+			description:
+				"For a character rigged with rig_model or generate_model(rig: true): names its bones by role (hips, spine, chest, neck, head, shoulder/upper_arm/forearm/hand.L/R, " +
+				"thigh/shin/foot/toe.L/R) and adds looping clips: idle, walk, wave (all by default). Only works for bipeds (two legs, two arms); other skeletons are reported. " +
+				"In the game, play a clip with an Animator component: {\"clip\": \"walk\"}.",
+			parameters: Type.Object({
+				model: MODEL_NAME,
+				clips: Type.Optional(Type.Array(Type.Union([Type.Literal("idle"), Type.Literal("walk"), Type.Literal("wave")]))),
+			}),
+			execute: generation("animate_model"),
+		}),
+		defineTool({
+			name: "preview_model",
+			label: "Preview model in engine",
+			description:
+				"Render a model with the game's own engine (front, three-quarter and back) and see the images, plus any engine errors about it. " +
+				"Use it after every change: a model can look right in Blender and wrong in the game.",
+			parameters: Type.Object({ model: MODEL_NAME }),
+			async execute(_id, params, signal, onUpdate) {
+				const r = (await ctx.request("preview_model", params, signal, (text) => onUpdate?.({ content: [{ type: "text", text }], details: {} }))) as {
+					images: string[];
+					errors: string[];
+				};
+				const images = r.images.map((url) => {
+					const [, mimeType, data] = /^data:([^;]+);base64,(.*)$/.exec(url) ?? [];
+					return { type: "image" as const, mimeType, data };
+				});
+				const text = `${params.model} in the game's engine: front, three-quarter, back.${r.errors.length ? `\nEngine errors:\n${r.errors.join("\n")}` : " No engine errors."}`;
+				return { content: [{ type: "text" as const, text }, ...images], details: {} };
+			},
+		}),
+		defineTool({
 			name: "finalize_model",
 			label: "Finalize 3D model",
 			description:

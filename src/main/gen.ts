@@ -6,7 +6,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { FAMILY_OF, type GenComponent, type GenFamily, type GenJob, type GenJobKind, type GenStatus } from "../shared/gen";
+import { BLENDER_JOBS, FAMILY_OF, type GenComponent, type GenFamily, type GenJob, type GenJobKind, type GenStatus } from "../shared/gen";
 import type { StudioEvent } from "../shared/ipc";
 
 const WORKER_SCRIPT: Record<GenFamily, string> = {
@@ -264,7 +264,7 @@ export class GenService {
 		let cancelled = false;
 		try {
 			const result =
-				job.kind === "finalize"
+				(BLENDER_JOBS as readonly string[]).includes(job.kind)
 					? await this.blender(job, (cancel) => (this.running = { job, cancel: () => ((cancelled = true), cancel()) }))
 					: await this.onWorker(job, (cancel) => (this.running = { job, cancel: () => ((cancelled = true), cancel()) }));
 			job.result = { ...result, seconds: result.seconds ?? Math.round((Date.now() - Date.parse(job.startedAt!)) / 100) / 10 };
@@ -321,13 +321,13 @@ export class GenService {
 	/** Runs gen/blender/finalize.py headless; it prints "RESULT: {json}". */
 	private blender(job: GenJob, setCancel: (cancel: () => void) => void): Promise<Record<string, unknown>> {
 		return new Promise((resolve, reject) => {
-			const script = join(this.deps.codeDir, "blender/finalize.py");
+			const script = join(this.deps.codeDir, `blender/${job.kind}.py`);
 			const proc = spawn(this.deps.blender ?? "blender", ["-b", "--factory-startup", "--python", script, "--", JSON.stringify(job.params)]);
 			setCancel(() => proc.kill("SIGKILL"));
 			const log = this.logger("blender");
 			let result: Record<string, unknown> | null = null;
 			let lastError = "";
-			job.progress = { message: "Finalizing in Blender" };
+			job.progress = { message: `Blender: ${job.kind.replace("_", " ")}` };
 			this.changed(job);
 			for (const stream of [proc.stdout, proc.stderr]) {
 				createInterface({ input: stream }).on("line", (line) => {
@@ -341,7 +341,7 @@ export class GenService {
 			proc.on("error", reject);
 			proc.on("close", (code) => {
 				if (result && code === 0) resolve(result);
-				else reject(new Error(`Blender finalize failed (exit ${code}): ${lastError || "see blender.log"}`));
+				else reject(new Error(`Blender ${job.kind} failed (exit ${code}): ${lastError || "see blender.log"}`));
 			});
 		});
 	}

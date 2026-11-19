@@ -18,12 +18,14 @@ Read the art direction in `docs/design/` first, and match it in every prompt (st
 2. `generate_concept_images` (about 4 variations). Describe one object; the studio already asks for a full view
    on a plain white background. Show the user the options (`open_in_studio` on an image) and let them choose with
    `ask_user`. Iterate with `references` for variations or edits ("the same chest, but with silver bands").
+   For a character that will be rigged, ask for an **A-pose with the arms held clear of the body**, hands not
+   touching anything: whatever a hand touches in the concept gets bound to the hand (a goblin's satchel rose
+   with its waving arm).
 3. `generate_model` with the chosen concept and the height. Pass `rig: true` for characters and creatures.
    Add `back` (a back view, generated from the concept with `references`) only when the back can't be inferred.
-4. Check the result: read `model.json` (size, triangle and vertex counts, bones) and look at `thumbnail.png`.
-   Then look at it **in the engine**: run the game hidden, `spawn` the model with
-   `{"Mesh_Renderer": {"mesh": "models/<name>/<name>.glb"}}`, and take a screenshot (see the engine-control skill).
-   The engine is the truth: a model can look right in Blender and wrong in the game.
+4. Check the result: read `model.json` (size, triangle and vertex counts, bones), then **`preview_model`**,
+   which shows it as the game's engine draws it, with any engine errors. The engine is the truth: a model can look
+   right in Blender and wrong in the game. In the game it's `{"Mesh_Renderer": {"mesh": "models/<name>/<name>.glb"}}`.
 
 ## Modifying a model
 - **New look, same shape:** make an edited concept (`generate_concept_images` with the current concept as a
@@ -34,15 +36,21 @@ Read the art direction in `docs/design/` first, and match it in every prompt (st
   export to `source/edited.glb`, then `finalize_model` with `from: source/edited.glb`. Generative models can't
   make precise edits; Blender can.
 
-## Rigging
-- Characters and creatures: `rig: true` (UniRig) gives a skeleton and skin weights. Bones are named `bone_N`.
-- Expect some smearing at joints (UniRig's weights are smooth), especially on hard-surface characters
-  like robots. Fix a bad joint by smoothing weights locally in Blender. Don't re-weight the whole mesh
-  rigidly: generated meshes are one piece, and that tears them.
-- Props (a chest lid, a door): rig them yourself in Blender with a few deliberate bones (a hinge bone at the
-  lid's back edge), and add simple clips (`open`, `close`). UniRig doesn't understand mechanisms.
-- Always finish with `finalize_model`. It keeps every mesh under the engine's 65,535-vertex limit and clears
-  the split normals that would otherwise blow it.
+## Rigging and animation
+- **Characters and creatures:** `rig: true` (or `rig_model`) gives a skeleton and skin weights (UniRig), lightly
+  smoothed to soften joints. Bones are named `bone_N` until animated.
+- **Animation:** `animate_model` names a two-legged character's bones by role (hips, spine, chest, neck, head,
+  shoulder/upper_arm/forearm/hand.L/R, thigh/shin/foot/toe.L/R) and adds `idle`, `walk` and `wave` clips. In the
+  game: `{"Animator": {"clip": "walk"}}`. Other skeletons (quadrupeds, tails) are reported: animate those in
+  Blender with the blender-modelling skill, using the role names or the `bones` map in `model.json`.
+- **Props** (a chest lid, a door, a hatch): `rig_prop` with the hinge side and where the moving part starts
+  (`split`, a fraction of the height). It cuts and caps the mesh and adds `open` and `close` clips. UniRig doesn't
+  understand mechanisms, so never use it for props.
+- Re-texturing remakes the model's rig and clips automatically.
+- Expect some smearing at joints on hard-surface characters (robots). Fix a bad joint by smoothing weights
+  locally in Blender. Don't re-weight the whole mesh rigidly: generated meshes are one piece, and that tears them.
+- After your own Blender edits, finish with `finalize_model`. It keeps every mesh under the engine's
+  65,535-vertex limit and clears the split normals that would otherwise blow it.
 
 Generation runs on the local GPU, one model at a time, and takes about 1–3 minutes per model. Don't run the
 game at the same time as a big generation step.
