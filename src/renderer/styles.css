@@ -939,3 +939,40 @@ label.field > span {
 	border-radius: 6px;
 	white-space: pre-wrap;
 }
+
+/* Asset generation */
+.gen-components {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin: 8px 0;
+}
+.ok-mark {
+	color: var(--green);
+	width: 16px;
+}
+.bad-mark {
+	color: var(--red);
+	width: 16px;
+}
+.gen-job {
+	gap: 8px;
+	font-size: 13px;
+}
+.gen-status-running {
+	color: var(--accent);
+}
+.gen-status-done {
+	color: var(--green);
+}
+.gen-status-failed {
+	color: var(--red);
+}
+.dot.gen-busy,
+.dot.gen-starting {
+	background: var(--accent);
+	animation: pulse 1.2s infinite;
+}
+.dot.gen-idle {
+	background: var(--green);
+}

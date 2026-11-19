@@ -2,6 +2,7 @@
 import type { HostInfo, PromptMode } from "./host";
 import type { AssetSearchHit, AssetSummary, ModuleInfo } from "./modules";
 import type { CheckoutId, CheckoutInfo, RunInfo, RunMode, TestReport } from "./run";
+import type { GenJob, GenStatus } from "./gen";
 import type {
 	AgentTypeInfo,
 	GitCommit,
@@ -71,6 +72,14 @@ export interface StudioApi {
 	"run.test"(sessionId: CheckoutId, script: string): Promise<TestReport>;
 	"run.image"(sessionId: CheckoutId, path: string): Promise<string>;
 
+	"gen.status"(): Promise<GenStatus>;
+	"gen.jobs"(): Promise<GenJob[]>;
+	"gen.cancel"(jobId: string): Promise<void>;
+	/** Runs gen/setup.sh: environments, model weights and patches (tens of GB). */
+	"gen.install"(): Promise<void>;
+	/** A PNG from the generation outputs or a project checkout, as a data URL (thumbnails, concepts). */
+	"gen.image"(path: string): Promise<string>;
+
 	"sessions.list"(): Promise<SessionSummary[]>;
 	"sessions.create"(req: NewSessionRequest): Promise<SessionSummary>;
 	"sessions.messages"(id: string): Promise<unknown[]>;
@@ -101,6 +110,9 @@ export type StudioEvent =
 	/** A streamed frame: base64 image data of type `mime`. */
 	| { type: "run_frame"; runId: string; image: string; mime: string; width: number; height: number }
 	| { type: "test_report"; report: TestReport }
+	| { type: "gen_job"; job: GenJob }
+	| { type: "gen_changed" }
+	| { type: "gen_setup"; text: string; done?: boolean; ok?: boolean }
 	| { type: "login_notice"; loginId: string; notice: LoginNotice }
 	| { type: "login_prompt"; loginId: string; prompt: LoginPrompt };
 

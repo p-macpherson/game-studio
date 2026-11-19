@@ -30,8 +30,14 @@ for ob in (o for o in bpy.context.scene.objects if o.type == "MESH"):
     before = len(bm.verts)
     bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
     print(f"WELD: {ob.name} {before} -> {len(bm.verts)} vertices")
+    for f in bm.faces:
+        f.smooth = True
     bm.to_mesh(ob.data)
     bm.free()
+    # Imported per-corner normals make the glTF exporter split every vertex again (one per triangle corner).
+    if ob.data.has_custom_normals:
+        bpy.context.view_layer.objects.active = ob
+        bpy.ops.mesh.customdata_custom_splitnormals_clear()
 
 # A wave: the upper arm swings up and back down around the world forward axis.
 pb = arm.pose.bones[arm_bone]

@@ -23,8 +23,8 @@ interface Live {
 	unsubscribe: () => void;
 }
 
-interface Waiter {
-	resolve(value: string): void;
+interface Waiter<T = string> {
+	resolve(value: T): void;
 	reject(err: Error): void;
 }
 
@@ -42,6 +42,8 @@ export class HostCore implements HostApi {
 	private readonly sessions = new Map<string, Live>();
 	private readonly logins = new Map<string, (value: string | null) => void>();
 	private readonly questions = new Map<string, Waiter>();
+	private readonly requests = new Map<string, Waiter<unknown> & { progress(text: string): void }>();
+	private nextRequest = 1;
 
 	private constructor(
 		private readonly runtime: ModelRuntime,
@@ -167,6 +169,17 @@ export class HostCore implements HostApi {
 						reject(new Error("Question cancelled"));
 					});
 				}),
+			request: (method, params, signal, progress) =>
+				new Promise((resolve, reject) => {
+					const requestId = `${spec.id}-r${this.nextRequest++}`;
+					this.requests.set(requestId, { resolve, reject, progress });
+					this.opts.post({ type: "studio_request", id: spec.id, requestId, method, params });
+					signal?.addEventListener("abort", () => {
+						if (!this.requests.delete(requestId)) return;
+						this.opts.post({ type: "studio_request_cancel", id: spec.id, requestId });
+						reject(new Error("Cancelled"));
+					});
+				}),
 		});
 		const { session } = await createAgentSession({
 			cwd: spec.cwd,
@@ -224,6 +237,17 @@ export class HostCore implements HostApi {
 
 	async setModel(id: string, model: string): Promise<void> {
 		await this.live(id).setModel(this.resolveModel(model));
+	}
+
+	studioProgress(requestId: string, text: string): void {
+		this.requests.get(requestId)?.progress(text);
+	}
+
+	studioReply(requestId: string, ok: boolean, value: unknown): void {
+		const r = this.requests.get(requestId);
+		this.requests.delete(requestId);
+		if (ok) r?.resolve(value);
+		else r?.reject(new Error(String(value)));
 	}
 
 	answerQuestion(_id: string, questionId: string, answer: string): void {

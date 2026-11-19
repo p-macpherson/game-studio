@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Settings } from "../../shared/types";
 import { call } from "../api";
 import { useStudio } from "../store";
+import { AssetGeneration } from "./Generation";
 
 const FIELDS: { key: "engineRepo" | "studioRepo" | "worktreeRoot"; label: string; help: string }[] = [
 	{ key: "engineRepo", label: "Engine repository", help: "headless-game-engine checkout. Engine sessions branch from it, and new projects add it as a submodule." },
@@ -56,6 +57,7 @@ export function SettingsView() {
 					</button>
 				</div>
 			</div>
+			<AssetGeneration />
 			<div className="card">
 				<h3>Session host</h3>
 				<span className="muted" data-testid="host-info">

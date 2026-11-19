@@ -16,11 +16,15 @@ npm run typecheck    # tsc
 npm test             # vitest: git/worktree/session lifecycle and project creation, against temp repos
 npm run e2e          # build, then drive the app with Playwright through project creation and a full session
                      # lifecycle on the faux model; screenshots in out/e2e/ (look at them after UI changes)
+npm run test:gpu     # the real generation models end to end on the GPU (a few minutes; needs gen/setup.sh done)
+bash gen/setup.sh    # install/repair local generation: model repos, ~45 GB of weights, Python envs (idempotent)
 node spike/pi-spike.ts <scratch-dir>   # the M0 Pi SDK spike (faux provider, no credentials needed)
 ```
 
 `GAME_STUDIO_FAUX=1` registers the scripted `faux/echo` model. It appends each message to `faux-notes.md` and
-commits, so you can exercise sessions with no credentials.
+commits, so you can exercise sessions with no credentials. A message `tool <name> <json args>` makes it call
+that tool and reply with the result. `GAME_STUDIO_GEN_FAKE=1` swaps every generation worker for
+`gen/workers/fake_worker.py` (fixture outputs, no GPU); `GAME_STUDIO_GEN` moves the generation root.
 
 Install dependencies with `npm install --ignore-scripts` (Pi's recommendation). After adding or upgrading
 `electron`, fetch its binary with `node node_modules/electron/install.js`. Pin exact versions.
@@ -50,7 +54,12 @@ Install dependencies with `npm install --ignore-scripts` (Pi's recommendation). 
 | `src/renderer/views/AssetBrowser.tsx` | The shared module section (searchable list, drafts version bar, actions, linked sessions); a module supplies its content view |
 | `src/main/runner.ts` + `engine-client.ts` | Play & Test: build/run/test through the project's `build.sh` from main or a session worktree; the engine control-protocol client; frame streaming. Pure parsers (Odin diagnostics, script replies) in `src/shared/run.ts` |
 | `src/renderer/views/Play.tsx` | Play & Test view: live view with input injection, inspector, console, tests |
-| `gen/spike/`, `gen/patches/` | M4a spike for local 3D generation (FLUX.2 Klein, Hunyuan3D-2, UniRig, Blender scripts) and the patches it applies to upstream repos. Environments, weights and clones live in `~/.local/share/game-studio/gen/`; findings are in the vault note `M4 3D Models.md` |
+| `src/main/gen.ts` | Generation service: job queue over Python model workers, one GPU worker at a time (warm per family, stopped when idle), Blender finalize jobs, setup/status |
+| `gen/workers/` | Model workers speaking JSON lines (`protocol.py`): `image_worker.py` (FLUX.2 Klein), `hunyuan_worker.py` (shape, texture), `unirig_worker.py` (rig), `fake_worker.py` (tests) |
+| `gen/blender/finalize.py` | Makes a model engine-ready: weld, ≤65,535 vertices per primitive, scale/origin, export, thumbnail, stats |
+| `gen/setup.sh`, `gen/patches/` | Idempotent install into `~/.local/share/game-studio/gen/` (`src/` pinned repos + patches, `models/`, `envs/`, `hf/`, `logs/`) |
+| `src/main/models.ts` | Model pipeline (`assets/models/<name>/`: `<name>.glb`, `thumbnail.png`, `model.json`, `concepts/`, `source/`) and the handler for agents' generation tools (`studio_request` from the session host) |
+| `gen/spike/` | The M4a spike scripts; findings are in the vault note `M4 3D Models.md` |
 
 ## Testing
 

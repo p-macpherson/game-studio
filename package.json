@@ -9,7 +9,8 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc",
-    "e2e": "electron-vite build && node e2e/smoke.ts"
+    "e2e": "electron-vite build && node e2e/smoke.ts",
+    "test:gpu": "GAME_STUDIO_GEN_GPU=1 vitest run src/main/gen.gpu.test.ts"
   },
   "repository": {
     "type": "git",

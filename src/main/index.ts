@@ -1,5 +1,5 @@
-import { existsSync, type FSWatcher, watch } from "node:fs";
-import { join } from "node:path";
+import { existsSync, type FSWatcher, readFileSync, watch } from "node:fs";
+import { join, resolve, sep } from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type { StudioApi, StudioEvent, StudioMethod } from "../shared/ipc";
 import type { ProjectInfo, Target } from "../shared/types";
@@ -8,6 +8,8 @@ import { AssetService, MODULES } from "./assets";
 import * as g from "./git";
 import { utilityHostLink } from "./host-link";
 import { createProject, readProject } from "./project";
+import { GenService } from "./gen";
+import { generationRequests, ModelPipeline } from "./models";
 import { RunService } from "./runner";
 import { SessionService } from "./sessions";
 import { SettingsStore } from "./settings";
@@ -52,6 +54,13 @@ async function main(): Promise<void> {
 	await app.whenReady();
 	const host = await utilityHostLink(piDir, process.env.GAME_STUDIO_FAUX === "1" ? { GAME_STUDIO_FAUX: "1" } : {});
 	const agentTypes = () => loadAgentTypes(join(appRoot, "agent-types"), project?.path);
+	const gen = new GenService({
+		root: process.env.GAME_STUDIO_GEN ?? join(app.getPath("home"), ".local/share/game-studio/gen"),
+		codeDir: join(appRoot, "gen"),
+		emit,
+		fake: process.env.GAME_STUDIO_GEN_FAKE === "1",
+	});
+	const pipeline = new ModelPipeline(gen);
 	const sessions = new SessionService({
 		host,
 		settings: () => settings.get(),
@@ -60,6 +69,7 @@ async function main(): Promise<void> {
 		skillsDir: join(appRoot, "skills"),
 		emit,
 		idleTimeoutMs: 10 * 60_000,
+		...generationRequests(pipeline, gen),
 	});
 
 	const assets = new AssetService(() => project?.path ?? null, sessions);
@@ -168,6 +178,19 @@ async function main(): Promise<void> {
 		"run.test": (sessionId, script) => runner.test(sessionId, script),
 		"run.image": async (sessionId, path) => runner.image(sessionId, path),
 
+		"gen.status": async () => gen.status(),
+		"gen.jobs": async () => gen.list(),
+		"gen.cancel": async (jobId) => gen.cancel(jobId),
+		"gen.install": async () => gen.install(),
+		"gen.image": async (path) => {
+			// Only images from generation outputs, the open project or session worktrees.
+			const full = resolve(path);
+			const allowed = [gen.status().root, project?.path, settings.get().worktreeRoot].filter((r): r is string => !!r).map((r) => resolve(r) + sep);
+			if (!/\.(png|jpe?g|webp)$/i.test(full) || !allowed.some((r) => full.startsWith(r))) throw new Error(`Not a studio image: ${path}`);
+			const mime = full.endsWith(".png") ? "image/png" : full.endsWith(".webp") ? "image/webp" : "image/jpeg";
+			return `data:${mime};base64,${readFileSync(full).toString("base64")}`;
+		},
+
 		"sessions.list": async () => sessions.list(),
 		"sessions.create": (req) => sessions.create(req),
 		"sessions.messages": (id) => sessions.messages(id),
@@ -199,6 +222,7 @@ async function main(): Promise<void> {
 
 	app.on("window-all-closed", () => {
 		runner.dispose();
+		void gen.dispose();
 		sessions.dispose();
 		host.kill();
 		app.quit();

@@ -30,11 +30,12 @@ export function makeRepo(dir: string, files: Record<string, string> = { "README.
 	return dir;
 }
 
-export async function inProcessHost(agentDir: string): Promise<HostLink & { core: HostCore }> {
+export async function inProcessHost(agentDir: string): Promise<HostLink & { core: HostCore; emit(e: HostEvent): void }> {
 	const listeners: ((e: HostEvent) => void)[] = [];
 	const core = await HostCore.create({ agentDir, faux: true, post: (e) => queueMicrotask(() => listeners.forEach((l) => l(e))) });
 	const call = (async (method: keyof HostCore, ...args: unknown[]) => (core[method] as (...a: unknown[]) => unknown).apply(core, args)) as HostCall;
-	return { core, call, onEvent: (l) => listeners.push(l), onRestart: () => {} };
+	// `emit` injects a host event, as if the session host had posted it.
+	return { core, call, onEvent: (l) => listeners.push(l), onRestart: () => {}, emit: (e: HostEvent) => listeners.forEach((l) => l(e)) };
 }
 
 export async function waitFor(cond: () => boolean, ms = 10_000): Promise<void> {

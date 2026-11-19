@@ -1,0 +1,78 @@
+/** Local asset generation: a GPU job queue over model workers. See the vault note "M4 3D Models". */
+
+/** A Python environment with its worker; only one runs at a time, since only one model family fits in VRAM. */
+export type GenFamily = "image" | "hunyuan3d" | "unirig";
+
+export type GenJobKind = "image" | "shape" | "texture" | "rig" | "finalize";
+
+export type GenJobStatus = "queued" | "running" | "done" | "failed" | "cancelled";
+
+export interface GenJob {
+	id: string;
+	kind: GenJobKind;
+	/** Short description for lists, e.g. "Shape for chest". */
+	label: string;
+	params: Record<string, unknown>;
+	status: GenJobStatus;
+	progress?: { message: string; fraction?: number | null };
+	result?: Record<string, unknown>;
+	error?: string;
+	/** The session that asked for it, if any. */
+	sessionId?: string;
+	createdAt: string;
+	startedAt?: string;
+	finishedAt?: string;
+}
+
+export interface GenComponent {
+	id: string;
+	name: string;
+	ok: boolean;
+	detail: string;
+}
+
+export interface GenStatus {
+	/** Where environments, weights and model repos live. */
+	root: string;
+	ready: boolean;
+	components: GenComponent[];
+	/** The worker currently holding the GPU. */
+	worker: { family: GenFamily; state: "starting" | "idle" | "busy" } | null;
+	/** `GAME_STUDIO_GEN_FAKE=1`: placeholder outputs from a fake worker, for tests. */
+	fake: boolean;
+	installing: boolean;
+}
+
+/** Which worker runs each GPU job kind (`finalize` runs in Blender on the CPU). */
+export const FAMILY_OF: Record<Exclude<GenJobKind, "finalize">, { family: GenFamily; op: string }> = {
+	image: { family: "image", op: "image" },
+	shape: { family: "hunyuan3d", op: "shape" },
+	texture: { family: "hunyuan3d", op: "texture" },
+	rig: { family: "unirig", op: "rig" },
+};
+
+/** One generated concept image, recorded in `concepts/concepts.json` (keyed by file name). */
+export interface ConceptRecord {
+	prompt: string;
+	seed: number;
+	model: string;
+	/** File names of reference images it was generated from. */
+	references?: string[];
+	at: string;
+}
+
+/** `assets/models/<name>/model.json`: how a model was made, so it can be reproduced and modified. */
+export interface ModelManifest {
+	name: string;
+	description?: string;
+	/** Repo-relative to the model folder. */
+	concept?: string;
+	/** How the concept was generated, when the studio made it (from concepts/concepts.json). */
+	conceptSource?: ConceptRecord;
+	back?: string;
+	height: number;
+	textured: boolean;
+	rigged: boolean;
+	steps: { kind: GenJobKind; model?: string; seed?: number; seconds?: number; at: string }[];
+	stats?: Record<string, unknown>;
+}

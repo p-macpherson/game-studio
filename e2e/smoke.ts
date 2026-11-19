@@ -23,7 +23,11 @@ writeFileSync(
 	}),
 );
 
-const app = await electron.launch({ args: ["."], env: { ...process.env, GAME_STUDIO_USER_DATA: userData, GAME_STUDIO_FAUX: "1" } });
+const app = await electron.launch({
+	args: ["."],
+	// Faux agent model, and a fake generation backend (fixture outputs, no GPU); Blender runs for real.
+	env: { ...process.env, GAME_STUDIO_USER_DATA: userData, GAME_STUDIO_FAUX: "1", GAME_STUDIO_GEN_FAKE: "1", GAME_STUDIO_GEN: join(root, "gen") },
+});
 const step = async (name: string, page: Page) => {
 	await page.screenshot({ path: join(shots, `${name}.png`) });
 	console.log(`✓ ${name}`);
@@ -162,6 +166,22 @@ try {
 	await page.locator(".code-line.target", { hasText: "nope" }).waitFor();
 	await page.locator(".version-bar .chip.on", { hasText: "Draft:" }).waitFor();
 	await step("15-error-in-draft", page);
+
+	// Asset generation: an agent's tools make concepts, then a model; the jobs show in Settings.
+	await nav.getByRole("button", { name: "Sessions" }).click();
+	await page.getByRole("button", { name: "+ New session" }).click();
+	await page.getByTestId("new-session-prompt").fill('tool generate_concept_images {"model": "crate", "prompt": "a wooden crate", "count": 2, "seed": 4}');
+	await page.getByRole("button", { name: "Start session" }).click();
+	await page.getByTestId("chat").getByText(/^Result:[\s\S]*crate-4\.png/).waitFor({ timeout: 30_000 });
+	await page.locator(".session-detail .status-idle").waitFor();
+	await page.getByTestId("composer").fill('tool generate_model {"model": "crate", "image": "assets/models/crate/concepts/crate-4.png", "height": 0.6}');
+	await page.getByTestId("composer").press("Enter");
+	await page.getByTestId("chat").getByText(/^Result:[\s\S]*crate\.glb/).waitFor({ timeout: 60_000 });
+	await step("16-generation-chat", page);
+	await nav.getByRole("button", { name: "Settings" }).click();
+	await page.getByTestId("gen-job").filter({ hasText: "Finalize crate" }).filter({ hasText: "done" }).waitFor();
+	await page.getByTestId("gen-component").filter({ hasText: "Fake worker" }).waitFor();
+	await step("17-generation-jobs", page);
 
 	// Source control and accounts render.
 	await page.getByRole("button", { name: "Source Control" }).click();

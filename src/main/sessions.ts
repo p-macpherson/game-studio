@@ -3,7 +3,7 @@
 import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import type { HostEvent, PromptMode } from "../shared/host";
+import type { HostEvent, PromptMode, StudioRequestMethod } from "../shared/host";
 import type { StudioEvent } from "../shared/ipc";
 import type { AgentTypeInfo, NewSessionRequest, PendingQuestion, SessionRecord, SessionSummary, Settings, Target } from "../shared/types";
 import * as g from "./git";
@@ -20,6 +20,18 @@ export interface SessionServiceDeps {
 	emit(event: StudioEvent): void;
 	/** Dispose Pi sessions that have been quiet this long. */
 	idleTimeoutMs?: number;
+	/** Serves an agent tool's call into the studio (asset generation). `cwd` is the session's worktree. */
+	studioRequest?(req: StudioRequest): Promise<unknown>;
+	cancelStudioRequest?(requestId: string): void;
+}
+
+export interface StudioRequest {
+	sessionId: string;
+	requestId: string;
+	cwd: string;
+	method: StudioRequestMethod;
+	params: Record<string, unknown>;
+	progress(text: string): void;
 }
 
 interface Entry {
@@ -463,6 +475,28 @@ export class SessionService {
 		this.touch(event.id);
 		const r = e.record;
 		switch (event.type) {
+			case "studio_request": {
+				const { requestId } = event;
+				const reply = (ok: boolean, value: unknown) => void this.deps.host.call("studioReply", requestId, ok, value).catch(() => {});
+				if (!this.deps.studioRequest) {
+					reply(false, "This studio can't serve that request");
+					break;
+				}
+				this.deps
+					.studioRequest({
+						sessionId: r.id,
+						requestId,
+						cwd: this.worktreePath(e),
+						method: event.method,
+						params: event.params,
+						progress: (text) => void this.deps.host.call("studioProgress", requestId, text).catch(() => {}),
+					})
+					.then((value) => reply(true, value), (err: Error) => reply(false, err.message));
+				break;
+			}
+			case "studio_request_cancel":
+				this.deps.cancelStudioRequest?.(event.requestId);
+				break;
 			case "session_event": {
 				this.deps.emit(event);
 				const ev = event.event;

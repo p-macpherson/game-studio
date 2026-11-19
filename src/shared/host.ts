@@ -39,7 +39,14 @@ export interface HostApi {
 	messages(id: string): unknown[];
 	setModel(id: string, model: string): Promise<void>;
 	answerQuestion(id: string, questionId: string, answer: string): void;
+	/** Progress for a pending `studio_request` (shown as a tool update in the chat). */
+	studioProgress(requestId: string, text: string): void;
+	/** Completes a pending `studio_request`. */
+	studioReply(requestId: string, ok: boolean, value: unknown): void;
 }
+
+/** Studio services an agent's tools can call in the main process (`studio_request`). */
+export type StudioRequestMethod = "generate_concepts" | "generate_model" | "retexture_model" | "rig_model" | "finalize_model";
 
 export type HostEvent =
 	/** A raw Pi AgentSessionEvent, JSON-sanitised. */
@@ -47,6 +54,9 @@ export type HostEvent =
 	| { type: "session_error"; id: string; error: string }
 	| { type: "studio_tool"; id: string; tool: "set_session_title" | "request_review" | "open_in_studio"; params: Record<string, string> }
 	| { type: "ask_user"; id: string; questionId: string; question: string; options?: string[] }
+	/** A tool needs a main-process service; answered with `studioReply`. */
+	| { type: "studio_request"; id: string; requestId: string; method: StudioRequestMethod; params: Record<string, unknown> }
+	| { type: "studio_request_cancel"; id: string; requestId: string }
 	| { type: "login_notice"; loginId: string; notice: LoginNotice }
 	| { type: "login_prompt"; loginId: string; prompt: LoginPrompt };
 
