@@ -4,6 +4,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import { type AssetDraft, type AssetSearchHit, type AssetSummary, type ModuleInfo, moduleOwns } from "../shared/modules";
 import { designDocs, summarizeMarkdown } from "../modules/design-docs/info";
+import { gameCode, summarizeCode } from "../modules/game-code/info";
 import type { SessionService } from "./sessions";
 
 export interface ModuleBackend {
@@ -11,9 +12,12 @@ export interface ModuleBackend {
 	summarize(text: string, path: string): { title: string; excerpt: string };
 }
 
-export const MODULES: ModuleBackend[] = [{ info: designDocs, summarize: summarizeMarkdown }];
+export const MODULES: ModuleBackend[] = [
+	{ info: designDocs, summarize: summarizeMarkdown },
+	{ info: gameCode, summarize: summarizeCode },
+];
 
-function walk(dir: string, base: string, out: string[] = []): string[] {
+export function walk(dir: string, base: string, out: string[] = []): string[] {
 	if (!existsSync(dir)) return out;
 	for (const entry of readdirSync(dir, { withFileTypes: true })) {
 		if (entry.name.startsWith(".")) continue;

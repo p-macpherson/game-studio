@@ -10,7 +10,7 @@ import { StatusBadge, TargetBadge } from "./Sessions";
 type Tab = "chat" | "changes" | "raw";
 
 export function SessionDetail({ session: s }: { session: SessionSummary }) {
-	const { transcripts, agentTypes, models, showError, loadTranscript } = useStudio();
+	const { transcripts, agentTypes, models, showError, loadTranscript, openPlay } = useStudio();
 	const transcript = transcripts[s.id];
 	const [tab, setTab] = useState<Tab>("chat");
 	const [draft, setDraft] = useState("");
@@ -57,6 +57,11 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 					<h2 className="grow ellipsis" title={s.title}>
 						{s.title}
 					</h2>
+					{hasWorktree && s.target !== "studio" && (
+						<button title="Build and run the game with this session's changes" onClick={() => openPlay({ checkout: s.id, tab: "run" })}>
+							▶ Play &amp; Test
+						</button>
+					)}
 					{running && (
 						<button disabled={busy} onClick={() => act(() => call("sessions.abort", s.id))}>
 							■ Stop

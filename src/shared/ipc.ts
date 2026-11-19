@@ -1,6 +1,7 @@
 /** Contract between the renderer and the main process, exposed by the preload script as `window.studio`. */
 import type { HostInfo, PromptMode } from "./host";
 import type { AssetSearchHit, AssetSummary, ModuleInfo } from "./modules";
+import type { CheckoutId, CheckoutInfo, RunInfo, RunMode, TestReport } from "./run";
 import type {
 	AgentTypeInfo,
 	GitCommit,
@@ -57,6 +58,19 @@ export interface StudioApi {
 	"assets.read"(path: string, sessionId?: string): Promise<string>;
 	"assets.search"(moduleId: string, query: string): Promise<AssetSearchHit[]>;
 
+	/** Main checkout plus session worktrees the game can be built and run from. */
+	"run.checkouts"(): Promise<CheckoutInfo[]>;
+	"run.current"(): Promise<RunInfo | null>;
+	"run.build"(sessionId: CheckoutId): Promise<RunInfo>;
+	"run.start"(sessionId: CheckoutId, mode: RunMode): Promise<RunInfo>;
+	"run.stop"(): Promise<void>;
+	/** A control-protocol command for the running game (see engine/docs/control-protocol.md). */
+	"run.call"(cmd: string, args?: Record<string, unknown>): Promise<unknown>;
+	"run.stream"(on: boolean): Promise<void>;
+	"run.tests"(sessionId: CheckoutId): Promise<string[]>;
+	"run.test"(sessionId: CheckoutId, script: string): Promise<TestReport>;
+	"run.image"(sessionId: CheckoutId, path: string): Promise<string>;
+
 	"sessions.list"(): Promise<SessionSummary[]>;
 	"sessions.create"(req: NewSessionRequest): Promise<SessionSummary>;
 	"sessions.messages"(id: string): Promise<unknown[]>;
@@ -80,8 +94,12 @@ export type StudioEvent =
 	| { type: "sessions_changed" }
 	| { type: "session_event"; id: string; event: { type: string; [k: string]: unknown } }
 	| { type: "project_changed" }
-	| { type: "focus_asset"; path: string; sessionId?: string }
+	| { type: "focus_asset"; path: string; sessionId?: string; line?: number }
 	| { type: "assets_changed" }
+	| { type: "run_changed"; run: RunInfo }
+	| { type: "run_output"; runId: string; text: string }
+	| { type: "run_frame"; runId: string; png: string; width: number; height: number }
+	| { type: "test_report"; report: TestReport }
 	| { type: "login_notice"; loginId: string; notice: LoginNotice }
 	| { type: "login_prompt"; loginId: string; prompt: LoginPrompt };
 

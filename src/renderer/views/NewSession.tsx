@@ -15,7 +15,7 @@ export function NewSessionDialog({ preset }: { preset: NewSessionPreset }) {
 	const [target, setTarget] = useState<Target | undefined>(preset.target && targets.includes(preset.target) ? preset.target : targets[0]);
 	const defaultModel = (ref?: string) => (ref && models.some((m) => m.ref === ref) ? ref : models[0]?.ref);
 	const [model, setModel] = useState(defaultModel(type?.defaultModel));
-	const [prompt, setPrompt] = useState("");
+	const [prompt, setPrompt] = useState(preset.prompt ?? "");
 	const [busy, setBusy] = useState(false);
 
 	const chooseType = (id: string) => {

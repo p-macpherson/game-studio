@@ -1,10 +1,18 @@
 import { create } from "zustand";
 import type { StudioEvent } from "../shared/ipc";
 import { type ModuleInfo, moduleOwns } from "../shared/modules";
+import type { CheckoutId, RunInfo, RunMode, TestReport } from "../shared/run";
 import type { AgentTypeInfo, ModelInfo, ProjectInfo, SessionSummary, Settings, Target } from "../shared/types";
 import { call } from "./api";
 
-export type View = "sessions" | "source-control" | "accounts" | "settings" | `module:${string}`;
+export type View = "sessions" | "source-control" | "accounts" | "settings" | "play" | `module:${string}`;
+
+export type PlayTab = "run" | "tests";
+
+/** Key for a test report: which checkout, which script. */
+export const testKey = (sessionId: CheckoutId, script: string) => `${sessionId ?? ""}:${script}`;
+
+const OUTPUT_LIMIT = 200_000;
 
 /** Pre-fills the New Session dialog, e.g. when started from an asset. */
 export interface NewSessionPreset {
@@ -14,12 +22,15 @@ export interface NewSessionPreset {
 	/** Shown above the prompt, e.g. "About docs/design/Combat.md". */
 	context?: string;
 	placeholder?: string;
+	/** Pre-filled prompt text, e.g. compiler errors to fix. */
+	prompt?: string;
 }
 
 /** An asset a module view should show, optionally as a session's draft. */
 export interface AssetFocus {
 	path: string;
 	sessionId?: string;
+	line?: number;
 }
 
 /** A Pi message as the renderer sees it (only the fields it draws). */
@@ -63,6 +74,15 @@ interface State {
 	/** Bumped whenever assets may have changed, so module views refetch. */
 	assetsVersion: number;
 
+	/** Play & Test: which checkout to build/run/test, the current run, its console and latest frame. */
+	playCheckout: CheckoutId;
+	playTab: PlayTab;
+	run: RunInfo | null;
+	runOutput: string;
+	frame: { runId: string; png: string; width: number; height: number } | null;
+	testReports: Record<string, TestReport>;
+	testsRunning: string[];
+
 	refresh(): Promise<void>;
 	refreshSessions(): Promise<void>;
 	refreshModels(): Promise<void>;
@@ -72,6 +92,9 @@ interface State {
 	showError(err: unknown): void;
 	openNewSession(preset: NewSessionPreset | null): void;
 	showAsset(focus: AssetFocus): void;
+	openPlay(opts?: { checkout?: CheckoutId; tab?: PlayTab }): void;
+	startRun(mode: RunMode | "build"): Promise<void>;
+	runTests(scripts: string[]): Promise<void>;
 	handleEvent(event: StudioEvent): void;
 }
 
@@ -92,15 +115,23 @@ export const useStudio = create<State>((set, get) => ({
 	modules: [],
 	focus: null,
 	assetsVersion: 0,
+	playCheckout: null,
+	playTab: "run",
+	run: null,
+	runOutput: "",
+	frame: null,
+	testReports: {},
+	testsRunning: [],
 
 	async refresh() {
-		const [project, settings, agentTypes, modules] = await Promise.all([
+		const [project, settings, agentTypes, modules, run] = await Promise.all([
 			call("project.current"),
 			call("settings.get"),
 			call("agentTypes.list"),
 			call("modules.list"),
+			call("run.current"),
 		]);
-		set((s) => ({ project, settings, agentTypes, modules, assetsVersion: s.assetsVersion + 1 }));
+		set((s) => ({ project, settings, agentTypes, modules, run, assetsVersion: s.assetsVersion + 1 }));
 		await Promise.all([get().refreshSessions(), get().refreshModels()]);
 	},
 	async refreshSessions() {
@@ -128,9 +159,47 @@ export const useStudio = create<State>((set, get) => ({
 		const module = get().modules.find((m) => moduleOwns(m, focus.path));
 		if (module) set({ view: `module:${module.id}`, focus });
 	},
+	openPlay(opts = {}) {
+		set((s) => ({ view: "play", playCheckout: opts.checkout !== undefined ? opts.checkout : s.playCheckout, playTab: opts.tab ?? s.playTab }));
+	},
+	async startRun(mode) {
+		const checkout = get().playCheckout;
+		try {
+			if (mode === "build") await call("run.build", checkout);
+			else await call("run.start", checkout, mode);
+		} catch (err) {
+			get().showError(err);
+		}
+	},
+	async runTests(scripts) {
+		const checkout = get().playCheckout;
+		const keys = scripts.map((s) => testKey(checkout, s));
+		set((s) => ({ testsRunning: [...s.testsRunning, ...keys] }));
+		for (const script of scripts) {
+			try {
+				await call("run.test", checkout, script);
+			} catch (err) {
+				get().showError(err);
+			} finally {
+				set((s) => ({ testsRunning: s.testsRunning.filter((k) => k !== testKey(checkout, script)) }));
+			}
+		}
+	},
 
 	handleEvent(event) {
 		switch (event.type) {
+			case "run_changed":
+				set((s) => (s.run?.id === event.run.id ? { run: event.run } : { run: event.run, runOutput: "", frame: null }));
+				break;
+			case "run_output":
+				set((s) => (s.run?.id === event.runId ? { runOutput: (s.runOutput + event.text).slice(-OUTPUT_LIMIT) } : {}));
+				break;
+			case "run_frame":
+				set({ frame: { runId: event.runId, png: event.png, width: event.width, height: event.height } });
+				break;
+			case "test_report":
+				set((s) => ({ testReports: { ...s.testReports, [testKey(event.report.sessionId, event.report.script)]: event.report } }));
+				break;
 			case "sessions_changed":
 				void get().refreshSessions();
 				break;
@@ -141,7 +210,7 @@ export const useStudio = create<State>((set, get) => ({
 				set((s) => ({ assetsVersion: s.assetsVersion + 1 }));
 				break;
 			case "focus_asset":
-				get().showAsset({ path: event.path, sessionId: event.sessionId });
+				get().showAsset({ path: event.path, sessionId: event.sessionId, line: event.line });
 				break;
 			case "session_event":
 				set((s) => {

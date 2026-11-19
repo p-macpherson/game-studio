@@ -8,6 +8,7 @@ import { AssetService, MODULES } from "./assets";
 import * as g from "./git";
 import { utilityHostLink } from "./host-link";
 import { createProject, readProject } from "./project";
+import { RunService } from "./runner";
 import { SessionService } from "./sessions";
 import { SettingsStore } from "./settings";
 import { openTerminal } from "./terminal";
@@ -62,8 +63,10 @@ async function main(): Promise<void> {
 	});
 
 	const assets = new AssetService(() => project?.path ?? null, sessions);
+	const runner = new RunService({ projectPath: () => project?.path ?? null, sessions, emit });
 	const repo = (target: Target) => sessions.repoFor(target);
 	const setProject = (info: ProjectInfo | null) => {
+		void runner.stop();
 		project = info;
 		if (info) settings.rememberProject(info.path);
 		else settings.update({ lastProject: undefined });
@@ -154,6 +157,17 @@ async function main(): Promise<void> {
 		"assets.read": async (path, sessionId) => assets.read(path, sessionId),
 		"assets.search": async (moduleId, query) => assets.search(moduleId, query),
 
+		"run.checkouts": async () => runner.checkouts(),
+		"run.current": async () => runner.current(),
+		"run.build": (sessionId) => runner.build(sessionId),
+		"run.start": (sessionId, mode) => runner.start(sessionId, mode),
+		"run.stop": () => runner.stop(),
+		"run.call": (cmd, args) => runner.call(cmd, args),
+		"run.stream": async (on) => runner.setStreaming(on),
+		"run.tests": async (sessionId) => runner.tests(sessionId),
+		"run.test": (sessionId, script) => runner.test(sessionId, script),
+		"run.image": async (sessionId, path) => runner.image(sessionId, path),
+
 		"sessions.list": async () => sessions.list(),
 		"sessions.create": (req) => sessions.create(req),
 		"sessions.messages": (id) => sessions.messages(id),
@@ -184,6 +198,7 @@ async function main(): Promise<void> {
 	createWindow();
 
 	app.on("window-all-closed", () => {
+		runner.dispose();
 		sessions.dispose();
 		host.kill();
 		app.quit();

@@ -6,6 +6,7 @@ import { type View, useStudio } from "./store";
 import "./styles.css";
 import { Accounts } from "./views/Accounts";
 import { NewSessionDialog } from "./views/NewSession";
+import { Play } from "./views/Play";
 import { ProjectMenu, ProjectPicker } from "./views/Projects";
 import { Sessions } from "./views/Sessions";
 import { SettingsView } from "./views/Settings";
@@ -19,7 +20,7 @@ const NAV: { view: View; label: string; icon: string }[] = [
 ];
 
 function App() {
-	const { project, view, setView, sessions, modules, error, refresh, handleEvent, newSession } = useStudio();
+	const { project, view, setView, sessions, modules, error, refresh, handleEvent, newSession, run } = useStudio();
 	const [ready, setReady] = useState(false);
 	const [skipPicker, setSkipPicker] = useState(false);
 
@@ -58,6 +59,11 @@ function App() {
 								{m.name}
 							</button>
 						))}
+						<button className={`nav-item ${view === "play" ? "active" : ""}`} onClick={() => setView("play")}>
+							<span>▶</span>
+							Play &amp; Test
+							{run?.state === "running" && <span className="count">●</span>}
+						</button>
 					</>
 				)}
 			</nav>
@@ -74,6 +80,7 @@ function App() {
 				{view === "source-control" && <SourceControl />}
 				{view === "accounts" && <Accounts />}
 				{view === "settings" && <SettingsView />}
+				{view === "play" && project && <Play />}
 				{activeModule && project && (() => {
 					const ModuleView = MODULE_VIEWS[activeModule.id];
 					return <ModuleView key={activeModule.id} module={activeModule} />;

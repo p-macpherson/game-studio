@@ -47,8 +47,13 @@ Install dependencies with `npm install --ignore-scripts` (Pi's recommendation). 
 | `agent-types/<id>/AGENT.md`, `skills/<name>/SKILL.md` | Built-in agent types (frontmatter + prompt) and Pi skills |
 | `src/modules/<id>/` | Studio modules (one section per part of the game): `info.ts` (the `ModuleInfo` contract from `src/shared/modules.ts`, plus summaries) and `view.tsx`. Register a new module in `MODULES` (`src/main/assets.ts`) and `MODULE_VIEWS` (`src/renderer/modules.tsx`) |
 | `src/main/assets.ts` | Asset discovery for modules: main checkout + **drafts** (files changed in active sessions' worktrees), reads, search |
+| `src/renderer/views/AssetBrowser.tsx` | The shared module section (searchable list, drafts version bar, actions, linked sessions); a module supplies its content view |
+| `src/main/runner.ts` + `engine-client.ts` | Play & Test: build/run/test through the project's `build.sh` from main or a session worktree; the engine control-protocol client; frame streaming. Pure parsers (Odin diagnostics, script replies) in `src/shared/run.ts` |
+| `src/renderer/views/Play.tsx` | Play & Test view: live view with input injection, inspector, console, tests |
 
 ## Testing
 
 - Use Pi's `fauxProvider` (`@earendil-works/pi-ai`) for session tests, so they run without credentials or network.
 - UI changes: build, run `e2e/smoke.ts` (or a dedicated e2e script), and look at the screenshot.
+- `runner.test.ts` and the e2e build and run a real game from the template, so they need `../headless-game-engine`
+  (with its `third_party/lib` built), `odin` and a display. Those runner tests skip themselves without the engine.

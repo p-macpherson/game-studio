@@ -77,7 +77,7 @@ try {
 
 	// Design Docs: the template's overview is listed and rendered.
 	await page.getByRole("button", { name: "Design Docs" }).click();
-	const docs = page.getByTestId("doc-item");
+	const docs = page.getByTestId("asset-item");
 	await docs.filter({ hasText: "E2E Game" }).waitFor();
 	await page.locator(".markdown h1", { hasText: "E2E Game" }).waitFor();
 	await step("08-design-docs", page);
@@ -117,6 +117,51 @@ try {
 	await page.locator(".markdown", { hasText: "Now with combat" }).waitFor();
 	await page.getByText("Sessions on this doc").waitFor();
 	await step("10-doc-draft-of-existing", page);
+
+	// Game Code lists the template's code.
+	const nav = page.locator("nav.sidebar");
+	await nav.getByRole("button", { name: "Game Code" }).click();
+	await page.getByTestId("asset-item").filter({ hasText: "main.odin" }).waitFor();
+	await page.getByTestId("code-view").getByText("package game").first().waitFor();
+	await step("11-game-code", page);
+
+	// Play & Test: run the main checkout hidden, streamed into the studio, with the inspector.
+	await nav.getByRole("button", { name: "Play & Test" }).click();
+	await page.getByRole("button", { name: "▶ Run in studio" }).click();
+	await page.getByTestId("run-state").getByText("Running").waitFor({ timeout: 60_000 });
+	await page.waitForFunction(() => (document.querySelector("[data-testid=viewport] img") as HTMLImageElement | null)?.naturalWidth === 1280);
+	await page.getByTestId("entity").filter({ hasText: "Cube" }).click();
+	await page.locator(".entity-detail", { hasText: "Mesh_Renderer" }).waitFor();
+	await page.getByTestId("viewport").click();
+	await page.keyboard.press("Space");
+	await step("12-play", page);
+	await page.getByRole("button", { name: "■ Stop" }).click();
+	await page.getByTestId("run-state").getByText("Stopped").waitFor();
+
+	// Tests: the template's smoke test passes, with its screenshot.
+	await page.getByRole("button", { name: "Tests", exact: true }).click();
+	await page.getByRole("button", { name: "▶ Run all" }).click();
+	await page.locator(".test-status.pass").waitFor({ timeout: 60_000 });
+	await page.locator(".test-head", { hasText: "tests/smoke.jsonl" }).click();
+	await page.waitForFunction(() => ((document.querySelector(".shot img") as HTMLImageElement | null)?.naturalWidth ?? 0) > 0);
+	await step("13-tests", page);
+
+	// A session's draft that doesn't compile: build its worktree, follow the error into its draft code.
+	await nav.getByRole("button", { name: "Game Code" }).click();
+	await page.getByRole("button", { name: "+ New feature" }).click();
+	await page.getByTestId("new-session-prompt").fill("write game/extra.odin: package game\n\nextra :: proc() {\n\tx := nope\n}\n");
+	await page.getByRole("button", { name: "Start session" }).click();
+	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
+	await page.locator(".session-header").getByRole("button", { name: "▶ Play & Test" }).click();
+	await page.getByRole("button", { name: "Run", exact: true }).click();
+	await page.getByRole("button", { name: "⚒ Build" }).click();
+	await page.getByTestId("run-state").getByText("Build failed").waitFor({ timeout: 60_000 });
+	await page.getByRole("button", { name: "Send to session" }).waitFor();
+	await step("14-build-failed", page);
+	await page.locator(".diagnostic", { hasText: "game/extra.odin:4" }).click();
+	await page.locator(".code-line.target", { hasText: "nope" }).waitFor();
+	await page.locator(".version-bar .chip.on", { hasText: "Draft:" }).waitFor();
+	await step("15-error-in-draft", page);
 
 	// Source control and accounts render.
 	await page.getByRole("button", { name: "Source Control" }).click();
