@@ -179,8 +179,11 @@ a {
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
-.sidebar-toggle {
+.sidebar-bottom {
 	margin-top: auto;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
 }
 .shell.collapsed {
 	grid-template-columns: 52px 1fr;
@@ -375,6 +378,10 @@ a {
 .tab.active {
 	color: var(--text);
 	border-bottom-color: var(--accent);
+}
+.settings-tabs {
+	padding: 0;
+	margin-top: -8px;
 }
 .tab-body {
 	flex: 1;

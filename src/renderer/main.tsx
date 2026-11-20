@@ -4,7 +4,6 @@ import { onEvent } from "./api";
 import { MODULE_VIEWS } from "./modules";
 import { type View, useStudio } from "./store";
 import "./styles.css";
-import { Accounts } from "./views/Accounts";
 import { NewSessionDialog } from "./views/NewSession";
 import { Play } from "./views/Play";
 import { ProjectMenu, ProjectPicker } from "./views/Projects";
@@ -15,8 +14,6 @@ import { SourceControl } from "./views/SourceControl";
 const NAV: { view: View; label: string; icon: string }[] = [
 	{ view: "sessions", label: "Sessions", icon: "💬" },
 	{ view: "source-control", label: "Source Control", icon: "⎇" },
-	{ view: "accounts", label: "Accounts", icon: "🔑" },
-	{ view: "settings", label: "Settings", icon: "⚙" },
 ];
 
 function App() {
@@ -74,16 +71,22 @@ function App() {
 						</button>
 					</>
 				)}
-				<button
-					className="nav-item sidebar-toggle"
-					data-testid="sidebar-toggle"
-					title={collapsed ? "Expand the menu" : "Collapse the menu"}
-					aria-label={collapsed ? "Expand the menu" : "Collapse the menu"}
-					onClick={toggleSidebar}
-				>
-					<span className="nav-icon">{collapsed ? "»" : "«"}</span>
-					<span className="nav-label">Collapse</span>
-				</button>
+				<div className="sidebar-bottom">
+					<button className={`nav-item ${view === "settings" ? "active" : ""}`} title="Settings" aria-label="Settings" onClick={() => setView("settings")}>
+						<span className="nav-icon">⚙</span>
+						<span className="nav-label">Settings</span>
+					</button>
+					<button
+						className="nav-item"
+						data-testid="sidebar-toggle"
+						title={collapsed ? "Expand the menu" : "Collapse the menu"}
+						aria-label={collapsed ? "Expand the menu" : "Collapse the menu"}
+						onClick={toggleSidebar}
+					>
+						<span className="nav-icon">{collapsed ? "»" : "«"}</span>
+						<span className="nav-label">Collapse</span>
+					</button>
+				</div>
 			</nav>
 			<main className="main">
 				{error && (
@@ -96,7 +99,6 @@ function App() {
 				)}
 				{view === "sessions" && <Sessions />}
 				{view === "source-control" && <SourceControl />}
-				{view === "accounts" && <Accounts />}
 				{view === "settings" && <SettingsView />}
 				{view === "play" && project && <Play />}
 				{activeModule && project && (() => {

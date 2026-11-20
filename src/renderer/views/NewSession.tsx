@@ -6,7 +6,7 @@ import { type NewSessionPreset, useStudio } from "../store";
 const TARGET_LABEL: Record<Target, string> = { project: "Game project", engine: "Engine", studio: "Game Studio" };
 
 export function NewSessionDialog({ preset }: { preset: NewSessionPreset }) {
-	const { agentTypes, models, project, openNewSession, selectSession, showError } = useStudio();
+	const { agentTypes, models, project, openNewSession, openSettings, selectSession, showError } = useStudio();
 	const [typeId, setTypeId] = useState(
 		agentTypes.find((t) => t.id === preset.agentType)?.id ?? agentTypes.find((t) => t.id === "general")?.id ?? agentTypes[0]?.id,
 	);
@@ -76,7 +76,14 @@ export function NewSessionDialog({ preset }: { preset: NewSessionPreset }) {
 						</select>
 					</label>
 				</div>
-				{models.length === 0 && <div className="msg error">No models available. Sign in to an AI account under Accounts first.</div>}
+				{models.length === 0 && (
+					<div className="msg error">
+						No models available. Sign in to an AI account first:{" "}
+						<button className="link" onClick={() => (openNewSession(null), openSettings("accounts"))}>
+							Settings → Accounts
+						</button>
+					</div>
+				)}
 				{type && targets.length === 0 && <div className="msg error">{type.name} sessions need a game project open.</div>}
 				<label className="field">
 					<span>{preset.context ? <code>{preset.context}</code> : "What should the agent do?"}</span>

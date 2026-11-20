@@ -131,7 +131,8 @@ function ProviderRow({ p, onLogin, onLogout }: { p: ProviderInfo; onLogin(type: 
 	);
 }
 
-export function Accounts() {
+/** AI accounts and the models they unlock: the Accounts tab of Settings. */
+export function AccountsPanel() {
 	const { models, refreshModels, showError } = useStudio();
 	const [providers, setProviders] = useState<ProviderInfo[]>([]);
 	const [login, setLogin] = useState<{ provider: ProviderInfo; type: "oauth" | "api_key" } | null>(null);
@@ -170,9 +171,8 @@ export function Accounts() {
 	for (const m of models) byProvider.set(m.provider, (byProvider.get(m.provider) ?? 0) + 1);
 
 	return (
-		<div className="page">
-			<h2>Accounts</h2>
-			<p className="muted">
+		<>
+			<p className="muted" style={{ margin: 0 }}>
 				Connect AI accounts here. Subscriptions sign in through your browser; API keys are stored in Game Studio's own Pi credentials file.
 				The models your accounts unlock are the models sessions can use.
 			</p>
@@ -204,6 +204,6 @@ export function Accounts() {
 				))}
 			</div>
 			{login && <LoginDialog provider={login.provider} type={login.type} onDone={onDone} />}
-		</div>
+		</>
 	);
 }

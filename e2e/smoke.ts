@@ -316,7 +316,8 @@ try {
 	await page.locator(".list-row", { hasText: "studio: session" }).first().waitFor();
 	await page.locator("code", { hasText: "⎇ main" }).waitFor();
 	await step("06-source-control", page);
-	await page.getByRole("button", { name: "Accounts" }).click();
+	await nav.getByRole("button", { name: "Settings" }).click();
+	await page.getByRole("button", { name: "Accounts", exact: true }).click();
 	await page.getByText("Available models").waitFor();
 	await step("07-accounts", page);
 	console.log(`passed; screenshots in ${shots}`);

@@ -1,8 +1,14 @@
 import { useEffect, useState } from "react";
 import type { Settings } from "../../shared/types";
 import { call } from "../api";
-import { useStudio } from "../store";
+import { type SettingsTab, useStudio } from "../store";
+import { AccountsPanel } from "./Accounts";
 import { AssetGeneration } from "./Generation";
+
+const TABS: { id: SettingsTab; label: string }[] = [
+	{ id: "general", label: "General" },
+	{ id: "accounts", label: "Accounts" },
+];
 
 const FIELDS: { key: "engineRepo" | "studioRepo" | "worktreeRoot"; label: string; help: string }[] = [
 	{ key: "engineRepo", label: "Engine repository", help: "headless-game-engine checkout. Engine sessions branch from it, and new projects add it as a submodule." },
@@ -11,6 +17,23 @@ const FIELDS: { key: "engineRepo" | "studioRepo" | "worktreeRoot"; label: string
 ];
 
 export function SettingsView() {
+	const { settingsTab, openSettings } = useStudio();
+	return (
+		<div className="page">
+			<h2>Settings</h2>
+			<div className="tabs settings-tabs">
+				{TABS.map((t) => (
+					<button key={t.id} className={`tab ${settingsTab === t.id ? "active" : ""}`} onClick={() => openSettings(t.id)}>
+						{t.label}
+					</button>
+				))}
+			</div>
+			{settingsTab === "accounts" ? <AccountsPanel /> : <GeneralSettings />}
+		</div>
+	);
+}
+
+function GeneralSettings() {
 	const { settings, showError, refresh } = useStudio();
 	const [draft, setDraft] = useState<Settings | null>(settings);
 	const [host, setHost] = useState("");
@@ -31,8 +54,7 @@ export function SettingsView() {
 	};
 
 	return (
-		<div className="page">
-			<h2>Settings</h2>
+		<>
 			<div className="card">
 				{FIELDS.map((f) => (
 					<label key={f.key} className="field">
@@ -64,6 +86,6 @@ export function SettingsView() {
 					{host || "starting…"}
 				</span>
 			</div>
-		</div>
+		</>
 	);
 }
