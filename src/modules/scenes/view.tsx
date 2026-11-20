@@ -139,13 +139,21 @@ function SceneDetail({ asset, text, sessionId, assets }: AssetContentProps) {
 		ids.current = new Map(rows.flatMap((r) => (r.scene_id ? [[r.scene_id, r.id] as [number, number]] : [])));
 	};
 
-	// A new live run: the component schemas, the file id → entity map, and a floor under a prefab.
+	// The component schemas drive the inspector: load them whenever a live run is up and they're missing.
+	useEffect(() => {
+		if (!live || schemas) return;
+		let alive = true;
+		call("run.call", "components").then((comps) => alive && setSchemas(comps as ComponentSchema[]), () => {});
+		return () => {
+			alive = false;
+		};
+	}, [live, run?.id, schemas]);
+
+	// A new live run: the file id → entity map, and a floor under a prefab.
 	useEffect(() => {
 		if (!live) return;
-		let alive = true;
 		shown.current = text;
 		(async () => {
-			const comps = (await call("run.call", "components")) as ComponentSchema[];
 			if (prefabFile) {
 				await call("run.call", "spawn", {
 					name: EDITOR_GROUND,
@@ -153,11 +161,7 @@ function SceneDetail({ asset, text, sessionId, assets }: AssetContentProps) {
 				});
 			}
 			await refreshIds();
-			if (alive) setSchemas(comps);
 		})().catch(showError);
-		return () => {
-			alive = false;
-		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [live, run?.id]);
 
