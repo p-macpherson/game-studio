@@ -1,5 +1,6 @@
 /** Contract between the renderer and the main process, exposed by the preload script as `window.studio`. */
 import type { HostInfo, PromptMode, StudioRequestMethod } from "./host";
+import type { AssetLinks } from "./asset-links";
 import type { AssetSearchHit, AssetSummary, ModuleInfo, MoveResult } from "./modules";
 import type { CheckoutId, CheckoutInfo, RunInfo, RunMode, RunOptions, TestReport } from "./run";
 import type { ConceptImage, GenJob, GenStatus } from "./gen";
@@ -60,6 +61,8 @@ export interface StudioApi {
 	/** From the main checkout, or from a session's worktree when `sessionId` is given. */
 	"assets.read"(path: string, checkout?: string | null): Promise<string>;
 	"assets.search"(moduleId: string, query: string, checkout?: string | null): Promise<AssetSearchHit[]>;
+	/** Which assets use which in a checkout: for each asset, what refers to it directly. */
+	"assets.links"(checkout?: string | null): Promise<AssetLinks>;
 	/** Moves or renames an asset (or a folder of them) in a worktree, rewriting references to it. */
 	"assets.move"(moduleId: string, checkout: string, from: string, to: string): Promise<MoveResult>;
 

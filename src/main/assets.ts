@@ -9,6 +9,8 @@ import { models3d, summarizeModel } from "../modules/3d-models/info";
 import { music, summarizeSong } from "../modules/music/info";
 import { scenes, summarizeScene } from "../modules/scenes/info";
 import { sounds, summarizeSound } from "../modules/sounds/info";
+import type { AssetLinks } from "../shared/asset-links";
+import { assetLinks } from "./asset-links";
 import { moveAsset } from "./asset-move";
 import type { SessionService } from "./sessions";
 
@@ -90,6 +92,12 @@ export class AssetService {
 		if (!MODULES.some((m) => moduleOwns(m.info, path))) throw new Error(`${path} isn't a studio asset`);
 		const full = safeJoin(this.checkoutRoot(checkout), path);
 		return existsSync(full) ? readFileSync(full, "utf8") : "";
+	}
+
+	/** Which assets use which in a checkout (scenes, prefabs, manifests, game code and tests; see asset-links.ts). */
+	links(checkout: string | null = null): AssetLinks {
+		const root = this.checkoutRoot(checkout);
+		return assetLinks(root, MODULES.map((m) => m.info), MODULES.flatMap((m) => this.files(m, root)));
 	}
 
 	/** Moves or renames an asset or a folder of them, in a worktree (never main), rewriting references (asset-move.ts). */

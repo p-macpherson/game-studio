@@ -400,6 +400,14 @@ try {
 	await boxItem.dragTo(page.getByTestId("tree-folder").filter({ hasText: /^.prefabs/ }));
 	await page.getByTestId("tree-folder").filter({ hasText: "props" }).waitFor({ state: "detached", timeout: 10_000 });
 	await boxItem.filter({ hasText: "used 2× in main" }).waitFor();
+	// "Used in": the main scene shows the prefab it places (and not itself); nothing here is unused (code loads main).
+	await page.getByTestId("filter-used-in").selectOption({ label: "main" });
+	await boxItem.waitFor();
+	await page.getByTestId("asset-item").filter({ has: page.locator(".title", { hasText: /^main$/ }) }).waitFor({ state: "detached" });
+	await step("39-used-in", page);
+	await page.getByTestId("filter-used-in").selectOption("none");
+	await page.getByText("Nothing matches.").waitFor();
+	await page.getByTestId("filter-used-in").selectOption("");
 	await page.getByTestId("asset-item").filter({ has: page.locator(".title", { hasText: /^main$/ }) }).click();
 	await page.locator("[data-testid=scene-viewport] img").waitFor({ timeout: 60_000 });
 	const wheelKept = await page.getByTestId("scene-viewport").evaluate((el) => !el.dispatchEvent(new WheelEvent("wheel", { deltaY: 100, bubbles: true, cancelable: true })));

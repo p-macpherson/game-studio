@@ -3,6 +3,7 @@
 // the sessions linked to the asset. Each module draws an asset's content.
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { type ChangeCounts, assetTree, type TreeNode, treeLeaves } from "../../shared/asset-tree";
+import { type AssetLinks, assetLabel, usersOf } from "../../shared/asset-links";
 import type { MoveResult } from "../../shared/modules";
 import { type AssetSearchHit, type AssetSummary, type ModuleInfo, moduleOwns } from "../../shared/modules";
 import type { WorktreeSummary } from "../../shared/types";
@@ -79,7 +80,7 @@ export function Highlight({ text, query }: { text: string; query: string }) {
 
 export function AssetBrowser(props: AssetBrowserProps) {
 	const { module } = props;
-	const { focus, showAsset, assetsVersion, sessions, openNewSession, selectSession, showError, project, worktree, worktrees } = useStudio();
+	const { focus, showAsset, assetsVersion, sessions, openNewSession, selectSession, showError, project, worktree, worktrees, modules } = useStudio();
 	const [assets, setAssets] = useState<AssetSummary[] | null>(null);
 	const [query, setQuery] = useState("");
 	const [hits, setHits] = useState<AssetSearchHit[]>([]);
@@ -90,6 +91,9 @@ export function AssetBrowser(props: AssetBrowserProps) {
 	// Filters (with a worktree selected): only what it changed; whether to list what it removed.
 	const [onlyChanged, setOnlyChanged] = useState(false);
 	const [includeRemoved, setIncludeRemoved] = useState(true);
+	// What uses what (scenes, prefabs, code…), for the "Used in" filter and the tooltips: "" any, "none" unused, or an asset.
+	const [links, setLinks] = useState<AssetLinks | null>(null);
+	const [usedIn, setUsedIn] = useState("");
 	// Moving and renaming: the right-click menu, the path being edited, what's dragged, and what the last move did.
 	const [menu, setMenu] = useState<{ x: number; y: number; node: TreeNode } | null>(null);
 	const [moving, setMoving] = useState<{ node: TreeNode; value: string; rename: boolean } | null>(null);
@@ -112,6 +116,14 @@ export function AssetBrowser(props: AssetBrowserProps) {
 			live = false;
 		};
 	}, [module.id, assetsVersion, project?.path, worktree, showError]);
+
+	useEffect(() => {
+		let live = true;
+		call("assets.links", worktree).then((l) => live && setLinks(l), () => live && setLinks(null));
+		return () => {
+			live = false;
+		};
+	}, [assetsVersion, project?.path, worktree]);
 
 	useEffect(() => {
 		const q = query.trim();
@@ -143,16 +155,30 @@ export function AssetBrowser(props: AssetBrowserProps) {
 
 	const visible = useMemo(() => {
 		const q = query.trim().toLowerCase();
-		const filtered = (assets ?? []).filter((a) => (!onlyChanged || a.change) && (includeRemoved || a.change !== "deleted"));
+		const used = (a: AssetSummary) => (usedIn === "none" ? !links?.[a.path]?.length : !usedIn || (!!links && usersOf(links, a.path).has(usedIn)));
+		const filtered = (assets ?? []).filter((a) => (!onlyChanged || a.change) && (includeRemoved || a.change !== "deleted") && used(a));
 		if (!q) return filtered;
 		const hitPaths = new Set(hits.map((h) => h.path));
 		return filtered.filter((a) => `${a.title} ${a.path}`.toLowerCase().includes(q) || hitPaths.has(a.path));
-	}, [assets, hits, query, onlyChanged, includeRemoved]);
+	}, [assets, hits, query, onlyChanged, includeRemoved, usedIn, links]);
+	// The "Used in" choices: everything that uses one of this section's assets (directly or through others), by section.
+	const usedInChoices = useMemo(() => {
+		if (!links || !assets) return [];
+		const users = new Set(assets.flatMap((a) => [...usersOf(links, a.path)]));
+		const labelled = [...users].map((p) => ({ path: p, ...assetLabel(modules, p) }));
+		return modules
+			.map((m) => ({ module: m, items: labelled.filter((u) => u.module?.id === m.id).sort((x, y) => x.name.localeCompare(y.name)) }))
+			.filter((g) => g.items.length > 0);
+	}, [links, assets, modules]);
 
 	const linkedSessions = selected ? sessions.filter((s) => s.linkedAsset === selected.path) : [];
 	const tree = useMemo(() => assetTree(module, visible), [module, visible]);
 	// While searching or filtering, every folder is open so the matches show.
-	const filtering = !!query.trim() || onlyChanged;
+	const filtering = !!query.trim() || onlyChanged || !!usedIn;
+	// A choice that's gone (another worktree, a merge) stops filtering.
+	useEffect(() => {
+		if (usedIn && usedIn !== "none" && links && !usedInChoices.some((g) => g.items.some((u) => u.path === usedIn))) setUsedIn("");
+	}, [usedIn, usedInChoices, links]);
 
 	// Paths are edited relative to the item's root, without what the section implies (the manifest file, a lone extension).
 	const manifest = module.extensions.every((e) => e.startsWith("/")) ? module.extensions[0] : null;
@@ -229,7 +255,10 @@ export function AssetBrowser(props: AssetBrowserProps) {
 		const a = n.asset;
 		const hint = props.itemHint?.(a);
 		const icon = props.itemPreview?.(a, checkout);
-		const tooltip = [a.title !== n.name ? a.title : "", a.excerpt, a.updatedAt ? `Changed ${relativeTime(a.updatedAt)}` : ""].filter(Boolean).join("\n");
+		const users = links?.[a.path]?.map((p) => assetLabel(modules, p).name) ?? [];
+		const tooltip = [a.title !== n.name ? a.title : "", a.excerpt, users.length ? `Used in ${users.join(", ")}` : "", a.updatedAt ? `Changed ${relativeTime(a.updatedAt)}` : ""]
+			.filter(Boolean)
+			.join("\n");
 		return (
 			<div key={n.key}>
 				<div
@@ -274,6 +303,24 @@ export function AssetBrowser(props: AssetBrowserProps) {
 						</button>
 					</div>
 					<input placeholder="Search names and text…" value={query} onChange={(e) => setQuery(e.target.value)} />
+					{usedInChoices.length > 0 && (
+						<label className="row asset-filters">
+							Used in
+							<select className="grow" value={usedIn} onChange={(e) => setUsedIn(e.target.value)} data-testid="filter-used-in">
+								<option value="">anything, or nothing</option>
+								<option value="none">nothing (unused)</option>
+								{usedInChoices.map((g) => (
+									<optgroup key={g.module.id} label={g.module.name}>
+										{g.items.map((u) => (
+											<option key={u.path} value={u.path}>
+												{u.name}
+											</option>
+										))}
+									</optgroup>
+								))}
+							</select>
+						</label>
+					)}
 					{worktree && (
 						<div className="row asset-filters" data-testid="asset-filters">
 							<label className="check">

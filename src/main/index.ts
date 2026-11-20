@@ -199,6 +199,7 @@ async function main(): Promise<void> {
 		"assets.list": (moduleId, checkout) => assets.list(moduleId, checkout ?? null),
 		"assets.read": async (path, checkout) => assets.read(path, checkout ?? null),
 		"assets.search": async (moduleId, query, checkout) => assets.search(moduleId, query, checkout ?? null),
+		"assets.links": async (checkout) => assets.links(checkout ?? null),
 		"assets.move": async (moduleId, checkout, from, to) => assets.move(moduleId, checkout, from, to),
 
 		"run.checkouts": async () => runner.checkouts(),
