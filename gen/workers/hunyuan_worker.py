@@ -14,6 +14,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 from protocol import GEN, MODELS, Job, serve  # noqa: E402
+from texture_fix import match_concept_brightness  # noqa: E402
 
 os.environ.setdefault("HY3DGEN_MODELS", MODELS)
 os.environ.setdefault("U2NET_HOME", os.path.join(MODELS, "u2net"))
@@ -104,9 +105,14 @@ def texture(job: Job, p: dict) -> dict:
     pipe = load(job, "paint")
     job.progress("Painting texture", 0.3)
     textured = pipe(trimesh.load(p["mesh"], force="mesh"), image=image)
+    # The pipeline's mesh has a SimpleMaterial (texture in .image); a reloaded glb has a PBRMaterial.
+    material = textured.visual.material
+    field = "image" if hasattr(material, "image") else "baseColorTexture"
+    corrected, gains = match_concept_brightness(getattr(material, field), textured.visual.uv, textured.faces, image)
+    setattr(material, field, corrected)
     os.makedirs(os.path.dirname(p["out"]), exist_ok=True)
     textured.export(p["out"])
-    return {"mesh": p["out"], "model": "hunyuan3d-paint-v2-0-turbo"}
+    return {"mesh": p["out"], "model": "hunyuan3d-paint-v2-0-turbo", **({"brightness_gains": gains} if gains else {})}
 
 
 if __name__ == "__main__":

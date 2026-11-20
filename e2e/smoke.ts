@@ -202,6 +202,8 @@ try {
 	await page.getByTestId("new-model-description").fill("A wooden crate with iron corners");
 	await page.getByRole("button", { name: "Generate concepts" }).click();
 	await page.getByTestId("concept").nth(3).waitFor({ timeout: 30_000 });
+	// No model yet: the list shows its newest concept instead of a thumbnail.
+	await page.getByTestId("asset-item").filter({ hasText: "Wooden crate iron" }).getByTestId("concept-thumb").locator("img").waitFor();
 	await page.getByTestId("concept").nth(1).click();
 	// The tab shows this model's own prompt (not the previously selected model's).
 	await page.waitForFunction(

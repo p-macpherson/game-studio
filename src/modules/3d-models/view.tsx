@@ -87,8 +87,28 @@ function Thumbnail({ asset, sessionId }: { asset: AssetSummary; sessionId?: stri
 	// Drafts have no mtime; the summary changes when a model (and so a thumbnail) appears or is regenerated.
 	const version = `${asset.updatedAt ?? ""}:${asset.excerpt}`;
 	useEffect(() => setFailed(false), [version, sessionId]);
+	// No model yet (so no thumbnail): show the newest concept instead.
+	const [concept, setConcept] = useState<string | null>();
+	useEffect(() => {
+		if (!failed) return;
+		let live = true;
+		call("models3d.concepts", sessionId ?? null, modelName(asset.path)).then(
+			(images) => live && setConcept(images[0]?.path ?? null),
+			() => live && setConcept(null),
+		);
+		return () => {
+			live = false;
+		};
+	}, [failed, version, sessionId, asset.path]);
+	if (failed && concept)
+		return (
+			<div className="model-thumb concept" data-testid="concept-thumb">
+				<img src={studioFile(sessionId, concept)} alt="" />
+				<span>concept</span>
+			</div>
+		);
 	return failed ? (
-		<div className="model-thumb empty">concepts</div>
+		<div className="model-thumb empty">{concept === null ? "no concepts yet" : ""}</div>
 	) : (
 		<img className="model-thumb" src={studioFile(sessionId, `${dir}/thumbnail.png`, version)} alt="" onError={() => setFailed(true)} />
 	);
