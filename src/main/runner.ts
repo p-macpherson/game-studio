@@ -2,7 +2,8 @@
 // worktree. A run is driven over the engine's control protocol: frames are streamed into the studio (hidden
 // mode), and the inspector, input and console are plain control commands.
 import { type ChildProcess, spawn, type SpawnOptions } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
 import type { StudioEvent } from "../shared/ipc";
 import {
@@ -274,14 +275,45 @@ export class RunService {
 		if (built.code !== 0) {
 			throw new Error(`The game doesn't build, so it can't show the scene:\n${(built.stdout + built.stderr).trim().split("\n").slice(-12).join("\n")}`);
 		}
+		return this.shoot(co, path.replace(/^assets\//, ""), scene?.entities ?? [], views, problems);
+	}
+
+	/**
+	 * A texture on a 6 m ground plane and a sphere, lit by a sun, in the game's engine: a scene written to a temp
+	 * file (outside the project) with the texture's files by absolute path, so nothing in the checkout changes.
+	 */
+	async previewTexture(sessionId: CheckoutId, files: { texture: string; normal_map: string; roughness_map: string }, tile: number): Promise<{ images: { view: string; image: string }[]; warnings: string[] }> {
+		const co = this.checkout(sessionId);
+		const abs = (p: string) => safeJoin(co.cwd, `assets/${p}`);
+		for (const f of Object.values(files)) if (!existsSync(abs(f))) throw new Error(`${f} hasn't been made yet`);
+		const built = await this.exec(co, ["build"]);
+		if (built.code !== 0) throw new Error(`The game doesn't build, so it can't show the texture:\n${(built.stdout + built.stderr).trim().split("\n").slice(-12).join("\n")}`);
+		const material = (repeat: number) => ({ texture: abs(files.texture), normal_map: abs(files.normal_map), roughness_map: abs(files.roughness_map), uv_scale: [repeat, repeat] });
+		const entities = [
+			{ id: 1, Name: "Sun", Transform: { rotation: [40, 35, 0] }, Light: { kind: "Directional", intensity: 1.2, shadows: true } },
+			{ id: 2, Name: "Ground", Transform: { scale: [6, 1, 6] }, Mesh_Renderer: { mesh: "plane", material: material(6 / tile) } },
+			{ id: 3, Name: "Sphere", Transform: { position: [1.2, 0.8, 1.2], scale: [1.6, 1.6, 1.6] }, Mesh_Renderer: { mesh: "sphere", material: material(Math.max(1, (1.6 * Math.PI) / tile)) } },
+		];
+		const dir = mkdtempSync(join(tmpdir(), "gs-texture-"));
+		const file = join(dir, "preview.json");
+		writeFileSync(file, JSON.stringify({ entities }));
+		try {
+			return await this.shoot(co, file, entities as SceneEntity[], [{ position: [-2.6, 2.4, -2.6], target: [0.4, 0, 0.4] }, { position: [0.2, 7, -0.3], target: [0, 0, 0] }], []);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	}
+
+	/** Runs the built game paused on `scene` (engine-relative or absolute) and screenshots each view. */
+	private async shoot(co: CheckoutInfo, scene: string, entities: SceneEntity[], views: SceneView[], problems: string[]) {
 		const port = await freePort();
-		const args = ["--mode=hidden", `--control=${port}`, "--fps=60", "--paused", `--scene=${path.replace(/^assets\//, "")}`];
+		const args = ["--mode=hidden", `--control=${port}`, "--fps=60", "--paused", `--scene=${scene}`];
 		const proc = await this.launch(co, args);
 		let client: EngineClient | undefined;
 		try {
 			client = await EngineClient.connect(port, () => proc.exitCode === null);
 			await client.call("debug", { game_ui: false });
-			const { center, extent } = sceneBounds(scene?.entities ?? []);
+			const { center, extent } = sceneBounds(entities);
 			const images: { view: string; image: string }[] = [];
 			for (const view of views) {
 				if (view === "game") {

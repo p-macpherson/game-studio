@@ -31,7 +31,7 @@ const toName = (text: string) =>
 		.join("-");
 
 /** Generation jobs a session started, kept live from `gen_job` events. */
-function useSessionJobs(checkout: string | undefined): GenJob[] {
+export function useSessionJobs(checkout: string | undefined): GenJob[] {
 	const [jobs, setJobs] = useState<GenJob[]>([]);
 	useEffect(() => {
 		if (!checkout) return setJobs([]);
@@ -44,7 +44,7 @@ function useSessionJobs(checkout: string | undefined): GenJob[] {
 	return jobs;
 }
 
-function JobProgress({ jobs }: { jobs: GenJob[] }) {
+export function JobProgress({ jobs }: { jobs: GenJob[] }) {
 	const active = jobs.filter((j) => j.status === "running" || j.status === "queued");
 	if (!active.length) return null;
 	const running = active.find((j) => j.status === "running");

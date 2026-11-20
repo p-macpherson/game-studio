@@ -5,6 +5,7 @@ import { models3d } from "../modules/3d-models/info";
 import { designDocs } from "../modules/design-docs/info";
 import { scenes } from "../modules/scenes/info";
 import { sounds } from "../modules/sounds/info";
+import { textures } from "../modules/textures/info";
 import { moveAsset } from "./asset-move";
 import { tempDir } from "./test-helpers";
 
@@ -73,6 +74,16 @@ describe("moveAsset", () => {
 		moveAsset(root, designDocs, "docs/design/Combat.md", "docs/design/rules/Fighting.md");
 		expect(read("docs/design/Overview.md")).toContain("[combat](rules/Fighting.md#rules) and [art](art/Style.md)");
 		expect(read("docs/design/rules/Fighting.md")).toContain("[the overview](../Overview.md)");
+	});
+
+	it("renames a texture's maps with it (grass_normal.png), not its candidates, and updates the scenes using them", () => {
+		put("assets/textures/grass/texture.json", '{"tile": 2, "source": "candidates/grass-1-quilt.png"}');
+		for (const f of ["grass.png", "grass_normal.png", "grass_roughness.png", "candidates/grass-1-quilt.png"]) put(`assets/textures/grass/${f}`, "png");
+		put("assets/scenes/field.json", '{"entities": [{"id": 1, "Mesh_Renderer": {"mesh": "plane", "material": {"texture": "textures/grass/grass.png", "normal_map": "textures/grass/grass_normal.png"}}}]}');
+		moveAsset(root, textures, "assets/textures/grass/texture.json", "assets/textures/ground/turf/texture.json");
+		expect(["turf.png", "turf_normal.png", "turf_roughness.png", "candidates/grass-1-quilt.png"].every((f) => has(`assets/textures/ground/turf/${f}`))).toBe(true);
+		expect(JSON.parse(read("assets/textures/ground/turf/texture.json")).source).toBe("candidates/grass-1-quilt.png");
+		expect(read("assets/scenes/field.json")).toContain('"normal_map": "textures/ground/turf/turf_normal.png"');
 	});
 
 	it("refuses, changing nothing: a taken name, an asset inside another, leaving the root, a new extension", () => {

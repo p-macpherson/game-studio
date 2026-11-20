@@ -57,7 +57,7 @@ function describeSceneEdit(e: SceneEdit): string {
 
 /** Moving `from` to `to`: both places (a folder-shaped asset's whole folder), and every file that can refer to them. */
 export function moveStep(from: string, to: string): { label: string; scopes: Scope[] } {
-	const place = (p: string) => (/\/(model|sound|song)\.json$/.test(p) ? p.slice(0, p.lastIndexOf("/")) : p);
+	const place = (p: string) => (/\/(model|sound|song|texture)\.json$/.test(p) ? p.slice(0, p.lastIndexOf("/")) : p);
 	const [a, b] = [place(from), place(to)];
 	const sameFolder = a.slice(0, a.lastIndexOf("/")) === b.slice(0, b.lastIndexOf("/"));
 	return {

@@ -9,6 +9,7 @@ import { models3d, summarizeModel } from "../modules/3d-models/info";
 import { music, summarizeSong } from "../modules/music/info";
 import { scenes, summarizeScene } from "../modules/scenes/info";
 import { sounds, summarizeSound } from "../modules/sounds/info";
+import { summarizeTexture, textures } from "../modules/textures/info";
 import type { AssetLinks } from "../shared/asset-links";
 import { assetLinks } from "./asset-links";
 import { moveAsset } from "./asset-move";
@@ -26,6 +27,7 @@ export const MODULES: ModuleBackend[] = [
 	{ info: music, summarize: summarizeSong },
 	{ info: sounds, summarize: summarizeSound },
 	{ info: scenes, summarize: summarizeScene },
+	{ info: textures, summarize: summarizeTexture },
 ];
 
 export function walk(dir: string, base: string, out: string[] = []): string[] {

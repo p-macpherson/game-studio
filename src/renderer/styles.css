@@ -2056,3 +2056,77 @@ textarea {
 	background: color-mix(in srgb, var(--yellow) 12%, var(--bg));
 	border: 1px solid color-mix(in srgb, var(--yellow) 40%, var(--bg));
 }
+
+/* Textures */
+.tiled {
+	width: 100%;
+	aspect-ratio: 1;
+	background-repeat: repeat;
+	border-radius: 6px;
+	background-color: var(--sunken);
+}
+.tree-icon .tiled {
+	width: 22px;
+	height: 22px;
+	border-radius: 3px;
+}
+.texture-previews {
+	gap: 12px;
+	align-items: stretch;
+}
+.texture-previews > .tiled {
+	width: 360px;
+	flex-shrink: 0;
+}
+.texture-3d {
+	flex: 1;
+	min-height: 360px;
+	border-radius: 6px;
+	overflow: hidden;
+}
+.engine-shots img {
+	width: calc(50% - 6px);
+	border-radius: 6px;
+}
+.texture-settings {
+	gap: 12px;
+	align-items: flex-end;
+	flex-wrap: wrap;
+}
+.texture-settings input[type="number"] {
+	width: 72px;
+}
+.candidate-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+	gap: 10px;
+}
+.candidate {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding: 6px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--panel);
+}
+.candidate.chosen {
+	border-color: var(--accent);
+	box-shadow: 0 0 0 1px var(--accent);
+}
+.seg {
+	display: flex;
+}
+.seg button {
+	border-radius: 0;
+}
+.seg button:first-child {
+	border-radius: 6px 0 0 6px;
+}
+.seg button:last-child {
+	border-radius: 0 6px 6px 0;
+}
+.seg button.on {
+	background: var(--accent-2);
+	color: var(--on-accent);
+}

@@ -26,6 +26,8 @@ import { useStudio } from "../../renderer/store";
 import { AssetBrowser, type AssetContentProps } from "../../renderer/views/AssetBrowser";
 import { runInWorktree } from "../../renderer/workspace";
 import { leafName, nameFromPath } from "../../shared/asset-names";
+import { parseTexture } from "../../shared/texture";
+import { textureName, texturePaths } from "../textures/info";
 import { enginePath, isPrefab, type PrefabInfo, prefabIndex } from "./info";
 import { defaultOrbit, FOV, type Orbit, orbitDrag, orbitPosition, pan, project, type Vec3 } from "./orbit";
 
@@ -431,6 +433,7 @@ function SceneDetail({ asset, text, checkout: shownCheckout, assets }: AssetCont
 						busy={busy}
 						onEdit={(edits, selectCreated) => void edit(edits, selectCreated)}
 						onOpenPrefab={(p) => showAsset({ path: `assets/${p}` })}
+						checkout={shownCheckout}
 					/>
 				) : (
 					<EnvironmentPanel scene={scene} onEdit={(value) => void edit([{ op: "environment", value }])} />
@@ -637,6 +640,7 @@ function EntityInspector({
 	busy,
 	onEdit,
 	onOpenPrefab,
+	checkout,
 }: {
 	entity: SceneEntity;
 	prefabRoot?: SceneEntity;
@@ -644,6 +648,7 @@ function EntityInspector({
 	busy: boolean;
 	onEdit(edits: SceneEdit[], selectCreated?: boolean): void;
 	onOpenPrefab(path: string): void;
+	checkout?: string;
 }) {
 	const eff = effectiveComponents(entity, prefabRoot);
 	const present = Object.keys(eff);
@@ -698,6 +703,7 @@ function EntityInspector({
 					onRemove={entity[name] !== undefined ? () => onEdit([{ op: "remove_component", id: entity.id, component: name }]) : undefined}
 				/>
 			))}
+			{eff.Mesh_Renderer && <SurfacePicker entity={entity} prefabRoot={prefabRoot} checkout={checkout} busy={busy} onSet={(v) => set("Mesh_Renderer", v)} />}
 			{addable.length > 0 && (
 				<select
 					value=""
@@ -710,6 +716,73 @@ function EntityInspector({
 					))}
 				</select>
 			)}
+		</div>
+	);
+}
+
+/** A made texture, for the picker: its engine paths and size. */
+type SurfaceChoice = { name: string; tile: number; paths: ReturnType<typeof texturePaths> };
+
+/**
+ * Puts a texture on a Mesh_Renderer: its colour, normal and roughness maps, tiled at the texture's size in metres
+ * (`uv_scale` from the entity's size; exact on a plane, whose one face spans x and z; other meshes' faces each have
+ * 0..1 UVs, so their largest side is used). "Fit tiling" recomputes it after a resize.
+ */
+function SurfacePicker({ entity, prefabRoot, checkout, busy, onSet }: { entity: SceneEntity; prefabRoot?: SceneEntity; checkout?: string; busy: boolean; onSet(v: Record<string, unknown>): void }) {
+	const { assetsVersion } = useStudio();
+	const [choices, setChoices] = useState<SurfaceChoice[] | null>(null);
+	useEffect(() => {
+		let live = true;
+		(async () => {
+			const list = await call("assets.list", "textures", checkout ?? null);
+			const found: SurfaceChoice[] = [];
+			for (const a of list.filter((x) => x.change !== "deleted")) {
+				const { texture } = parseTexture(await call("assets.read", a.path, checkout ?? null));
+				const name = textureName(a.path);
+				if (texture?.source) found.push({ name, tile: texture.tile, paths: texturePaths(name) });
+			}
+			if (live) setChoices(found);
+		})().catch(() => live && setChoices([]));
+		return () => {
+			live = false;
+		};
+	}, [checkout, assetsVersion]);
+
+	const eff = effectiveComponents(entity, prefabRoot);
+	const mr = { ...(isObject(eff.Mesh_Renderer?.fromPrefab) ? eff.Mesh_Renderer.fromPrefab : {}), ...(isObject(entity.Mesh_Renderer) ? entity.Mesh_Renderer : {}) } as Record<string, unknown>;
+	const material = isObject(mr.material) ? mr.material : {};
+	const t = { ...(isObject(eff.Transform?.fromPrefab) ? eff.Transform.fromPrefab : {}), ...(isObject(entity.Transform) ? entity.Transform : {}) } as Record<string, unknown>;
+	const scale = Array.isArray(t.scale) && t.scale.length === 3 ? (t.scale as number[]) : [1, 1, 1];
+	const current = choices?.find((c) => c.paths.texture === material.texture);
+	const tiling = (tile: number) => {
+		const r = (n: number) => Math.round((n / tile) * 100) / 100;
+		return mr.mesh === "plane" ? [r(scale[0]), r(scale[2])] : [r(Math.max(...scale)), r(Math.max(...scale))];
+	};
+	const apply = (c: SurfaceChoice | null) => {
+		const { texture: _t, normal_map: _n, roughness_map: _r, uv_scale: _u, color: _c, ...rest } = material;
+		onSet({ material: c ? { ...rest, ...c.paths, uv_scale: tiling(c.tile) } : rest });
+	};
+	if (choices === null) return null;
+	return (
+		<div className="component-card" data-testid="surface-picker">
+			<b>Surface texture</b>
+			<div className="row">
+				<select className="grow" disabled={busy} value={current?.name ?? (material.texture ? "other" : "")} onChange={(e) => apply(choices.find((c) => c.name === e.target.value) ?? null)} data-testid="surface-select">
+					<option value="">None</option>
+					{!!material.texture && !current && <option value="other">{String(material.texture)}</option>}
+					{choices.map((c) => (
+						<option key={c.name} value={c.name}>
+							{c.name} ({c.tile} m)
+						</option>
+					))}
+				</select>
+				{current && (
+					<button className="small" disabled={busy} onClick={() => apply(current)} title={`Tiling for this size: ${tiling(current.tile).join(" × ")}`}>
+						Fit tiling
+					</button>
+				)}
+			</div>
+			{choices.length === 0 && <span className="muted small">No made textures yet: make one in the Textures section.</span>}
 		</div>
 	);
 }

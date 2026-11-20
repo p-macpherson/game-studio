@@ -57,7 +57,7 @@ export function moveAsset(root: string, info: ModuleInfo, from: string, to: stri
 	const renamed = new Map<string, string>();
 	if (isAsset && leafName(src) !== leafName(dst)) {
 		const [was, now] = [leafName(src), leafName(dst)];
-		const named = new RegExp(`^${was}(-\\d+)?\\.[^/]+$`);
+		const named = new RegExp(`^${was}(-\\d+|_[a-z]+)?\\.[^/]+$`); // barrel.glb, footstep-2.ogg, grass_normal.png
 		for (const [a, b] of moves) {
 			const file = b.slice(dst.length + 1);
 			if (!file.includes("/") && named.test(file)) {

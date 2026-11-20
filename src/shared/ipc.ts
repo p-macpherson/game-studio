@@ -2,6 +2,7 @@
 import type { HostInfo, PromptMode, StudioRequestMethod } from "./host";
 import type { AssetLinks } from "./asset-links";
 import type { HistoryStep } from "./history";
+import type { CandidateRecord } from "./texture";
 import type { AssetSearchHit, AssetSummary, ModuleInfo, MoveResult } from "./modules";
 import type { CheckoutId, CheckoutInfo, RunInfo, RunMode, RunOptions, TestReport } from "./run";
 import type { ConceptImage, GenJob, GenStatus } from "./gen";
@@ -95,6 +96,10 @@ export interface StudioApi {
 	/** The model rendered by the game's own engine: front, three-quarter and back views, plus engine errors. */
 	"models3d.preview"(checkout: string | null, name: string): Promise<{ images: string[]; errors: string[] }>;
 	/** Where the game refers to a sound (`sounds/<name>/` in game code, scenes and prefabs) in a checkout. */
+	/** A texture's generated candidates (newest first) and how each was made. */
+	"textures.candidates"(checkout: string | null, name: string): Promise<({ source: string } & CandidateRecord)[]>;
+	/** A made texture on a plane and a sphere in the game's engine. */
+	"textures.preview"(checkout: string | null, name: string): Promise<{ images: { view: string; image: string }[]; warnings: string[] }>;
 	"sounds.usages"(checkout: string | null, name: string): Promise<{ path: string; line: number; text: string }[]>;
 
 	"sessions.list"(): Promise<SessionSummary[]>;

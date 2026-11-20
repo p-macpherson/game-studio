@@ -16,6 +16,7 @@ import { generationRequests, ModelPipeline } from "./models";
 import { MusicPipeline } from "./music";
 import { SoundPipeline, soundUsages } from "./sounds";
 import { TexturePipeline } from "./textures";
+import { texturePaths } from "../modules/textures/info";
 import { RunService, type SceneView } from "./runner";
 import { SessionService } from "./sessions";
 import { SettingsStore } from "./settings";
@@ -248,6 +249,17 @@ async function main(): Promise<void> {
 		},
 		"models3d.concepts": async (checkout, name) => pipeline.conceptImages({ cwd: checkoutRoot(checkout) }, name),
 		"models3d.preview": (checkout, name) => previewModel(checkout, name),
+		"textures.candidates": async (checkout, name) => {
+			const dir = join(checkoutRoot(checkout), "assets/textures", name, "candidates");
+			return Object.entries(textures.candidateRecords(checkoutRoot(checkout), name))
+				.filter(([f]) => existsSync(join(dir, f)))
+				.map(([f, r]) => ({ source: `candidates/${f}`, ...r }))
+				.sort((a, b) => b.at.localeCompare(a.at) || a.source.localeCompare(b.source));
+		},
+		"textures.preview": async (checkout, name) => {
+			const t = textures.read(checkoutRoot(checkout), name);
+			return runner.previewTexture(checkout, texturePaths(name), t?.tile ?? 2);
+		},
 		"sounds.usages": async (checkout, name) => soundUsages(checkoutRoot(checkout), name),
 
 		"gen.image": async (path) => {

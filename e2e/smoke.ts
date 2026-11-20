@@ -466,6 +466,35 @@ try {
 	const wheelKept = await page.getByTestId("scene-viewport").evaluate((el) => !el.dispatchEvent(new WheelEvent("wheel", { deltaY: 100, bubbles: true, cancelable: true })));
 	if (!wheelKept) throw new Error("the scene's wheel zoom lets the page scroll");
 
+	// Textures (fake worker): a new texture's candidates; using one makes the texture (tiled, in 3D, in the engine).
+	await nav.getByRole("button", { name: "Textures" }).click();
+	await page.getByRole("button", { name: "+ New texture" }).click();
+	await page.getByTestId("new-texture-prompt").fill("short stylised grass with clover");
+	await page.getByTestId("new-texture-name").fill("grass");
+	await page.getByTestId("new-texture-create").click();
+	await page.getByTestId("texture-candidate").nth(3).waitFor({ timeout: 30_000 });
+	await page.getByTestId("candidate-use").first().click();
+	await page.getByTestId("texture-tiled").waitFor({ timeout: 30_000 });
+	await page.getByTestId("texture-3d").locator("canvas").waitFor();
+	await page.getByRole("button", { name: "In the engine" }).click();
+	await page.locator(".engine-shots img").nth(1).waitFor({ timeout: 90_000 });
+	await step("46-texture", page);
+	// Scenes: the Surface texture picker puts it on the ground, tiled for the ground's size.
+	await nav.getByRole("button", { name: "Scenes" }).click();
+	await page.getByTestId("asset-item").filter({ has: page.locator(".title", { hasText: /^main$/ }) }).click();
+	await page.getByTestId("outline-row").filter({ hasText: "Ground" }).click();
+	await page.getByTestId("surface-select").selectOption("grass");
+	await page.getByTestId("surface-select").and(page.locator(":not([disabled])")).waitFor();
+	await page.waitForFunction(async () => {
+		const wts = (await window.studio.call("worktrees.list")) as { id: string; label: string; status: string }[];
+		const w = wts.find((x) => x.label === "Scene: main" && x.status === "active");
+		if (!w) return false;
+		const text = (await window.studio.call("assets.read", "assets/scenes/main.json", w.id)) as string;
+		return text.includes('"texture": "textures/grass/grass.png"') && text.includes('"uv_scale": [10, 10]');
+	}, undefined, { timeout: 30_000 });
+	await page.waitForTimeout(1500);
+	await step("47-scene-texture", page);
+
 	// The menu collapses to an icon rail; its buttons keep their names (as tooltips).
 	await page.getByTestId("sidebar-toggle").click();
 	await nav.getByRole("button", { name: "Scenes" }).click();

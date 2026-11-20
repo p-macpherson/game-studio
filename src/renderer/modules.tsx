@@ -6,6 +6,7 @@ import { ModelsView } from "../modules/3d-models/view";
 import { MusicView } from "../modules/music/view";
 import { ScenesView } from "../modules/scenes/view";
 import { SoundsView } from "../modules/sounds/view";
+import { TexturesView } from "../modules/textures/view";
 import type { ModuleInfo } from "../shared/modules";
 
 export const MODULE_VIEWS: Record<string, ComponentType<{ module: ModuleInfo }>> = {
@@ -15,4 +16,5 @@ export const MODULE_VIEWS: Record<string, ComponentType<{ module: ModuleInfo }>>
 	music: MusicView,
 	scenes: ScenesView,
 	sounds: SoundsView,
+	textures: TexturesView,
 };
