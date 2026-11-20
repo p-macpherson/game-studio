@@ -1,4 +1,6 @@
+/* Theme colours and fonts: Simple Dark here; Settings → Appearance sets others (appearance.ts, shared/themes.ts). */
 :root {
+	--sunken: #121317;
 	--bg: #16181d;
 	--panel: #1d2026;
 	--panel-2: #23272e;
@@ -7,11 +9,15 @@
 	--muted: #8a919c;
 	--accent: #6aa6ff;
 	--accent-2: #3d6db3;
+	--on-accent: #ffffff;
 	--green: #5fc28a;
 	--yellow: #e2b54f;
 	--red: #ef6f6c;
 	--purple: #b18cf2;
-	--mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+	--blue: #82aaff;
+	--orange: #f2a35e;
+	--font: system-ui, -apple-system, "Segoe UI", sans-serif;
+	--mono: "JetBrains Mono Variable", ui-monospace, monospace;
 	color-scheme: dark;
 }
 
@@ -27,7 +33,7 @@ body,
 body {
 	background: var(--bg);
 	color: var(--text);
-	font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+	font: 13px/1.45 var(--font);
 }
 button,
 input,
@@ -53,7 +59,7 @@ button:disabled {
 button.primary {
 	background: var(--accent-2);
 	border-color: var(--accent-2);
-	color: white;
+	color: var(--on-accent);
 }
 button.danger {
 	color: var(--red);
@@ -229,13 +235,13 @@ a {
 	gap: 16px;
 }
 .error-bar {
-	background: #3a2124;
+	background: color-mix(in srgb, var(--red) 16%, var(--bg));
 	color: var(--red);
 	padding: 8px 14px;
 	display: flex;
 	gap: 8px;
 	align-items: center;
-	border-bottom: 1px solid #5a2c30;
+	border-bottom: 1px solid color-mix(in srgb, var(--red) 35%, var(--bg));
 }
 
 /* Status badges */
@@ -319,7 +325,7 @@ a {
 .chip.on {
 	background: var(--accent-2);
 	border-color: var(--accent-2);
-	color: white;
+	color: var(--on-accent);
 }
 .session-items {
 	overflow: auto;
@@ -404,7 +410,7 @@ a {
 .msg.user {
 	align-self: flex-end;
 	background: var(--accent-2);
-	color: white;
+	color: var(--on-accent);
 	padding: 8px 12px;
 	border-radius: 10px 10px 2px 10px;
 	max-width: 75%;
@@ -584,7 +590,7 @@ label.field > span {
 }
 .agent-type.on {
 	border-color: var(--accent);
-	background: #1f2b3d;
+	background: color-mix(in srgb, var(--accent) 14%, var(--bg));
 }
 .agent-type small {
 	color: var(--muted);
@@ -716,31 +722,31 @@ label.field > span {
 	width: 52px;
 	padding-right: 14px;
 	text-align: right;
-	color: #555c66;
+	color: color-mix(in srgb, var(--muted) 70%, var(--bg));
 	flex: none;
 	user-select: none;
 }
 .code-line.target {
-	background: rgba(226, 181, 79, 0.14);
+	background: color-mix(in srgb, var(--yellow) 14%, transparent);
 }
 .tk-comment {
-	color: #6f7782;
+	color: var(--muted);
 	font-style: italic;
 }
 .tk-string {
-	color: #a5d6a7;
+	color: var(--green);
 }
 .tk-number {
-	color: #f2a35e;
+	color: var(--orange);
 }
 .tk-keyword {
-	color: #c792ea;
+	color: var(--purple);
 }
 .tk-type {
-	color: #82aaff;
+	color: var(--blue);
 }
 .tk-directive {
-	color: #e2b54f;
+	color: var(--yellow);
 }
 
 /* Play & Test */
@@ -805,7 +811,7 @@ label.field > span {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	background: #0d0e11;
+	background: var(--sunken);
 	border: 1px solid var(--border);
 	border-radius: 6px;
 	overflow: hidden;
@@ -874,7 +880,7 @@ label.field > span {
 	overflow: auto;
 	font: 12px/1.45 var(--mono);
 	white-space: pre-wrap;
-	background: #121317;
+	background: var(--sunken);
 }
 .console input {
 	border: none;
@@ -911,7 +917,7 @@ label.field > span {
 	margin: 0;
 	padding: 8px;
 	font: 11.5px/1.45 var(--mono);
-	background: #121317;
+	background: var(--sunken);
 	border-radius: 6px;
 	white-space: pre-wrap;
 	word-break: break-word;
@@ -985,7 +991,7 @@ label.field > span {
 	max-height: 260px;
 	overflow: auto;
 	font: 11.5px/1.45 var(--mono);
-	background: #121317;
+	background: var(--sunken);
 	border-radius: 6px;
 	white-space: pre-wrap;
 }
@@ -1044,7 +1050,7 @@ label.field > span {
 	width: 100%;
 	height: 120px;
 	object-fit: contain;
-	background: #121317;
+	background: var(--sunken);
 	border-radius: 6px;
 }
 .model-thumb.concept {
@@ -1300,7 +1306,7 @@ label.check {
 }
 .arr-section.on {
 	background: var(--accent-2);
-	color: #fff;
+	color: var(--on-accent);
 }
 .arr-cell {
 	position: absolute;
@@ -1309,7 +1315,7 @@ label.check {
 	border-left: 1px solid var(--border);
 }
 .arr-cell.on {
-	background: rgba(106, 166, 255, 0.08);
+	background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 .arr-notes {
 	position: absolute;
@@ -1323,7 +1329,7 @@ label.check {
 	bottom: 0;
 	left: calc(var(--playhead) * 100%);
 	width: 2px;
-	background: #fff;
+	background: var(--text);
 	opacity: 0.8;
 	pointer-events: none;
 }
@@ -1361,16 +1367,16 @@ label.check {
 	border-radius: 6px;
 }
 .note-svg .key-white {
-	fill: #1f232a;
+	fill: var(--panel);
 }
 .note-svg .key-black {
-	fill: #191c22;
+	fill: color-mix(in srgb, var(--sunken) 50%, var(--bg));
 }
 .note-svg .key-c {
-	fill: #252a32;
+	fill: var(--panel-2);
 }
 .note-svg .key-drum {
-	fill: #22262d;
+	fill: color-mix(in srgb, var(--panel) 50%, var(--panel-2));
 }
 .note-svg .bar-line {
 	stroke: var(--border);
@@ -1872,4 +1878,97 @@ button.link {
 }
 .tree-row[draggable="true"] {
 	cursor: grab;
+}
+
+/* Settings → Appearance */
+.theme-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+	gap: 10px;
+}
+.theme-card {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding: 6px;
+	background: var(--panel);
+	text-align: left;
+}
+.theme-card.on {
+	border-color: var(--accent);
+	box-shadow: 0 0 0 1px var(--accent);
+}
+.theme-preview {
+	display: flex;
+	height: 74px;
+	border: 1px solid;
+	border-radius: 5px;
+	overflow: hidden;
+}
+.theme-preview-side {
+	display: flex;
+	flex-direction: column;
+	gap: 5px;
+	width: 34%;
+	padding: 8px 6px;
+	border-right: 1px solid;
+}
+.theme-preview span {
+	display: block;
+	height: 5px;
+	border-radius: 3px;
+}
+.theme-preview-main {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	flex: 1;
+	padding: 8px;
+}
+.theme-preview-dots {
+	display: flex;
+	gap: 4px;
+}
+.theme-preview-dots i {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+}
+.theme-preview .theme-preview-button {
+	align-self: flex-end;
+	height: auto;
+	padding: 1px 7px;
+	border-radius: 4px;
+	font-size: 10px;
+	font-weight: 600;
+}
+.theme-name {
+	font-size: 12px;
+}
+.font-list {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+	gap: 8px;
+}
+.font-option {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 8px 10px;
+	text-align: left;
+	background: var(--panel);
+}
+.font-option.on {
+	border-color: var(--accent);
+	box-shadow: 0 0 0 1px var(--accent);
+}
+.font-option .font-name {
+	font-size: 15px;
+}
+/* Code shows the characters in the file: no ligatures (JetBrains Mono and Fira Code would draw != as ≠). */
+pre,
+code,
+.code-view,
+textarea {
+	font-variant-ligatures: none;
 }

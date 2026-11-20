@@ -8,7 +8,7 @@ import { call } from "./api";
 export type View = "sessions" | "source-control" | "settings" | "play" | `module:${string}`;
 
 export type PlayTab = "run" | "tests";
-export type SettingsTab = "general" | "accounts" | "agents";
+export type SettingsTab = "general" | "appearance" | "accounts" | "agents";
 
 /** Key for a test report: which checkout, which script. */
 export const testKey = (sessionId: CheckoutId, script: string) => `${sessionId ?? ""}:${script}`;

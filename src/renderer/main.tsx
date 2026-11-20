@@ -5,6 +5,7 @@ import { moduleOwns } from "../shared/modules";
 import { MODULE_VIEWS } from "./modules";
 import { type View, useStudio } from "./store";
 import "./styles.css";
+import { applyAppearance, loadAppearance } from "./appearance";
 import { NewSessionDialog } from "./views/NewSession";
 import { Play } from "./views/Play";
 import { ProjectMenu, ProjectPicker } from "./views/Projects";
@@ -120,6 +121,9 @@ function App() {
 		</div>
 	);
 }
+
+// The theme and fonts before the first paint, so the studio doesn't flash the default theme.
+applyAppearance(loadAppearance());
 
 createRoot(document.getElementById("root")!).render(
 	<StrictMode>

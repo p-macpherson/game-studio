@@ -478,6 +478,29 @@ try {
 	await page.getByRole("button", { name: "Agents", exact: true }).click();
 	await page.getByTestId("agent-type-card").filter({ hasText: "Delegates to: Game Designer, Art Director, Audio Director" }).waitFor();
 	await step("33-agent-types", page);
+
+	// Appearance: a theme and fonts apply at once (the page's variables), survive a reload, and Simple Dark comes back.
+	await page.getByRole("button", { name: "Appearance", exact: true }).click();
+	await page.locator("[data-testid=theme-card][data-theme-id=catppuccin-mocha]").waitFor();
+	await step("40-appearance", page);
+	await page.locator("[data-testid=theme-card][data-theme-id=catppuccin-latte]").click();
+	await page.getByTestId("font-option").filter({ hasText: "Inter" }).first().click();
+	const look = () => page.evaluate(() => ({ bg: getComputedStyle(document.documentElement).getPropertyValue("--bg").trim(), font: getComputedStyle(document.body).fontFamily }));
+	if ((await look()).bg !== "#eff1f5" || !(await look()).font.includes("Inter")) throw new Error(`appearance not applied: ${JSON.stringify(await look())}`);
+	await page.reload();
+	await nav.getByRole("button", { name: "Scenes" }).waitFor();
+	if ((await look()).bg !== "#eff1f5") throw new Error("the theme didn't survive a reload");
+	await nav.getByRole("button", { name: "Scenes" }).click();
+	await page.getByTestId("asset-item").first().waitFor();
+	await page.waitForTimeout(500);
+	await step("41-theme-latte", page);
+	await nav.getByRole("button", { name: "Game Code" }).click();
+	await page.locator(".code-line").first().waitFor();
+	await step("42-theme-latte-code", page);
+	await nav.getByRole("button", { name: "Settings" }).click();
+	await page.getByRole("button", { name: "Appearance", exact: true }).click();
+	await page.locator("[data-testid=theme-card][data-theme-id=simple-dark]").click();
+	await page.getByTestId("font-option").filter({ hasText: "System" }).first().click();
 	console.log(`passed; screenshots in ${shots}`);
 } catch (err) {
 	const page = await app.firstWindow();

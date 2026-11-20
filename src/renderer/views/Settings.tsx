@@ -3,10 +3,12 @@ import type { Settings } from "../../shared/types";
 import { call } from "../api";
 import { type SettingsTab, useStudio } from "../store";
 import { AccountsPanel } from "./Accounts";
+import { AppearanceSettings } from "./Appearance";
 import { AssetGeneration } from "./Generation";
 
 const TABS: { id: SettingsTab; label: string }[] = [
 	{ id: "general", label: "General" },
+	{ id: "appearance", label: "Appearance" },
 	{ id: "accounts", label: "Accounts" },
 	{ id: "agents", label: "Agents" },
 ];
@@ -29,7 +31,15 @@ export function SettingsView() {
 					</button>
 				))}
 			</div>
-			{settingsTab === "accounts" ? <AccountsPanel /> : settingsTab === "agents" ? <AgentTypes /> : <GeneralSettings />}
+			{settingsTab === "accounts" ? (
+				<AccountsPanel />
+			) : settingsTab === "agents" ? (
+				<AgentTypes />
+			) : settingsTab === "appearance" ? (
+				<AppearanceSettings />
+			) : (
+				<GeneralSettings />
+			)}
 		</div>
 	);
 }

@@ -5,6 +5,11 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { themeColor } from "../../renderer/appearance";
+
+/** The viewer's backdrop from the theme: the sunken background, a grid in its border colours, the accent for scale. */
+const themed = () => ({ bg: themeColor("sunken") || "#121317", line: themeColor("border") || "#2e333b", accent: themeColor("accent") || "#6aa6ff" });
+const themedGrid = (c: ReturnType<typeof themed>) => new THREE.GridHelper(20, 20, new THREE.Color(c.line).offsetHSL(0, 0, 0.08), new THREE.Color(c.line));
 
 export interface ViewerOptions {
 	wireframe: boolean;
@@ -27,7 +32,7 @@ interface Scene {
 }
 
 function personSilhouette(): THREE.Object3D {
-	const material = new THREE.MeshStandardMaterial({ color: 0x6aa6ff, transparent: true, opacity: 0.35, roughness: 0.9 });
+	const material = new THREE.MeshStandardMaterial({ color: new THREE.Color(themed().accent), transparent: true, opacity: 0.35, roughness: 0.9 });
 	const person = new THREE.Group();
 	const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 1.05, 6, 16), material);
 	body.position.y = 0.2 + 1.05 / 2 + 0.03;
@@ -52,13 +57,14 @@ export function ModelViewer({ url, options, onLoaded }: { url: string; options: 
 		renderer.toneMapping = THREE.ACESFilmicToneMapping;
 		el.appendChild(renderer.domElement);
 		const scene = new THREE.Scene();
-		scene.background = new THREE.Color(0x1a1c21);
+		let colors = themed();
+		scene.background = new THREE.Color(colors.bg);
 		const pmrem = new THREE.PMREMGenerator(renderer);
 		scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 		const sun = new THREE.DirectionalLight(0xffffff, 1.6);
 		sun.position.set(3, 6, 4);
 		scene.add(sun, new THREE.HemisphereLight(0xdde6ff, 0x30302a, 0.6));
-		const grid = new THREE.GridHelper(20, 20, 0x4a505a, 0x2e333b);
+		let grid = themedGrid(colors);
 		scene.add(grid);
 		const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 200);
 		const controls = new OrbitControls(camera, renderer.domElement);
@@ -67,6 +73,17 @@ export function ModelViewer({ url, options, onLoaded }: { url: string; options: 
 		scene.add(person);
 		const s: Scene = { renderer, scene, camera, controls, person, clips: [] };
 		state.current = s;
+		// A theme change recolours the backdrop, the grid and the scale figure.
+		const retheme = () => {
+			colors = themed();
+			scene.background = new THREE.Color(colors.bg);
+			scene.remove(grid);
+			grid.dispose();
+			grid = themedGrid(colors);
+			scene.add(grid);
+			person.traverse((o) => o instanceof THREE.Mesh && (o.material as THREE.MeshStandardMaterial).color.set(colors.accent));
+		};
+		window.addEventListener("studio-appearance", retheme);
 
 		const resize = () => {
 			const { clientWidth: w, clientHeight: h } = el;
@@ -84,6 +101,7 @@ export function ModelViewer({ url, options, onLoaded }: { url: string; options: 
 			renderer.render(scene, camera);
 		});
 		return () => {
+			window.removeEventListener("studio-appearance", retheme);
 			observer.disconnect();
 			renderer.setAnimationLoop(null);
 			controls.dispose();
