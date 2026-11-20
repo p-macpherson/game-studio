@@ -1,22 +1,22 @@
 /**
- * The studio's sound format (`assets/sounds/<name>/sound.json`): how a sound effect is made. Layers (generated
- * takes and synthesised tones) are mixed, then processed, into one or more variants: `<name>.ogg`,
- * `<name>-2.ogg`… See the vault note "M7 Sound Effects" and skills/sound-design/SKILL.md (the reference agents read).
+ * The studio's sound format (`assets/sounds/<name>/sound.json`): how a sound effect is made. Generated takes
+ * (`takes/<id>.wav`, how each was made in takes/takes.json) are the raw material; each **variant** is one finished
+ * file the game plays (`<name>.ogg`, `<name>-2.ogg`…; it picks one at random), mixed from its own layers (usually
+ * one take; sometimes several takes, or a synth tone) and processed. Every layer is trimmed and levelled before its
+ * gain applies, so gains compare layers as heard. Processing is shared by the sound's variants, and a variant can
+ * override any of it. See the vault note "M7 Sound Effects" and skills/sound-design/SKILL.md (the agents' reference).
  *
  * Shared by the Sound Effects section, the renderer (src/main/sounds.ts) and agents' tools, so everyone gets the
  * same validation errors.
  */
 
-export interface Sound {
-	/** What it's for and how it's used ("the goblin's footsteps on grass, one per half walk cycle"). */
-	notes?: string;
-	/** A seamless loop (ambiences): the end is crossfaded into the start, and there are no fades. Default false. */
-	loop?: boolean;
-	/** Mixed together, each at its `at` offset. */
-	layers: Layer[];
-	/** Cut silence (quieter than `threshold` dB below the mix's peak, default -50) from both ends; false keeps it. Default true. */
+import { compact } from "./scene";
+
+/** Processing, applied to each variant's mix in this order: trim, length, pitch, filters, reverb, loop, level, fades. */
+export interface Processing {
+	/** Cut silence (quieter than `threshold` dB below the peak, default -50) from both ends; false keeps it. Default true. */
 	trim?: boolean | { threshold?: number };
-	/** Seconds: cut the sound after this long (after trimming, before the fade-out), e.g. one footstep out of a take. */
+	/** Seconds: cut after this long (after trimming, before the fade-out), e.g. one footstep out of a take. */
 	length?: number;
 	/** Semitones, tape-style (lower is also longer). */
 	pitch?: number;
@@ -25,7 +25,7 @@ export interface Sound {
 	lowpass?: number;
 	/** 0-1: how much room reverb (adds a tail). */
 	reverb?: number;
-	/** Peak level in dBFS after processing (default -1). Balance sounds against each other in the game with volume. */
+	/** Peak level in dBFS (default -1). Balance sounds against each other in the game with volume. */
 	peak?: number;
 	/** Seconds (default in 0.005, out 0.05). Not for loops. */
 	fade?: { in?: number; out?: number };
@@ -33,19 +33,36 @@ export interface Sound {
 	crossfade?: number;
 }
 
-export interface Layer {
-	/** Names the layer's takes (`takes/<name>-<seed>.wav`); generate layers default to "main". */
-	name?: string;
-	/** A generated layer: Stable Audio Open Small, from a prompt, up to 11 seconds. */
-	generate?: { prompt: string; seconds: number };
-	/** The generated takes used, by seed: one per variant, or one for every variant. */
-	takes?: number[];
-	/** A synthesised layer. */
-	synth?: Synth;
-	/** dB (default 0). */
+export interface Sound extends Processing {
+	/** What it's for and how it's used ("the goblin's footsteps on grass, one per half walk cycle"). */
+	notes?: string;
+	/** A seamless loop (ambiences): the end is crossfaded into the start, and there are no fades. Default false. */
+	loop?: boolean;
+	/** The files the game plays, in order: `<name>.ogg`, `<name>-2.ogg`… */
+	variants: Variant[];
+}
+
+/** One file the game plays: its layers mixed, then the sound's processing with this variant's overrides. */
+export interface Variant extends Processing {
+	layers: Layer[];
+}
+
+export type Layer = TakeLayer | SynthLayer;
+
+interface LayerMix {
+	/** dB against the variant's other layers, each levelled first (default 0). */
 	gain?: number;
-	/** Seconds from the start of the sound (default 0). */
+	/** Seconds from the start of the variant (default 0). Takes start at their first sound. */
 	at?: number;
+}
+
+/** A generated take, by id: `takes/<id>.wav` (e.g. "main-1565909407": its group and seed). */
+export interface TakeLayer extends LayerMix {
+	take: string;
+}
+
+export interface SynthLayer extends LayerMix {
+	synth: Synth;
 }
 
 export type Wave = "sine" | "square" | "saw" | "triangle" | "noise";
@@ -69,6 +86,19 @@ export interface Synth {
 	lowpass?: number;
 }
 
+/** How a take was made (takes/takes.json, keyed by file name). */
+export interface TakeRecord {
+	/** The takes generated from one prompt share a group (default "main"); the id is `<group>-<seed>`. */
+	group: string;
+	prompt: string;
+	seconds: number;
+	seed: number;
+	model: string;
+	/** How well it matches its prompt (CLAP cosine similarity); only meaningful against its batch. */
+	clap?: number;
+	at: string;
+}
+
 export interface SoundProblem {
 	at: string;
 	message: string;
@@ -76,81 +106,93 @@ export interface SoundProblem {
 
 export const MAX_GENERATE_SECONDS = 11;
 export const SOUND_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+export const TAKE_ID = /^[a-z0-9]+(-[a-z0-9]+)*-\d+$/;
+export const takeId = (group: string, seed: number) => `${group}-${seed}`;
 
-/** The layer's name for its takes. */
-export const layerName = (layer: Layer, index: number) => layer.name ?? (layer.generate ? "main" : `layer-${index + 1}`);
+/** The variant files, relative to the sound's folder: `<name>.ogg`, `<name>-2.ogg`… */
+export const variantFile = (name: string, i: number) => (i === 0 ? `${name}.ogg` : `${name}-${i + 1}.ogg`);
 
-/** How many variants a sound renders: the longest `takes` list (1 without generated layers). */
-export function variantCount(sound: Sound): number {
-	return Math.max(1, ...sound.layers.map((l) => (l.generate ? (l.takes?.length ?? 0) : 1)));
+/** The processing a variant renders with: the sound's, overridden by the variant's own fields. */
+export function processingOf(sound: Sound, v: Variant): Processing & { loop?: boolean } {
+	const { variants: _, notes: __, ...shared } = sound;
+	const { layers: ___, ...own } = v;
+	return { ...shared, ...own };
 }
 
-/** The variant files, repo-relative to the sound's folder: `<name>.ogg`, `<name>-2.ogg`… */
-export const variantFile = (name: string, i: number) => (i === 0 ? `${name}.ogg` : `${name}-${i + 1}.ogg`);
+/**
+ * "Make X variants using Y layers": X variants, each mixing Y different takes from `takes`, spread so each take
+ * is used as evenly as possible (with Y = 1, one variant per take in order).
+ */
+export function composeVariants(takes: string[], count: number, layers: number): Variant[] {
+	if (!takes.length) return [];
+	const per = Math.max(1, Math.min(layers, takes.length));
+	return Array.from({ length: count }, (_, v) => ({ layers: Array.from({ length: per }, (_, l) => ({ take: takes[(v * per + l) % takes.length] })) }));
+}
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const num = (v: unknown) => typeof v === "number" && Number.isFinite(v);
+const PROCESSING = ["trim", "length", "pitch", "highpass", "lowpass", "reverb", "peak", "fade", "crossfade"];
 
 /** Every problem in a sound, with where it is; an empty list means it renders. */
 export function validateSound(json: unknown): SoundProblem[] {
 	const out: SoundProblem[] = [];
 	const bad = (at: string, message: string) => out.push({ at, message });
 	if (!isObj(json)) return [{ at: "", message: "sound.json must be an object" }];
-	const s = json as Record<string, unknown>;
-	const known = ["notes", "loop", "layers", "trim", "length", "pitch", "highpass", "lowpass", "reverb", "peak", "fade", "crossfade"];
-	for (const k of Object.keys(s)) if (!known.includes(k)) bad(k, `Unknown field (fields: ${known.join(", ")})`);
-	if (!Array.isArray(s.layers) || s.layers.length === 0) {
-		bad("layers", "At least one layer (generate or synth)");
-		return out;
-	}
 	const range = (at: string, v: unknown, lo: number, hi: number, unit = "") => {
 		if (v === undefined) return;
 		if (!num(v) || (v as number) < lo || (v as number) > hi) bad(at, `Must be a number from ${lo} to ${hi}${unit}`);
 	};
-	range("length", s.length, 0.01, 60, " seconds");
-	range("pitch", s.pitch, -24, 24, " semitones");
-	range("highpass", s.highpass, 10, 20000, " Hz");
-	range("lowpass", s.lowpass, 10, 20000, " Hz");
-	range("reverb", s.reverb, 0, 1);
-	range("peak", s.peak, -60, 0, " dBFS");
-	range("crossfade", s.crossfade, 0.01, 10, " seconds");
-	if (s.trim !== undefined && typeof s.trim !== "boolean") {
-		if (!isObj(s.trim)) bad("trim", "true, false or {threshold}");
-		else range("trim.threshold", s.trim.threshold, -100, -10, " dB below the peak");
-	}
-	if (s.fade !== undefined) {
-		if (!isObj(s.fade)) bad("fade", "{in, out} in seconds");
-		else {
-			range("fade.in", s.fade.in, 0, 10, " seconds");
-			range("fade.out", s.fade.out, 0, 10, " seconds");
+	const processing = (prefix: string, p: Record<string, unknown>) => {
+		const at = (k: string) => (prefix ? `${prefix}.${k}` : k);
+		range(at("length"), p.length, 0.01, 60, " seconds");
+		range(at("pitch"), p.pitch, -24, 24, " semitones");
+		range(at("highpass"), p.highpass, 10, 20000, " Hz");
+		range(at("lowpass"), p.lowpass, 10, 20000, " Hz");
+		range(at("reverb"), p.reverb, 0, 1);
+		range(at("peak"), p.peak, -60, 0, " dBFS");
+		range(at("crossfade"), p.crossfade, 0.01, 10, " seconds");
+		if (p.trim !== undefined && typeof p.trim !== "boolean") {
+			if (!isObj(p.trim)) bad(at("trim"), "true, false or {threshold}");
+			else range(at("trim.threshold"), p.trim.threshold, -100, -10, " dB below the peak");
 		}
+		if (p.fade !== undefined) {
+			if (!isObj(p.fade)) bad(at("fade"), "{in, out} in seconds");
+			else {
+				range(at("fade.in"), p.fade.in, 0, 10, " seconds");
+				range(at("fade.out"), p.fade.out, 0, 10, " seconds");
+			}
+		}
+	};
+	const s = json as Record<string, unknown>;
+	const known = ["notes", "loop", "variants", ...PROCESSING];
+	for (const k of Object.keys(s)) {
+		if (k === "layers") bad(k, "Layers belong to variants now: \"variants\": [{\"layers\": [{\"take\": \"main-123\"}]}]");
+		else if (!known.includes(k)) bad(k, `Unknown field (fields: ${known.join(", ")})`);
 	}
-	const counts = new Set<number>();
-	const names = new Set<string>();
-	s.layers.forEach((raw, i) => {
-		const at = `layers[${i}]`;
-		if (!isObj(raw)) return bad(at, "A layer is an object with generate or synth");
-		const l = raw as Layer;
-		const keys = ["name", "generate", "takes", "synth", "gain", "at"];
-		for (const k of Object.keys(raw)) if (!keys.includes(k)) bad(`${at}.${k}`, `Unknown field (fields: ${keys.join(", ")})`);
-		if (!!l.generate === !!l.synth) return bad(at, "Exactly one of generate or synth");
-		if (l.name !== undefined && (typeof l.name !== "string" || !SOUND_NAME.test(l.name))) bad(`${at}.name`, "lower-kebab-case, e.g. \"creak\"");
-		const name = layerName(l, i);
-		if (names.has(name)) bad(`${at}.name`, `Another layer is already called "${name}"`);
-		names.add(name);
-		range(`${at}.gain`, l.gain, -60, 24, " dB");
-		range(`${at}.at`, l.at, 0, 60, " seconds");
-		if (l.generate) {
-			const g = l.generate as unknown as Record<string, unknown>;
-			if (typeof g.prompt !== "string" || !g.prompt.trim()) bad(`${at}.generate.prompt`, "Describe the sound");
-			range(`${at}.generate.seconds`, g.seconds, 0.1, MAX_GENERATE_SECONDS, " seconds (the model's limit)");
-			if (g.seconds === undefined) bad(`${at}.generate.seconds`, "How long to generate");
-			if (!Array.isArray(l.takes) || l.takes.length === 0) bad(`${at}.takes`, "Pick at least one take by its seed (generate_sound_takes lists them)");
-			else if (!l.takes.every((t) => Number.isInteger(t) && t >= 0)) bad(`${at}.takes`, "Takes are seeds: whole numbers");
-			else if (l.takes.length > 1) counts.add(l.takes.length);
-		} else if (l.synth) {
-			if (l.takes !== undefined) bad(`${at}.takes`, "Only generated layers have takes");
-			const y = l.synth as unknown as Record<string, unknown>;
+	processing("", s);
+	if (!Array.isArray(s.variants) || s.variants.length === 0) {
+		bad("variants", "At least one variant: {\"layers\": [{\"take\": \"<take id>\"}]} (generate_sound_takes lists take ids)");
+		return out;
+	}
+	s.variants.forEach((rawV, vi) => {
+		const vat = `variants[${vi}]`;
+		if (!isObj(rawV)) return bad(vat, "A variant is an object with layers");
+		for (const k of Object.keys(rawV)) if (k !== "layers" && !PROCESSING.includes(k)) bad(`${vat}.${k}`, `Unknown field (fields: layers, ${PROCESSING.join(", ")})`);
+		processing(vat, rawV);
+		if (!Array.isArray(rawV.layers) || rawV.layers.length === 0) return bad(`${vat}.layers`, "At least one layer: a take or a synth");
+		rawV.layers.forEach((raw, li) => {
+			const at = `${vat}.layers[${li}]`;
+			if (!isObj(raw)) return bad(at, "A layer is {take} or {synth}");
+			for (const k of Object.keys(raw)) if (!["take", "synth", "gain", "at"].includes(k)) bad(`${at}.${k}`, "Unknown field (fields: take, synth, gain, at)");
+			if ((raw.take === undefined) === (raw.synth === undefined)) return bad(at, "Exactly one of take or synth");
+			range(`${at}.gain`, raw.gain, -60, 24, " dB");
+			range(`${at}.at`, raw.at, 0, 60, " seconds");
+			if (raw.take !== undefined) {
+				if (typeof raw.take !== "string" || !TAKE_ID.test(raw.take)) bad(`${at}.take`, 'A take id like "main-1565909407" (its group and seed)');
+				return;
+			}
+			const y = raw.synth as Record<string, unknown>;
+			if (!isObj(y)) return bad(`${at}.synth`, "{wave, seconds, freq, …}");
 			if (!WAVES.includes(y.wave as Wave)) bad(`${at}.synth.wave`, `One of ${WAVES.join(", ")}`);
 			if (y.seconds === undefined) bad(`${at}.synth.seconds`, "How long it lasts");
 			range(`${at}.synth.seconds`, y.seconds, 0.005, 30, " seconds");
@@ -165,10 +207,17 @@ export function validateSound(json: unknown): SoundProblem[] {
 				const v = y.vibrato as Record<string, unknown>;
 				if (!isObj(v) || !num(v.rate) || !num(v.depth)) bad(`${at}.synth.vibrato`, "{rate (Hz), depth (semitones)}");
 			}
-		}
+		});
 	});
-	if (counts.size > 1) bad("layers", `Generated layers pick different numbers of takes (${[...counts].join(", ")}): give each layer one take or the same number, one per variant`);
 	return out;
+}
+
+/** sound.json as the studio writes it: one field per line, one variant per line (small diffs, easy edits). */
+export function formatSound(sound: Sound): string {
+	const { variants, ...rest } = sound;
+	const fields = Object.entries(rest).map(([k, v]) => `\t${JSON.stringify(k)}: ${compact(v)}`);
+	const list = variants.map((v) => `\t\t${compact(v)}`).join(",\n");
+	return `{\n${[...fields, `\t"variants": [\n${list}\n\t]`].join(",\n")}\n}\n`;
 }
 
 /** Parses sound.json text: the sound, or every problem. */

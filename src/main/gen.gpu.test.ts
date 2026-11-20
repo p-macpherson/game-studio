@@ -49,7 +49,7 @@ describe.runIf(process.env.GAME_STUDIO_GEN_GPU === "1")("generation on the GPU",
 		try {
 			const r = await sounds.generateTakes(ctx, { name: "chest-open", prompt: "an old wooden treasure chest lid creaking open slowly, rusty hinges creak, close-up foley", seconds: 3, count: 4, seed: 1234 });
 			console.log(JSON.stringify(r.takes, null, 1), `\noutputs in ${cwd}`);
-			expect(r.takes.map((t) => t.seed)).toEqual([1234, 1235, 1236, 1237]);
+			expect(r.takes.map((t) => t.id)).toEqual(["main-1234", "main-1235", "main-1236", "main-1237"]);
 			for (const t of r.takes) {
 				expect(t.seconds).toBeCloseTo(3, 1);
 				expect(t.clap).toBeGreaterThan(0);

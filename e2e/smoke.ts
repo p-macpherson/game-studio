@@ -328,11 +328,20 @@ try {
 	await page.locator("[data-testid=sound-detail] [data-testid=render-status][data-state=current]").waitFor({ timeout: 30_000 });
 	await page.getByTestId("take").nth(3).waitFor();
 	await page.getByTestId("variant-row").first().waitFor();
+	await page.getByTestId("draft-banner").waitFor();
 	await step("28-sounds", page);
-	await page.locator("[data-testid=take][data-used=false]").first().getByTestId("take-toggle").click();
+	// Tick two unused takes and make them the variants (one take each).
+	await page.locator("[data-testid=take][data-used=false]").nth(0).getByTestId("take-select").check();
+	await page.locator("[data-testid=take][data-used=false]").nth(1).getByTestId("take-select").check();
+	await page.getByTestId("compose-replace").click();
 	await page.getByTestId("variant-row").nth(1).waitFor({ timeout: 30_000 });
 	await page.locator("[data-testid=sound-detail] [data-testid=render-status][data-state=current]").waitFor({ timeout: 30_000 });
-	await step("29-sound-takes", page);
+	await step("29-sound-variants", page);
+	// Merging from the draft banner brings the sound into the game.
+	await page.getByTestId("draft-merge").click();
+	await page.getByTestId("draft-banner").waitFor({ state: "detached", timeout: 30_000 });
+	await page.getByTestId("variant-row").nth(1).waitFor();
+	await step("30-sound-merged", page);
 
 	// Source control and accounts render.
 	await page.getByRole("button", { name: "Source Control" }).click();

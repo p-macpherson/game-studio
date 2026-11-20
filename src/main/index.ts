@@ -241,6 +241,7 @@ async function main(): Promise<void> {
 		"sessions.setModel": (id, model) => sessions.setModel(id, model),
 		"sessions.answer": (id, questionId, answer) => sessions.answer(id, questionId, answer),
 		"sessions.diff": (id) => sessions.diff(id),
+		"sessions.changedFiles": (id) => sessions.changedFiles(id),
 		"sessions.raw": async (id) => sessions.raw(id),
 		"sessions.merge": (id) => sessions.merge(id),
 		"sessions.discard": (id) => sessions.discard(id),

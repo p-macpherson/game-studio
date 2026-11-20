@@ -102,6 +102,8 @@ export interface StudioApi {
 	"sessions.setModel"(id: string, model: string): Promise<void>;
 	"sessions.answer"(id: string, questionId: string, answer: string): Promise<void>;
 	"sessions.diff"(id: string): Promise<string>;
+	/** The files a session changed against its base (for warnings like "merging also brings …"). */
+	"sessions.changedFiles"(id: string): Promise<{ path: string; change: "added" | "modified" | "deleted" }[]>;
 	"sessions.raw"(id: string): Promise<string>;
 	"sessions.merge"(id: string): Promise<void>;
 	"sessions.discard"(id: string): Promise<void>;

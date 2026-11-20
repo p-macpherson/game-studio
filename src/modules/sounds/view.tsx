@@ -1,11 +1,11 @@
-// Sound Effects: browse sounds (main checkout + drafts), play every variant (and as the game would: a random
-// variant, pitch jittered a little), audition and pick generated takes, make quick processing changes, and see
-// where the game uses each sound. sound.json is the asset; edits and renders run in a session's worktree (the
-// draft's session, or a Sound Designer workspace created without running the agent).
+// Sound Effects: generated takes first (the raw material: audition them levelled, generate more from any prompt),
+// then the variants the game plays (each a mix of its own layers: usually one take), composed from the takes
+// here, then processing shared by the variants, and where the game uses the sound. sound.json is the asset;
+// edits and renders run in a session's worktree (the draft's session, or a Sound Designer workspace).
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { StudioRequestMethod } from "../../shared/host";
 import type { ModuleInfo } from "../../shared/modules";
-import { type Layer, layerName, parseSound, type Sound } from "../../shared/sound";
+import { composeVariants, type Layer, parseSound, type Sound, type TakeRecord, type Variant, variantFile } from "../../shared/sound";
 import { call, sha1, studioFile } from "../../renderer/api";
 import { useStudio } from "../../renderer/store";
 import { AssetBrowser, type AssetContentProps } from "../../renderer/views/AssetBrowser";
@@ -15,16 +15,6 @@ import { soundName } from "./info";
 const bumpAssets = () => useStudio.setState((s) => ({ assetsVersion: s.assetsVersion + 1 }));
 /** A take whose CLAP score is this far below its batch's median is flagged (as the pipeline does for agents). */
 const OFF_PROMPT = 0.15;
-
-interface TakeRecord {
-	layer: string;
-	prompt: string;
-	seconds: number;
-	seed: number;
-	model: string;
-	clap?: number;
-	at: string;
-}
 
 export function SoundsView({ module }: { module: ModuleInfo }) {
 	return (
@@ -37,76 +27,49 @@ export function SoundsView({ module }: { module: ModuleInfo }) {
 					"Describe the sound: what makes it and what it's made of, where it plays (UI, in the world, an ambience), how long, whether it loops, and how many variants (footsteps and hits need several).",
 			}}
 			modifyLabel="Ask the sound designer"
-			modifyPlaceholder="What should change? The Sound Designer edits sound.json: new takes or prompts, layers, processing, variants."
-			emptyText="No sound effects yet. Start one with “New sound”: the Sound Designer generates takes and renders them."
+			modifyPlaceholder="What should change? The Sound Designer edits sound.json: new takes, which takes make the variants, layers, processing."
+			emptyText="No sound effects yet. Start one with “New sound”: the Sound Designer generates takes and makes the variants the game plays."
 			content={(props) => <SoundDetail key={`${props.asset.path}:${props.sessionId ?? ""}`} {...props} />}
 		/>
 	);
 }
 
-// --- Playback and waveforms ---------------------------------------------------------------------------------
-
-/** One sound plays at a time across the section. */
-let playingAudio: HTMLAudioElement | null = null;
-
-function usePlayer() {
-	const [playing, setPlaying] = useState<string | null>(null);
-	useEffect(() => () => playingAudio?.pause(), []);
-	const toggle = (url: string, opts: { rate?: number; loop?: boolean; id?: string } = {}) => {
-		const id = opts.id ?? url;
-		playingAudio?.pause();
-		if (playing === id) {
-			setPlaying(null);
-			return;
-		}
-		const a = new Audio(url);
-		a.preservesPitch = false; // a tape-style pitch change, as the engine's pitch does
-		a.playbackRate = opts.rate ?? 1;
-		a.loop = !!opts.loop;
-		a.onended = () => setPlaying((p) => (p === id ? null : p));
-		playingAudio = a;
-		setPlaying(id);
-		void a.play().catch(() => setPlaying(null));
-	};
-	return { playing, toggle };
-}
+// --- Decoding, playback, waveforms ---------------------------------------------------------------------------
 
 interface Decoded {
-	seconds: number;
-	peakDb: number;
-	/** Min and max of each of 240 columns, interleaved. */
-	columns: Float32Array;
+	buffer: AudioBuffer;
+	/** Mono mix. */
+	mono: Float32Array;
+	peak: number;
+	/** The part above -50 dB below the peak (what trimming keeps), in samples. */
+	start: number;
+	end: number;
 }
 
-const decoded = new Map<string, Promise<Decoded>>();
 let audioContext: AudioContext | undefined;
+const ac = () => (audioContext ??= new AudioContext());
+const decoded = new Map<string, Promise<Decoded>>();
 
 function decode(url: string): Promise<Decoded> {
 	let p = decoded.get(url);
 	if (!p) {
 		p = fetch(url)
 			.then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`${r.status}`))))
-			.then((b) => (audioContext ??= new AudioContext()).decodeAudioData(b))
-			.then((buf) => {
-				const cols = 240;
-				const columns = new Float32Array(cols * 2);
-				const chans = Array.from({ length: buf.numberOfChannels }, (_, c) => buf.getChannelData(c));
-				const per = Math.max(1, Math.floor(buf.length / cols));
-				let peak = 0;
-				for (let c = 0; c < cols; c++) {
-					let lo = 0;
-					let hi = 0;
-					for (let i = c * per; i < Math.min(buf.length, (c + 1) * per); i++) {
-						for (const ch of chans) {
-							lo = Math.min(lo, ch[i]);
-							hi = Math.max(hi, ch[i]);
-						}
-					}
-					columns[c * 2] = lo;
-					columns[c * 2 + 1] = hi;
-					peak = Math.max(peak, -lo, hi);
+			.then((b) => ac().decodeAudioData(b))
+			.then((buffer) => {
+				const mono = new Float32Array(buffer.length);
+				for (let c = 0; c < buffer.numberOfChannels; c++) {
+					const ch = buffer.getChannelData(c);
+					for (let i = 0; i < ch.length; i++) mono[i] += ch[i] / buffer.numberOfChannels;
 				}
-				return { seconds: buf.duration, peakDb: 20 * Math.log10(Math.max(peak, 1e-9)), columns };
+				let peak = 0;
+				for (const v of mono) peak = Math.max(peak, Math.abs(v));
+				const limit = peak * 10 ** (-50 / 20);
+				let start = mono.findIndex((v) => Math.abs(v) > limit);
+				let end = mono.length;
+				while (end > 0 && Math.abs(mono[end - 1]) <= limit) end--;
+				if (start < 0) [start, end] = [0, mono.length];
+				return { buffer, mono, peak, start, end };
 			});
 		decoded.set(url, p);
 		p.catch(() => decoded.delete(url));
@@ -114,7 +77,40 @@ function decode(url: string): Promise<Decoded> {
 	return p;
 }
 
-function Waveform({ url, onDecoded }: { url: string; onDecoded?(d: Decoded): void }) {
+/** One sound plays at a time across the section. */
+let playing: { stop(): void } | null = null;
+
+function usePlayer() {
+	const [current, setCurrent] = useState<string | null>(null);
+	useEffect(() => () => playing?.stop(), []);
+	/** Plays a file (`level`: trimmed and brought up to -1 dBFS, as a variant would be). Again stops it. */
+	const toggle = async (url: string, opts: { level?: boolean; rate?: number; loop?: boolean; id?: string } = {}) => {
+		const id = opts.id ?? url;
+		playing?.stop();
+		playing = null;
+		if (current === id) return setCurrent(null);
+		setCurrent(id);
+		const d = await decode(url).catch(() => null);
+		if (!d) return setCurrent(null);
+		const src = ac().createBufferSource();
+		src.buffer = d.buffer;
+		src.loop = !!opts.loop;
+		src.playbackRate.value = opts.rate ?? 1; // tape-style, as the engine's pitch
+		const gain = ac().createGain();
+		gain.gain.value = opts.level && d.peak > 1e-6 ? 0.89 / d.peak : 1;
+		src.connect(gain).connect(ac().destination);
+		src.onended = () => setCurrent((c) => (c === id ? null : c));
+		const offset = opts.level ? d.start / d.buffer.sampleRate : 0;
+		src.start(0, offset, opts.level && !opts.loop ? (d.end - d.start) / d.buffer.sampleRate : undefined);
+		playing = { stop: () => src.stop() };
+	};
+	return { current, toggle };
+}
+
+type Player = ReturnType<typeof usePlayer>;
+
+/** A waveform (sqrt scale, as the agents' images); `level` draws only the trimmed part, scaled to its peak. */
+function Waveform({ url, level, onDecoded }: { url: string; level?: boolean; onDecoded?(d: Decoded): void }) {
 	const canvas = useRef<HTMLCanvasElement>(null);
 	useEffect(() => {
 		let live = true;
@@ -127,12 +123,20 @@ function Waveform({ url, onDecoded }: { url: string; onDecoded?(d: Decoded): voi
 				const { width, height } = c;
 				g.clearRect(0, 0, width, height);
 				g.fillStyle = getComputedStyle(c).color;
-				const cols = d.columns.length / 2;
-				// sqrt scale, so quiet detail shows (the agents' images use the same)
-				const y = (v: number) => height / 2 - Math.sign(v) * Math.sqrt(Math.abs(v)) * (height / 2);
+				const [from, to] = level ? [d.start, d.end] : [0, d.mono.length];
+				const scale = level && d.peak > 1e-6 ? 1 / d.peak : 1;
+				const cols = 240;
+				const per = Math.max(1, (to - from) / cols);
+				const y = (v: number) => height / 2 - Math.sign(v) * Math.sqrt(Math.min(1, Math.abs(v) * scale)) * (height / 2);
 				for (let i = 0; i < cols; i++) {
-					const top = y(d.columns[i * 2 + 1]);
-					g.fillRect((i / cols) * width, top, Math.max(1, width / cols - 0.5), Math.max(1, y(d.columns[i * 2]) - top));
+					let lo = 0;
+					let hi = 0;
+					for (let j = Math.floor(from + i * per); j < Math.min(to, from + (i + 1) * per); j++) {
+						lo = Math.min(lo, d.mono[j]);
+						hi = Math.max(hi, d.mono[j]);
+					}
+					const top = y(hi);
+					g.fillRect((i / cols) * width, top, Math.max(1, width / cols - 0.5), Math.max(1, y(lo) - top));
 				}
 			},
 			() => {},
@@ -140,13 +144,19 @@ function Waveform({ url, onDecoded }: { url: string; onDecoded?(d: Decoded): voi
 		return () => {
 			live = false;
 		};
-	}, [url, onDecoded]);
+	}, [url, level, onDecoded]);
 	return <canvas ref={canvas} className="waveform" width={480} height={56} />;
 }
 
 // --- The detail view ----------------------------------------------------------------------------------------
 
 type RenderState = { kind: "loading" } | { kind: "none" } | { kind: "stale"; files: string[] } | { kind: "current"; files: string[] };
+
+interface Take {
+	id: string;
+	record?: TakeRecord;
+	off: boolean;
+}
 
 function SoundDetail({ asset, text, sessionId }: AssetContentProps) {
 	const { showAsset, showError } = useStudio();
@@ -158,6 +168,7 @@ function SoundDetail({ asset, text, sessionId }: AssetContentProps) {
 	const [usages, setUsages] = useState<{ path: string; line: number; text: string }[] | null>(null);
 	const [version, setVersion] = useState(0);
 	const [busy, setBusy] = useState<string | null>(null);
+	const [selected, setSelected] = useState<string[]>([]);
 	const player = usePlayer();
 	const file = (path: string) => studioFile(sessionId, `${dir}/${path}`, `${version}`);
 
@@ -172,7 +183,11 @@ function SoundDetail({ asset, text, sessionId }: AssetContentProps) {
 			const info = (await r.json()) as { sound: string; files: string[] };
 			setRender({ kind: info.sound === (await sha1(text)) ? "current" : "stale", files: info.files });
 		})();
-		call("sounds.usages", sessionId ?? null, name).then((u) => live && setUsages(u), showError);
+		// Where it's used is a nicety: a draft whose session just ended can't be searched any more.
+		call("sounds.usages", sessionId ?? null, name).then(
+			(u) => live && setUsages(u),
+			() => live && setUsages([]),
+		);
 		return () => {
 			live = false;
 		};
@@ -193,21 +208,48 @@ function SoundDetail({ asset, text, sessionId }: AssetContentProps) {
 			setBusy(null);
 		}
 	};
+	const setVariants = (variants: Variant[]) => void run("Rendering…", "edit_sound", { variants });
 
+	// Takes grouped by the prompt they came from, newest prompt first; off-prompt within each batch.
+	const groups = useMemo(() => {
+		const byPrompt = new Map<string, { prompt: string; seconds: number; group: string; latest: string; takes: Take[] }>();
+		const batches = new Map<string, TakeRecord[]>();
+		for (const r of Object.values(records)) batches.set(r.at, [...(batches.get(r.at) ?? []), r]);
+		const off = new Set<string>();
+		for (const b of batches.values()) {
+			const scores = b.map((r) => r.clap).filter((c): c is number => c !== undefined).sort((x, y) => x - y);
+			if (scores.length > 2) for (const r of b) if (r.clap !== undefined && r.clap < scores[Math.floor(scores.length / 2)] - OFF_PROMPT) off.add(`${r.group}-${r.seed}`);
+		}
+		for (const [fileName, r] of Object.entries(records)) {
+			const key = `${r.seconds}|${r.prompt}`;
+			const g = byPrompt.get(key) ?? { prompt: r.prompt, seconds: r.seconds, group: r.group, latest: r.at, takes: [] };
+			const id = fileName.replace(/\.wav$/, "");
+			g.takes.push({ id, record: r, off: off.has(id) });
+			if (r.at > g.latest) g.latest = r.at;
+			byPrompt.set(key, g);
+		}
+		const list = [...byPrompt.values()].sort((a, b) => b.latest.localeCompare(a.latest));
+		for (const g of list) g.takes.sort((a, b) => (a.record?.seed ?? 0) - (b.record?.seed ?? 0));
+		// Takes a variant uses without a record (written by hand) still show.
+		const known = new Set(list.flatMap((g) => g.takes.map((t) => t.id)));
+		const loose = (sound?.variants ?? []).flatMap((v) => v.layers.flatMap((l) => ("take" in l && !known.has(l.take) ? [l.take] : [])));
+		if (loose.length) list.push({ prompt: "(no record)", seconds: 0, group: "", latest: "", takes: [...new Set(loose)].map((id) => ({ id, off: false })) });
+		return list;
+	}, [records, sound]);
+
+	const usedIn = (id: string) => (sound?.variants ?? []).flatMap((v, i) => (v.layers.some((l) => "take" in l && l.take === id) ? [i + 1] : []));
 	const files = render.kind === "current" || render.kind === "stale" ? render.files : [];
 	const playInGame = () => {
 		const f = files[Math.floor(Math.random() * files.length)];
-		player.toggle(file(f), { rate: sound?.loop ? 1 : 0.96 + Math.random() * 0.08, loop: sound?.loop, id: "game" });
+		void player.toggle(file(f), { rate: sound?.loop ? 1 : 0.96 + Math.random() * 0.08, loop: sound?.loop, id: "game" });
 	};
+	const toggleSelect = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+
 	return (
 		<div className="sound-detail" data-testid="sound-detail">
 			<div className="row sound-head">
 				<div className="grow col">
-					<div className="muted">
-						{[sound && (sound.loop ? "loop" : "one-shot"), files.length > 1 && `${files.length} variants`, sound && `${sound.layers.length} layer${sound.layers.length > 1 ? "s" : ""}`]
-							.filter(Boolean)
-							.join(" · ")}
-					</div>
+					<div className="muted">{sound && [sound.loop ? "loop" : "one-shot", `${sound.variants.length} variant${sound.variants.length > 1 ? "s" : ""}`].join(" · ")}</div>
 					{sound?.notes && <div className="sound-notes">{sound.notes}</div>}
 				</div>
 				<div className="row render-status" data-testid="render-status" data-state={render.kind}>
@@ -231,36 +273,81 @@ function SoundDetail({ asset, text, sessionId }: AssetContentProps) {
 					))}
 				</div>
 			)}
-			{files.length > 0 && (
+
+			<div className="card col" data-testid="takes">
+				<div className="col" style={{ gap: 2 }}>
+					<h3>Takes</h3>
+					<div className="muted small">
+						What the model generated: raw material, played and drawn trimmed and levelled. Tick takes, or use one as a variant.
+					</div>
+				</div>
+				<GenerateTakes
+					defaults={groups[0] ? { prompt: groups[0].prompt, seconds: groups[0].seconds } : undefined}
+					busy={busy}
+					onGenerate={(p) => void run("Generating takes…", "generate_sound", { ...p, group: groups.find((g) => g.prompt === p.prompt)?.group })}
+				/>
+				{groups.map((g) => (
+					<div key={`${g.seconds}|${g.prompt}`} className="col take-group">
+						<div className="row">
+							<div className="grow muted small">
+								“{g.prompt}”{g.seconds ? ` · ${g.seconds} s` : ""} · {g.takes.length} take{g.takes.length > 1 ? "s" : ""}
+							</div>
+							{g.seconds > 0 && (
+								<button className="small" disabled={!!busy} data-testid="more-takes" onClick={() => void run("Generating takes…", "generate_sound", { prompt: g.prompt, seconds: g.seconds, group: g.group, count: 6 })}>
+									+ More takes
+								</button>
+							)}
+						</div>
+						<div className="takes-grid">
+							{g.takes.map((t) => (
+								<TakeTile
+									key={t.id}
+									take={t}
+									url={file(`takes/${t.id}.wav`)}
+									usedIn={usedIn(t.id)}
+									selected={selected.includes(t.id)}
+									busy={!!busy}
+									player={player}
+									onSelect={() => toggleSelect(t.id)}
+									onUse={() => sound && setVariants([...sound.variants, { layers: [{ take: t.id }] }])}
+								/>
+							))}
+						</div>
+					</div>
+				))}
+				{selected.length > 0 && sound && <ComposeBar selected={selected} sound={sound} busy={!!busy} onCompose={(v) => (setVariants(v), setSelected([]))} onClear={() => setSelected([])} />}
+			</div>
+
+			{sound && (
 				<div className="card col" data-testid="variants">
 					<div className="row">
-						<h3 className="grow">{files.length > 1 ? "Variants" : "Sound"}</h3>
-						<button className="primary" onClick={playInGame} data-testid="play-in-game" title="A random variant, pitch varied a little, as the game would play it">
-							{player.playing === "game" ? "■ Stop" : "▶ Play as in game"}
-						</button>
+						<div className="grow col" style={{ gap: 2 }}>
+							<h3>Variants</h3>
+							<div className="muted small">The files the game plays: it picks one at random each time. Each mixes its own layers, then the processing below.</div>
+						</div>
+						{files.length > 0 && (
+							<button className="primary" onClick={playInGame} data-testid="play-in-game" title="A random variant, pitch varied a little, as the game would play it">
+								{player.current === "game" ? "■ Stop" : "▶ Play as in game"}
+							</button>
+						)}
 					</div>
-					{files.map((f) => (
-						<AudioRow key={f} label={f} url={file(f)} loop={!!sound?.loop} player={player} />
+					{sound.variants.map((v, i) => (
+						<VariantCard
+							key={i}
+							variant={v}
+							sound={sound}
+							url={files[i] ? file(files[i]) : undefined}
+							fileName={variantFile(name, i)}
+							records={records}
+							selected={selected}
+							busy={!!busy}
+							player={player}
+							onChange={(next) => setVariants(next ? sound.variants.map((x, j) => (j === i ? next : x)) : sound.variants.filter((_, j) => j !== i))}
+						/>
 					))}
 				</div>
 			)}
-			{sound?.layers.map((l, i) =>
-				l.generate ? (
-					<TakesBoard
-						key={i}
-						layer={l}
-						name={layerName(l, i)}
-						records={records}
-						file={file}
-						player={player}
-						busy={busy}
-						onTakes={(takes) => void run("Rendering…", "edit_sound", { layer: layerName(l, i), takes })}
-						onMore={() => void run("Generating takes…", "generate_sound", { prompt: l.generate!.prompt, seconds: l.generate!.seconds, layer: layerName(l, i), count: 6 })}
-					/>
-				) : null,
-			)}
-			{sound && sound.layers.some((l) => l.synth) && <SynthLayers sound={sound} />}
-			{sound && <QuickChanges sound={sound} busy={!!busy} onApply={(set) => void run("Rendering…", "edit_sound", { set })} />}
+			{sound && <Processing sound={sound} busy={!!busy} onApply={(set) => void run("Rendering…", "edit_sound", { set })} />}
 			<div className="card col" data-testid="usages">
 				<h3>Used in</h3>
 				{usages?.length ? (
@@ -274,7 +361,7 @@ function SoundDetail({ asset, text, sessionId }: AssetContentProps) {
 					))
 				) : (
 					<div className="muted small">
-						Not used in the game yet. Game code plays it with <code>{`engine.play_sound("sounds/${name}/${name}.ogg")`}</code>.
+						Not used in the game yet. Game code plays it with <code>{`engine.play_sound("sounds/${name}/${name}.ogg")`}</code> (or a random variant).
 					</div>
 				)}
 			</div>
@@ -282,113 +369,175 @@ function SoundDetail({ asset, text, sessionId }: AssetContentProps) {
 	);
 }
 
-function AudioRow({ label, url, loop, player }: { label: string; url: string; loop: boolean; player: ReturnType<typeof usePlayer> }) {
-	const [info, setInfo] = useState<Decoded>();
-	return (
-		<div className="row audio-row" data-testid="variant-row">
-			<button className="icon" onClick={() => player.toggle(url, { loop })} title={loop ? "Play (loops)" : "Play"}>
-				{player.playing === url ? "■" : "▶"}
-			</button>
-			<span className="mono audio-label">{label}</span>
-			<Waveform url={url} onDecoded={setInfo} />
-			<span className="muted mono">{info ? `${info.seconds.toFixed(2)} s` : ""}</span>
-		</div>
-	);
-}
-
-/** A generated layer's takes, newest first: play, compare and pick which ones the sound uses (one per variant). */
-function TakesBoard(props: {
-	layer: Layer;
-	name: string;
-	records: Record<string, TakeRecord>;
-	file(path: string): string;
-	player: ReturnType<typeof usePlayer>;
-	busy: string | null;
-	onTakes(takes: number[]): void;
-	onMore(): void;
-}) {
-	const { layer, name, records, player, busy } = props;
-	const used = layer.takes ?? [];
-	const takes = useMemo(() => {
-		const recs = Object.values(records).filter((r) => r.layer === name);
-		// Off-prompt within each batch (one generation request): CLAP far below the batch's median.
-		const batches = new Map<string, TakeRecord[]>();
-		for (const r of recs) batches.set(r.at, [...(batches.get(r.at) ?? []), r]);
-		const off = new Set<number>();
-		for (const b of batches.values()) {
-			const scores = b.map((r) => r.clap).filter((c): c is number => c !== undefined).sort((x, y) => x - y);
-			if (scores.length > 2) for (const r of b) if (r.clap !== undefined && r.clap < scores[Math.floor(scores.length / 2)] - OFF_PROMPT) off.add(r.seed);
-		}
-		const list = recs.sort((a, b) => b.at.localeCompare(a.at) || a.seed - b.seed).map((r) => ({ seed: r.seed, record: r as TakeRecord | undefined, off: off.has(r.seed) }));
-		// Takes named in sound.json without a record (written by hand) still show.
-		for (const seed of used) if (!list.some((t) => t.seed === seed)) list.unshift({ seed, record: undefined, off: false });
-		return list;
-	}, [records, name, used]);
-	const toggle = (seed: number) => props.onTakes(used.includes(seed) ? used.filter((s) => s !== seed) : [...used, seed]);
-	return (
-		<div className="card col" data-testid="takes">
+function GenerateTakes({ defaults, busy, onGenerate }: { defaults?: { prompt: string; seconds: number }; busy: string | null; onGenerate(p: { prompt: string; seconds: number; count: number }): void }) {
+	const [open, setOpen] = useState(false);
+	const [prompt, setPrompt] = useState(defaults?.prompt ?? "");
+	const [seconds, setSeconds] = useState(defaults?.seconds ?? 2);
+	const [count, setCount] = useState(6);
+	if (!open)
+		return (
 			<div className="row">
-				<div className="grow col">
-					<h3>Takes{name !== "main" ? ` · ${name}` : ""}</h3>
-					<div className="muted small">
-						“{layer.generate!.prompt}” · {layer.generate!.seconds} s · {used.length} in use (one per variant, in order)
-					</div>
-				</div>
-				<button disabled={!!busy} onClick={props.onMore} data-testid="more-takes">
-					{busy === "Generating takes…" ? busy : "+ More takes"}
+				<button className="small" onClick={() => setOpen(true)} data-testid="new-takes">
+					+ New takes from a prompt…
 				</button>
 			</div>
-			<div className="takes-grid">
-				{takes.map(({ seed, record, off }) => {
-					const url = props.file(`takes/${name}-${seed}.wav`);
-					const index = used.indexOf(seed);
-					return (
-						<div key={seed} className={`take ${index >= 0 ? "used" : ""}`} data-testid="take" data-seed={seed} data-used={index >= 0}>
-							<div className="row">
-								<button className="icon" onClick={() => player.toggle(url)}>
-									{player.playing === url ? "■" : "▶"}
-								</button>
-								<span className="mono grow">#{seed}</span>
-								{index >= 0 && <span className="badge">variant {index + 1}</span>}
-								{off && (
-									<span className="badge warn" title="CLAP scored it far below the rest of its batch: probably not the sound asked for">
-										off-prompt
-									</span>
-								)}
-							</div>
-							<Waveform url={url} />
-							<div className="row">
-								<span className="muted small grow">{record?.clap !== undefined ? `CLAP ${record.clap.toFixed(2)}` : ""}</span>
-								<button
-									className="small"
-									disabled={!!busy || (index >= 0 && used.length === 1)}
-									onClick={() => toggle(seed)}
-									data-testid="take-toggle"
-								>
-									{index >= 0 ? "Remove" : "Use"}
-								</button>
-							</div>
-						</div>
-					);
-				})}
+		);
+	return (
+		<div className="col generate-takes">
+			<textarea rows={2} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="One sound, what makes it, how it's recorded: “a wooden door creaking open, close-up foley, dry”" />
+			<div className="row">
+				<label className="row small">
+					Seconds <input type="number" min={0.1} max={11} step={0.1} value={seconds} onChange={(e) => setSeconds(Number(e.target.value))} />
+				</label>
+				<label className="row small">
+					Takes <input type="number" min={1} max={12} value={count} onChange={(e) => setCount(Number(e.target.value))} />
+				</label>
+				<span className="grow" />
+				<button onClick={() => setOpen(false)}>Cancel</button>
+				<button className="primary" disabled={!!busy || !prompt.trim()} onClick={() => (onGenerate({ prompt: prompt.trim(), seconds, count }), setOpen(false))}>
+					{busy === "Generating takes…" ? busy : "Generate"}
+				</button>
 			</div>
 		</div>
 	);
 }
 
-function SynthLayers({ sound }: { sound: Sound }) {
+function TakeTile(props: { take: Take; url: string; usedIn: number[]; selected: boolean; busy: boolean; player: Player; onSelect(): void; onUse(): void }) {
+	const { take, url, usedIn, player } = props;
 	return (
-		<div className="card col">
-			<h3>Synth layers</h3>
-			{sound.layers.map((l, i) =>
-				l.synth ? (
-					<div key={i} className="mono small">
-						{layerName(l, i)}: {l.synth.wave}
-						{l.synth.freq ? ` ${l.synth.freq}${l.synth.to ? `→${l.synth.to}` : ""} Hz` : ""}, {l.synth.seconds} s{l.gain ? `, ${l.gain} dB` : ""}
-						{l.at ? `, at ${l.at} s` : ""}
+		<div className={`take ${props.selected ? "selected" : ""} ${usedIn.length ? "used" : ""}`} data-testid="take" data-take={take.id} data-used={usedIn.length > 0}>
+			<div className="row">
+				<input type="checkbox" checked={props.selected} onChange={props.onSelect} title="Select, to compose variants from several takes" data-testid="take-select" />
+				<button className="icon" onClick={() => void player.toggle(url, { level: true })} title="Play (trimmed and levelled)">
+					{player.current === url ? "■" : "▶"}
+				</button>
+				<span className="mono grow" title={take.id}>
+					#{take.record?.seed ?? take.id}
+				</span>
+				{take.off && (
+					<span className="badge warn" title="CLAP scored it far below the rest of its batch: probably not the sound asked for">
+						off-prompt
+					</span>
+				)}
+			</div>
+			<Waveform url={url} level />
+			<div className="row">
+				<span className="muted small grow">
+					{[take.record?.clap !== undefined && `CLAP ${take.record.clap.toFixed(2)}`, usedIn.length > 0 && `in variant ${usedIn.join(", ")}`].filter(Boolean).join(" · ")}
+				</span>
+				<button className="small" disabled={props.busy} onClick={props.onUse} data-testid="take-use" title="Add a variant made of just this take">
+					+ Variant
+				</button>
+			</div>
+		</div>
+	);
+}
+
+/** With takes ticked: make X variants mixing Y of them each (spread evenly), replacing or adding to the variants. */
+function ComposeBar({ selected, sound, busy, onCompose, onClear }: { selected: string[]; sound: Sound; busy: boolean; onCompose(v: Variant[]): void; onClear(): void }) {
+	// The count follows the selection (one variant per take) until it's typed.
+	const [typed, setCount] = useState<number | null>(null);
+	const count = typed ?? selected.length;
+	const [layers, setLayers] = useState(1);
+	const made = composeVariants(selected, count, layers);
+	return (
+		<div className="row compose-bar" data-testid="compose-bar">
+			<span>{selected.length} selected · make</span>
+			<input type="number" min={1} max={16} value={count} onChange={(e) => setCount(Math.max(1, Number(e.target.value)))} data-testid="compose-count" />
+			<span>variant{count > 1 ? "s" : ""} using</span>
+			<input type="number" min={1} max={selected.length} value={layers} onChange={(e) => setLayers(Math.max(1, Number(e.target.value)))} data-testid="compose-layers" />
+			<span>take{layers > 1 ? "s" : ""} each</span>
+			<span className="grow" />
+			<button className="small" onClick={onClear}>
+				Clear
+			</button>
+			<button disabled={busy} onClick={() => onCompose([...sound.variants, ...made])}>
+				Add
+			</button>
+			<button className="primary" disabled={busy} onClick={() => onCompose(made)} data-testid="compose-replace">
+				Replace variants
+			</button>
+		</div>
+	);
+}
+
+function layerLabel(l: Layer, records: Record<string, TakeRecord>): string {
+	if ("take" in l) {
+		const r = records[`${l.take}.wav`];
+		return r ? `take #${r.seed} · “${r.prompt.length > 48 ? `${r.prompt.slice(0, 47)}…` : r.prompt}”` : `take ${l.take}`;
+	}
+	const s = l.synth;
+	return `synth ${s.wave}${s.freq ? ` ${s.freq}${s.to ? `→${s.to}` : ""} Hz` : ""} · ${s.seconds} s`;
+}
+
+function VariantCard(props: {
+	variant: Variant;
+	sound: Sound;
+	url?: string;
+	fileName: string;
+	records: Record<string, TakeRecord>;
+	selected: string[];
+	busy: boolean;
+	player: Player;
+	onChange(next: Variant | null): void;
+}) {
+	const { variant: v, url, player, busy } = props;
+	const [seconds, setSeconds] = useState<number>();
+	const onDecoded = useMemo(() => (d: Decoded) => setSeconds(d.buffer.duration), []);
+	const layers = (layers: Layer[]) => props.onChange({ ...v, layers });
+	const override = (k: "length" | "pitch", raw: string) => {
+		const { [k]: _, ...rest } = v;
+		props.onChange(raw.trim() === "" ? (rest as Variant) : { ...v, [k]: Number(raw) });
+	};
+	return (
+		<div className="variant col" data-testid="variant-row">
+			<div className="row audio-row">
+				<button className="icon" disabled={!url} onClick={() => url && void player.toggle(url, { loop: props.sound.loop })} title={props.sound.loop ? "Play (loops)" : "Play"}>
+					{url && player.current === url ? "■" : "▶"}
+				</button>
+				<span className="mono audio-label">{props.fileName}</span>
+				{url ? <Waveform url={url} onDecoded={onDecoded} /> : <span className="grow muted small">Not rendered yet</span>}
+				<span className="muted mono">{seconds !== undefined ? `${seconds.toFixed(2)} s` : ""}</span>
+				<button className="icon" disabled={busy || props.sound.variants.length === 1} onClick={() => props.onChange(null)} title="Remove this variant">
+					✕
+				</button>
+			</div>
+			<div className="variant-layers">
+				{v.layers.map((l, li) => (
+					<div key={li} className="row layer-row small" data-testid="variant-layer">
+						<span className="grow ellipsis">{layerLabel(l, props.records)}</span>
+						<label className="row">
+							<input
+								type="number"
+								step={1}
+								defaultValue={l.gain ?? 0}
+								title="Gain against the other layers (each levelled first)"
+								onBlur={(e) => Number(e.target.value) !== (l.gain ?? 0) && layers(v.layers.map((x, j) => (j === li ? { ...x, gain: Number(e.target.value) || undefined } : x)))}
+							/>
+							dB
+						</label>
+						<button className="icon" disabled={busy || v.layers.length === 1} onClick={() => layers(v.layers.filter((_, j) => j !== li))} title="Remove this layer">
+							✕
+						</button>
 					</div>
-				) : null,
-			)}
+				))}
+				<div className="row small">
+					{props.selected.length > 0 && (
+						<button className="small" disabled={busy} onClick={() => layers([...v.layers, ...props.selected.map((take) => ({ take }))])} data-testid="add-layers">
+							+ Layer the {props.selected.length} selected take{props.selected.length > 1 ? "s" : ""}
+						</button>
+					)}
+					<span className="grow" />
+					<label className="row muted" title="This variant's own length (seconds), instead of the shared one">
+						Length
+						<input type="number" step={0.05} placeholder={props.sound.length?.toString() ?? "all"} defaultValue={v.length ?? ""} onBlur={(e) => e.target.value !== (v.length?.toString() ?? "") && override("length", e.target.value)} />
+					</label>
+					<label className="row muted" title="This variant's own pitch (semitones), instead of the shared one">
+						Pitch
+						<input type="number" step={0.5} placeholder={props.sound.pitch?.toString() ?? "0"} defaultValue={v.pitch ?? ""} onBlur={(e) => e.target.value !== (v.pitch?.toString() ?? "") && override("pitch", e.target.value)} />
+					</label>
+				</div>
+			</div>
 		</div>
 	);
 }
@@ -404,12 +553,13 @@ const FIELDS: { key: Field; label: string; unit: string; step: number; placehold
 	{ key: "fadeOut", label: "Fade out", unit: "s", step: 0.01, placeholder: "0.05" },
 ];
 
-/** Processing fields and looping; applying writes sound.json and re-renders. Empty means the default. */
-function QuickChanges({ sound, busy, onApply }: { sound: Sound; busy: boolean; onApply(set: Record<string, unknown>): void }) {
+/** Processing shared by every variant, and looping; applying writes sound.json and re-renders. Empty means the default. */
+function Processing({ sound, busy, onApply }: { sound: Sound; busy: boolean; onApply(set: Record<string, unknown>): void }) {
 	const current = (k: Field) => (k === "fadeOut" ? sound.fade?.out : sound[k]);
 	const [values, setValues] = useState<Record<Field, string>>(() => Object.fromEntries(FIELDS.map((f) => [f.key, current(f.key)?.toString() ?? ""])) as Record<Field, string>);
 	const [loop, setLoop] = useState(!!sound.loop);
 	const changed = FIELDS.filter((f) => values[f.key] !== (current(f.key)?.toString() ?? ""));
+	const summary = FIELDS.filter((f) => current(f.key) !== undefined).map((f) => `${f.label.toLowerCase()} ${current(f.key)} ${f.unit}`);
 	const apply = () => {
 		const set: Record<string, unknown> = {};
 		for (const f of changed) {
@@ -422,7 +572,9 @@ function QuickChanges({ sound, busy, onApply }: { sound: Sound; busy: boolean; o
 	};
 	return (
 		<details className="card simple-edits" data-testid="sound-quick-changes">
-			<summary>Quick changes</summary>
+			<summary>
+				Processing <span className="muted small">· every variant{summary.length ? `: ${summary.join(", ")}` : ": defaults"}</span>
+			</summary>
 			<div className="quick-grid">
 				{FIELDS.map((f) => (
 					<label key={f.key} className="row">

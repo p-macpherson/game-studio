@@ -1625,3 +1625,62 @@ button.link {
 .quick-grid input[type="number"] {
 	width: 90px;
 }
+
+/* Draft banner (every section) */
+.draft-banner {
+	gap: 10px;
+	align-items: center;
+	margin-top: 10px;
+	padding: 8px 12px;
+	border: 1px solid var(--yellow);
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--yellow) 8%, transparent);
+	font-size: 13px;
+}
+
+/* Sound Effects: takes and variants */
+.take-group {
+	gap: 6px;
+}
+.take.selected {
+	outline: 2px solid var(--yellow);
+	outline-offset: -1px;
+}
+.generate-takes {
+	gap: 6px;
+}
+.generate-takes input[type="number"] {
+	width: 70px;
+}
+.compose-bar {
+	position: sticky;
+	bottom: 0;
+	gap: 8px;
+	align-items: center;
+	padding: 8px 10px;
+	border: 1px solid var(--yellow);
+	border-radius: 8px;
+	background: var(--panel);
+	font-size: 13px;
+}
+.compose-bar input[type="number"] {
+	width: 56px;
+}
+.variant {
+	gap: 4px;
+	padding: 8px 0;
+	border-top: 1px solid var(--border);
+}
+.variant-layers {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding-left: 38px;
+}
+.layer-row {
+	gap: 8px;
+	align-items: center;
+}
+.variant-layers input[type="number"] {
+	width: 60px;
+}

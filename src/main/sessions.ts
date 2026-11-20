@@ -327,7 +327,7 @@ export class SessionService {
 		const wt = this.worktreePath(e);
 		const kinds = { A: "added", D: "deleted" } as const;
 		const files = new Map<string, "added" | "modified" | "deleted">();
-		for (const line of (await g.git(wt, ["diff", "--name-status", "--no-renames", e.record.baseCommit])).split("\n")) {
+		for (const line of (await g.git(wt, ["--no-optional-locks", "diff", "--name-status", "--no-renames", e.record.baseCommit])).split("\n")) {
 			const [code, path] = line.split("\t");
 			if (path) files.set(path, kinds[code as "A" | "D"] ?? "modified");
 		}

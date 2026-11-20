@@ -1,5 +1,5 @@
 import type { ModuleInfo } from "../../shared/modules";
-import { parseSound, variantCount } from "../../shared/sound";
+import { parseSound } from "../../shared/sound";
 
 /** A sound is a folder, `assets/sounds/<name>/`; its `sound.json` stands for it as the module's asset. */
 export const sounds: ModuleInfo = {
@@ -17,11 +17,10 @@ export const soundName = (assetPath: string) => assetPath.split("/").at(-2) ?? a
 
 export function summarizeSound(text: string, path: string): { title: string; excerpt: string } {
 	const { sound, problems } = parseSound(text);
-	const prompt = sound?.layers.find((l) => l.generate)?.generate?.prompt;
-	const variants = sound ? variantCount(sound) : 0;
+	const n = sound?.variants.length ?? 0;
 	const facts = sound
-		? [sound.loop ? "loop" : "one-shot", variants > 1 && `${variants} variants`, sound.layers.length > 1 && `${sound.layers.length} layers`]
+		? [sound.loop ? "loop" : "one-shot", `${n} variant${n > 1 ? "s" : ""}`]
 		: [`${problems.length} problem${problems.length > 1 ? "s" : ""} in sound.json`];
-	const excerpt = [sound?.notes ?? prompt, facts.filter(Boolean).join(" · ")].filter(Boolean).join(" — ");
+	const excerpt = [sound?.notes, facts.join(" · ")].filter(Boolean).join(" — ");
 	return { title: soundName(path), excerpt: excerpt.length > 180 ? `${excerpt.slice(0, 177)}…` : excerpt };
 }

@@ -48,6 +48,65 @@ export function Highlight({ text, query }: { text: string; query: string }) {
 	);
 }
 
+/**
+ * Shown over a draft: which session it's in, and Merge (brings the session's changes into the game) or Discard.
+ * Merging merges the whole session, so other files it changed are listed first.
+ */
+function DraftBanner({ module, asset, draft }: { module: ModuleInfo; asset: AssetSummary; draft: AssetDraft }) {
+	const { sessions, showAsset, showError } = useStudio();
+	const [others, setOthers] = useState<string[]>([]);
+	const [busy, setBusy] = useState(false);
+	const session = sessions.find((s) => s.id === draft.sessionId);
+	const working = session?.status === "in_progress";
+	// An asset that is a folder's manifest (e.g. assets/sounds/x/sound.json) owns the whole folder.
+	const own = module.extensions.some((e) => e.startsWith("/")) ? `${asset.path.slice(0, asset.path.lastIndexOf("/"))}/` : asset.path;
+	useEffect(() => {
+		let live = true;
+		call("sessions.changedFiles", draft.sessionId).then(
+			(files) => live && setOthers(files.map((f) => f.path).filter((p) => !p.startsWith(own) && p !== own && !p.startsWith(".studio/"))),
+			() => {},
+		);
+		return () => {
+			live = false;
+		};
+	}, [draft.sessionId, own, session?.updatedAt]);
+	const act = async (method: "sessions.merge" | "sessions.discard") => {
+		const what = method === "sessions.merge" ? "Merge" : "Discard";
+		const also = others.length ? `\n\nThis ${method === "sessions.merge" ? "also brings in" : "also throws away"} ${others.length} other changed file${others.length > 1 ? "s" : ""}:\n${others.slice(0, 12).join("\n")}` : "";
+		if (!window.confirm(`${what} session “${draft.sessionTitle}”?${also}`)) return;
+		setBusy(true);
+		try {
+			await call(method, draft.sessionId);
+			useStudio.setState((s) => ({ assetsVersion: s.assetsVersion + 1 }));
+			showAsset({ path: asset.path });
+		} catch (err) {
+			showError(err);
+		} finally {
+			setBusy(false);
+		}
+	};
+	return (
+		<div className="draft-banner row" data-testid="draft-banner">
+			<span className="grow">
+				{draft.change === "added" ? "New" : draft.change === "deleted" ? "Deleted" : "Changed"} in session “{draft.sessionTitle}”, not in the game yet.
+				{others.length > 0 && (
+					<span className="muted" title={others.join("\n")}>
+						{" "}
+						The session also changed {others.length} other file{others.length > 1 ? "s" : ""}.
+					</span>
+				)}
+			</span>
+			{working && <span className="muted small">The agent is still working…</span>}
+			<button disabled={busy || working} onClick={() => void act("sessions.discard")} data-testid="draft-discard">
+				Discard
+			</button>
+			<button className="primary" disabled={busy || working} onClick={() => void act("sessions.merge")} data-testid="draft-merge">
+				{busy ? "Working…" : "Merge into the game"}
+			</button>
+		</div>
+	);
+}
+
 export function AssetBrowser(props: AssetBrowserProps) {
 	const { module } = props;
 	const { focus, showAsset, assetsVersion, sessions, openNewSession, selectSession, showError, project } = useStudio();
@@ -58,7 +117,12 @@ export function AssetBrowser(props: AssetBrowserProps) {
 	const [loaded, setLoaded] = useState<{ key: string; text: string }>({ key: "", text: "" });
 
 	useEffect(() => {
-		call("assets.list", module.id).then(setAssets, showError);
+		// Only the latest request counts: one started during a merge can finish after the one that followed it.
+		let live = true;
+		call("assets.list", module.id).then((a) => live && setAssets(a), (err) => live && showError(err));
+		return () => {
+			live = false;
+		};
 	}, [module.id, assetsVersion, project?.path, showError]);
 
 	useEffect(() => {
@@ -82,9 +146,21 @@ export function AssetBrowser(props: AssetBrowserProps) {
 	const sessionId = selected && (focus?.sessionId ?? (selected.inMain ? undefined : selected.drafts[0]?.sessionId));
 	useEffect(() => {
 		if (!selected) return;
+		let live = true;
 		const key = `${selected.path}:${sessionId ?? ""}`;
-		call("assets.read", selected.path, sessionId).then((text) => setLoaded({ key, text }), showError);
-	}, [selected?.path, sessionId, assetsVersion, showError]);
+		call("assets.read", selected.path, sessionId).then(
+			(text) => live && setLoaded({ key, text }),
+			(err) => {
+				if (!live) return;
+				// A draft that can't be read is gone (its session was just merged or discarded): show the merged version.
+				if (sessionId) showAsset({ path: selected.path });
+				else showError(err);
+			},
+		);
+		return () => {
+			live = false;
+		};
+	}, [selected?.path, sessionId, assetsVersion, showError, showAsset]);
 
 	const visible = useMemo(() => {
 		const q = query.trim().toLowerCase();
@@ -167,6 +243,7 @@ export function AssetBrowser(props: AssetBrowserProps) {
 								{props.modifyLabel}
 							</button>
 						</div>
+						{draft && <DraftBanner module={module} asset={selected} draft={draft} />}
 						{selected.drafts.length > 0 && (
 							<div className="version-bar">
 								<span className="muted">Showing:</span>

@@ -11,14 +11,18 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-	layerName,
+	formatSound,
 	MAX_GENERATE_SECONDS,
+	type Processing,
 	parseSound,
+	processingOf,
 	type Sound,
 	SOUND_NAME,
 	type SoundProblem,
+	type TakeRecord,
+	takeId,
+	type Variant,
 	validateSound,
-	variantCount,
 	variantFile,
 } from "../shared/sound";
 import { safeJoin } from "./assets";
@@ -49,19 +53,9 @@ export const SOUNDS_DIR = "assets/sounds";
 /** A take whose CLAP score is this far below its batch's median probably isn't the sound asked for. */
 const OFF_PROMPT = 0.15;
 
-export interface TakeRecord {
-	layer: string;
-	prompt: string;
-	seconds: number;
-	seed: number;
-	model: string;
-	/** How well it matches its prompt (CLAP cosine similarity); only meaningful against its batch. */
-	clap?: number;
-	at: string;
-}
-
 export interface TakeInfo extends Measurements {
-	seed: number;
+	/** Use it in a variant's layers as {"take": id}. */
+	id: string;
 	file: string;
 	clap?: number;
 	/** CLAP scored it far below the rest of its batch: probably not the sound asked for. */
@@ -123,8 +117,8 @@ export function soundUsages(cwd: string, name: string): SoundUsage[] {
 	return out;
 }
 
-/** Mix → processed sound, in the documented order: trim, length, pitch, filters, reverb, loop, level, fades. */
-export function processSound(sound: Sound, a: Audio): Audio {
+/** A variant's mix → its file, in the documented order: trim, length, pitch, filters, reverb, loop, level, fades. */
+export function processSound(sound: Processing & { loop?: boolean }, a: Audio): Audio {
 	let x = a;
 	const trim = sound.trim !== false;
 	if (trim) x = trimSilence(x, typeof sound.trim === "object" ? (sound.trim.threshold ?? -50) : -50);
@@ -150,24 +144,24 @@ export class SoundPipeline {
 	}
 
 	/**
-	 * Generates `count` takes of a layer, each with its own seed, into takes/. The first takes of a new sound
-	 * also write its sound.json (a generate layer using the first take that isn't off-prompt), so the sound
-	 * exists and renders from then on.
+	 * Generates `count` takes from a prompt, each with its own seed, into takes/ as `<group>-<seed>.wav`. The
+	 * first takes of a new sound also write its sound.json (one variant: the first take that isn't off-prompt), so
+	 * the sound exists and renders from then on.
 	 */
 	async generateTakes(
 		ctx: PipelineContext,
-		p: { name: string; prompt: string; seconds: number; count?: number; layer?: string; seed?: number },
+		p: { name: string; prompt: string; seconds: number; count?: number; group?: string; seed?: number },
 	): Promise<{ takes: TakeInfo[]; sheet?: string; created: boolean }> {
 		const dir = this.dir(ctx.cwd, p.name);
-		const layer = p.layer ?? "main";
-		if (!SOUND_NAME.test(layer)) throw new Error(`A layer's name is lower-kebab-case, not "${layer}"`);
+		const group = p.group ?? "main";
+		if (!SOUND_NAME.test(group)) throw new Error(`A group's name is lower-kebab-case, not "${group}"`);
 		if (!(p.seconds >= 0.1 && p.seconds <= MAX_GENERATE_SECONDS)) throw new Error(`seconds must be from 0.1 to ${MAX_GENERATE_SECONDS} (the model's limit)`);
 		if (!p.prompt?.trim()) throw new Error("Describe the sound in prompt");
 		const count = Math.min(Math.max(Math.round(p.count ?? 6), 1), 12);
 		const base = p.seed ?? Math.floor(Math.random() * (2 ** 31 - 100));
 		const seeds = Array.from({ length: count }, (_, i) => base + i);
-		const generated = await this.takes(ctx, p.name, layer, p.prompt, p.seconds, seeds);
-		const infos = generated.map((t) => this.takeInfo(ctx, dir, layer, t.seed, t.clap));
+		const generated = await this.takes(ctx, p.name, group, p.prompt, p.seconds, seeds);
+		const infos = generated.map((t) => this.takeInfo(ctx, dir, takeId(group, t.seed), t.clap));
 		const scores = infos.map((t) => t.clap).filter((c): c is number => c !== undefined);
 		if (scores.length > 2) {
 			const median = [...scores].sort((a, b) => a - b)[Math.floor(scores.length / 2)];
@@ -177,24 +171,19 @@ export class SoundPipeline {
 		const created = !existsSync(file);
 		if (created) {
 			const first = infos.find((t) => !t.off_prompt) ?? infos[0];
-			const sound: Sound = { layers: [{ ...(layer === "main" ? {} : { name: layer }), generate: { prompt: p.prompt, seconds: p.seconds }, takes: [first.seed] }] };
-			writeFileSync(file, `${JSON.stringify(sound, null, "\t")}\n`);
+			writeFileSync(file, formatSound({ variants: [{ layers: [{ take: first.id }] }] }));
 		}
 		return { takes: infos, sheet: await this.sheet(infos.map((t) => join(ctx.cwd, t.file))), created };
 	}
 
 	/**
-	 * The Sound Effects section's edits, written into sound.json and rendered: which takes a generated layer uses
-	 * (one per variant), and the processing fields (null removes one). Anything bigger is the sound designer's.
+	 * The Sound Effects section's edits, written into sound.json and rendered: the variants (as the section
+	 * composed them) and the shared processing fields (null removes one).
 	 */
-	async edit(ctx: PipelineContext, p: { name: string; layer?: string; takes?: number[]; set?: SoundEdits }): Promise<SoundRenderResult> {
+	async edit(ctx: PipelineContext, p: { name: string; variants?: Variant[]; set?: SoundEdits }): Promise<SoundRenderResult> {
 		const file = join(this.dir(ctx.cwd, p.name), "sound.json");
 		const sound = JSON.parse(readFileSync(file, "utf8")) as Sound;
-		if (p.takes) {
-			const i = sound.layers.findIndex((l, i) => l.generate && layerName(l, i) === (p.layer ?? "main"));
-			if (i < 0) throw new Error(`No generated layer "${p.layer ?? "main"}"`);
-			sound.layers[i].takes = p.takes;
-		}
+		if (p.variants) sound.variants = p.variants;
 		for (const [k, v] of Object.entries(p.set ?? {})) {
 			if (!EDITABLE.includes(k as keyof SoundEdits)) throw new Error(`Can't edit "${k}" here (only ${EDITABLE.join(", ")})`);
 			if (v === null) delete (sound as unknown as Record<string, unknown>)[k];
@@ -202,17 +191,17 @@ export class SoundPipeline {
 		}
 		const problems = validateSound(sound);
 		if (problems.length) throw new SoundError(problems);
-		writeFileSync(file, `${JSON.stringify(sound, null, "\t")}\n`);
+		writeFileSync(file, formatSound(sound));
 		return this.render(ctx, { name: p.name });
 	}
 
-	/** Every take of a sound, newest first, with how each was made. */
+	/** Every take of a sound with how it was made, by file name. */
 	takeRecords(cwd: string, name: string): Record<string, TakeRecord> {
 		const file = join(this.dir(cwd, name), "takes/takes.json");
 		return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
 	}
 
-	/** Validates sound.json and renders its variants to OGG (generating any takes it names that aren't there). */
+	/** Validates sound.json and renders its variants to OGG (generating any takes it uses that aren't there). */
 	async render(ctx: PipelineContext, p: { name: string }): Promise<SoundRenderResult> {
 		const dir = this.dir(ctx.cwd, p.name);
 		const file = join(dir, "sound.json");
@@ -221,37 +210,38 @@ export class SoundPipeline {
 		const { sound, problems } = parseSound(text);
 		if (!sound) throw new SoundError(problems);
 
-		// Takes named in sound.json but missing (e.g. written by hand) are generated from the layer's prompt.
-		for (const [i, l] of sound.layers.entries()) {
-			if (!l.generate) continue;
-			const name = layerName(l, i);
-			const missing = [...new Set(l.takes)].filter((seed) => !existsSync(join(dir, "takes", `${name}-${seed}.wav`)));
-			if (missing.length) await this.takes(ctx, p.name, name, l.generate.prompt, l.generate.seconds, missing);
+		// Takes it uses but that aren't there (a fresh clone without LFS files, say) are generated again from their record.
+		const used = [...new Set(sound.variants.flatMap((v) => v.layers.flatMap((l) => ("take" in l ? [l.take] : []))))];
+		const records = this.takeRecords(ctx.cwd, p.name);
+		for (const id of used.filter((id) => !existsSync(join(dir, "takes", `${id}.wav`)))) {
+			const r = records[`${id}.wav`];
+			if (!r) throw new SoundError([{ at: "variants", message: `Take "${id}" isn't in takes/ and takes.json doesn't say how it was made` }]);
+			await this.takes(ctx, p.name, r.group, r.prompt, r.seconds, [r.seed]);
 		}
 
-		const count = variantCount(sound);
 		const tmp = mkdtempSync(join(tmpdir(), "gs-sound-"));
 		try {
 			const variants: SoundRenderResult["variants"] = [];
 			const wavs: string[] = [];
-			for (let v = 0; v < count; v++) {
-				ctx.progress?.(`Rendering ${variantFile(p.name, v)}`);
-				const parts = sound.layers.map((l, i) => ({
-					audio: l.generate ? this.loadTake(dir, layerName(l, i), l.takes![v] ?? l.takes![0]) : [synth(l.synth!)],
+			for (const [i, v] of sound.variants.entries()) {
+				ctx.progress?.(`Rendering ${variantFile(p.name, i)}`);
+				// Each layer trimmed and levelled to full scale first, so gains compare layers as they're heard.
+				const parts = v.layers.map((l) => ({
+					audio: normalizePeak("take" in l ? trimSilence(this.loadTake(dir, l.take)) : [synth(l.synth)], 0),
 					at: Math.round((l.at ?? 0) * RATE),
 					gain: fromDb(l.gain ?? 0),
 				}));
-				const audio = processSound(sound, mix(parts));
-				const wav = join(tmp, `v${v}.wav`);
+				const audio = processSound(processingOf(sound, v), mix(parts));
+				const wav = join(tmp, `v${i}.wav`);
 				writeFileSync(wav, encodeWav(audio));
-				await this.ffmpeg(["-y", "-loglevel", "error", "-i", wav, "-c:a", "libvorbis", "-q:a", "6", join(dir, variantFile(p.name, v))]);
+				await this.ffmpeg(["-y", "-loglevel", "error", "-i", wav, "-c:a", "libvorbis", "-q:a", "6", join(dir, variantFile(p.name, i))]);
 				wavs.push(wav);
-				variants.push({ file: `${SOUNDS_DIR}/${p.name}/${variantFile(p.name, v)}`, ...measure(audio) });
+				variants.push({ file: `${SOUNDS_DIR}/${p.name}/${variantFile(p.name, i)}`, ...measure(audio) });
 			}
 			// Fewer variants than last time: remove the extra files.
 			for (const f of readdirSync(dir)) {
 				const m = new RegExp(`^${p.name}-(\\d+)\\.ogg$`).exec(f);
-				if (m && Number(m[1]) > count) rmSync(join(dir, f));
+				if (m && Number(m[1]) > sound.variants.length) rmSync(join(dir, f));
 			}
 			const info: SoundRenderInfo = { sound: soundHash(text), files: variants.map((v) => v.file.split("/").pop()!), renderedAt: new Date().toISOString() };
 			writeFileSync(join(dir, "render.json"), `${JSON.stringify(info, null, "\t")}\n`);
@@ -262,12 +252,12 @@ export class SoundPipeline {
 	}
 
 	/** Runs the generation job for some seeds of a layer and records them in takes/takes.json. */
-	private async takes(ctx: PipelineContext, name: string, layer: string, prompt: string, seconds: number, seeds: number[]) {
+	private async takes(ctx: PipelineContext, name: string, group: string, prompt: string, seconds: number, seeds: number[]) {
 		const out = join(this.dir(ctx.cwd, name), "takes");
 		mkdirSync(out, { recursive: true });
 		const label = `Takes for ${name}`;
 		let last = "";
-		const r = await this.deps.gen.run("sound", { prompt, seconds, seeds, out_dir: out, name: layer }, {
+		const r = await this.deps.gen.run("sound", { prompt, seconds, seeds, out_dir: out, name: group }, {
 			label,
 			sessionId: ctx.sessionId,
 			onProgress: (job) => {
@@ -279,20 +269,20 @@ export class SoundPipeline {
 		const takes = r.takes as { seed: number; path: string; clap?: number }[];
 		const records = this.takeRecords(ctx.cwd, name);
 		const at = new Date().toISOString();
-		for (const t of takes) records[`${layer}-${t.seed}.wav`] = { layer, prompt, seconds, seed: t.seed, model: String(r.model), clap: t.clap, at };
+		for (const t of takes) records[`${takeId(group, t.seed)}.wav`] = { group, prompt, seconds, seed: t.seed, model: String(r.model), clap: t.clap, at };
 		writeFileSync(join(out, "takes.json"), `${JSON.stringify(records, null, "\t")}\n`);
 		return takes;
 	}
 
-	private loadTake(dir: string, layer: string, seed: number): Audio {
-		const { audio, rate } = decodeWav(readFileSync(join(dir, "takes", `${layer}-${seed}.wav`)));
+	private loadTake(dir: string, id: string): Audio {
+		const { audio, rate } = decodeWav(readFileSync(join(dir, "takes", `${id}.wav`)));
 		return resample(audio, rate);
 	}
 
-	private takeInfo(ctx: PipelineContext, dir: string, layer: string, seed: number, clap?: number): TakeInfo {
-		const file = join(dir, "takes", `${layer}-${seed}.wav`);
+	private takeInfo(ctx: PipelineContext, dir: string, id: string, clap?: number): TakeInfo {
+		const file = join(dir, "takes", `${id}.wav`);
 		const { audio, rate } = decodeWav(readFileSync(file));
-		return { seed, file: file.slice(ctx.cwd.length + 1), ...(clap === undefined ? {} : { clap: Math.round(clap * 1000) / 1000 }), ...measure(resample(audio, rate)) };
+		return { id, file: file.slice(ctx.cwd.length + 1), ...(clap === undefined ? {} : { clap: Math.round(clap * 1000) / 1000 }), ...measure(resample(audio, rate)) };
 	}
 
 	/** Waveform (top) over spectrogram (log frequency) for each file, stacked in order, as a PNG data URL. */

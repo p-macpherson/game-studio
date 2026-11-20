@@ -181,18 +181,18 @@ export function studioTools(ctx: StudioToolContext) {
 			name: "generate_sound_takes",
 			label: "Generate sound takes",
 			description:
-				"Generate takes of a sound effect with a local model (Stable Audio Open Small, about a second for several takes), each from its own seed, into " +
-				"assets/sounds/<name>/takes/<layer>-<seed>.wav. You can't listen, so each take comes back measured (length, peak and loudness, attack, tail, " +
-				"brightness, number of separate hits, clipping) with a CLAP score against the prompt (off_prompt marks takes scoring far below the rest), " +
-				"plus an image of every take, top to bottom: waveform over a log-frequency spectrogram. The first takes of a new sound also write its sound.json " +
-				"using the first good take; pick takes by seed in sound.json's `takes`, then render_sound. Describe one sound, how it's recorded and how long " +
-				"(see the sound-design skill).",
+				"Generate takes of a sound effect with a local model (Stable Audio Open Small, about a second for several), each from its own seed, into " +
+				"assets/sounds/<name>/takes/<group>-<seed>.wav: the raw material for the sound's variants. You can't listen, so each take comes back with its " +
+				"id and measurements (length, peak and loudness, attack, tail, brightness, number of separate hits, clipping), a CLAP score against the prompt " +
+				"(off_prompt marks takes far below the rest), and an image of every take, top to bottom: waveform over a log-frequency spectrogram. The first " +
+				"takes of a new sound also write its sound.json (one variant: the first good take). Then compose the variants in sound.json from take ids " +
+				"(usually one take each) and render_sound. Describe one sound, how it's recorded and how long (see the sound-design skill).",
 			parameters: Type.Object({
 				name: Type.String({ description: "The sound's folder name under assets/sounds/, lower-kebab-case, e.g. 'chest-open'" }),
 				prompt: Type.String({ description: "e.g. 'an old wooden chest lid creaking open slowly, rusty hinges, close-up foley, dry'" }),
-				seconds: Type.Number({ description: "Length to generate, 0.1-11 (trim cuts the silence after)" }),
+				seconds: Type.Number({ description: "Length to generate, 0.1-11 (trimming cuts the silence after)" }),
 				count: Type.Optional(Type.Number({ description: "How many takes (1-12, default 6)" })),
-				layer: Type.Optional(Type.String({ description: "Which layer they're for (default 'main')" })),
+				group: Type.Optional(Type.String({ description: "Names the takes' files (default 'main'), e.g. 'thud' for a second ingredient" })),
 				seed: Type.Optional(Type.Number({ description: "First seed (default random); takes use seed, seed+1, …" })),
 			}),
 			async execute(_id, params, signal, onUpdate) {
@@ -208,8 +208,8 @@ export function studioTools(ctx: StudioToolContext) {
 			name: "render_sound",
 			label: "Render sound",
 			description:
-				"Validate assets/sounds/<name>/sound.json (see the sound-design skill) and render it: layers mixed, then trimmed, pitched, filtered, reverbed, " +
-				"levelled and faded (or crossfaded into a seamless loop) into <name>.ogg, plus <name>-2.ogg… for each variant. The game plays them with " +
+				"Validate assets/sounds/<name>/sound.json (see the sound-design skill) and render each variant: its layers (each levelled first) mixed, then " +
+				"trimmed, cut, pitched, filtered, reverbed, levelled and faded (or crossfaded into a seamless loop) into <name>.ogg, <name>-2.ogg…. The game plays them with " +
 				"engine.play_sound(\"sounds/<name>/<name>.ogg\"). On a problem it lists every one with where it is. On success it measures each variant and " +
 				"shows them (waveform over spectrogram): check them against what you meant, since you can't listen. Render after every edit.",
 			parameters: Type.Object({ name: Type.String({ description: "The sound's folder name under assets/sounds/" }) }),

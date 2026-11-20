@@ -4,40 +4,48 @@ description: Game Studio's sound effect format (assets/sounds/<name>/sound.json)
 ---
 # Sound effects
 
-A sound is `assets/sounds/<name>/sound.json`: layers are mixed (each at its `at` offset and `gain`), then
-processed into one OGG per variant. `render_sound` validates and renders it; `generate_sound_takes` makes takes.
+A sound is `assets/sounds/<name>/sound.json`. **Takes** (`takes/<group>-<seed>.wav`, made by `generate_sound_takes`)
+are the raw material. **Variants** are the files the game plays (`<name>.ogg`, `<name>-2.ogg`…; it picks one at
+random each time): each mixes its own layers, usually just one take, then the sound's processing. `render_sound`
+validates and renders it.
 
 ```json
 {
   "notes": "Footsteps on the clearing's grass: one per half walk cycle, a random variant each time.",
-  "layers": [
-    {"generate": {"prompt": "a single footstep on soft grass and dirt, close-up foley, dry", "seconds": 1.5}, "takes": [8811, 8814, 8815, 8817]},
-    {"synth": {"wave": "noise", "seconds": 0.04, "lowpass": 900}, "gain": -18}
-  ],
+  "length": 0.3,
   "highpass": 60,
-  "fade": {"out": 0.08}
+  "variants": [
+    {"layers": [{"take": "main-8811"}]},
+    {"layers": [{"take": "main-8814"}]},
+    {"layers": [{"take": "main-8815"}], "length": 0.25},
+    {"layers": [{"take": "main-8817"}, {"take": "twig-402", "gain": -8, "at": 0.02}]}
+  ]
 }
 ```
 
 ## Fields
 | Field | Meaning |
 |---|---|
-| `layers[].generate` | `{prompt, seconds}`: a generated layer (Stable Audio Open Small, up to 11 s) |
-| `layers[].takes` | The takes used, by seed: one per variant, or one for every variant. The variant count is the longest list |
-| `layers[].synth` | `{wave (sine, square, saw, triangle, noise), seconds, freq, to (sweep end), attack, decay (to -60 dB), vibrato {rate, depth}, highpass, lowpass}` |
-| `layers[].name` | Names a generated layer's takes (`takes/<name>-<seed>.wav`); default "main". Two generated layers need different names |
-| `layers[].gain`, `layers[].at` | dB (default 0); seconds from the start (default 0) |
+| `variants[].layers` | What the variant mixes: `{"take": "<id>"}` (a take, by the id `generate_sound_takes` gave) or `{"synth": {…}}` |
+| `layers[].gain`, `layers[].at` | dB against the variant's other layers (each is levelled first, so 0 means as loud as the others); seconds from the start (takes start at their first sound) |
+| synth layer | `{wave (sine, square, saw, triangle, noise), seconds, freq, to (sweep end), attack, decay (to -60 dB), vibrato {rate, depth}, highpass, lowpass}` |
 | `loop` | A seamless loop: the end is crossfaded into the start (`crossfade` seconds, default a quarter of its length, at most 2) |
 | `trim` | Cuts the silence at both ends (quieter than `threshold` dB below the peak, default -50); `false` keeps it |
 | `length` | Seconds: cut after this long (after trimming, before the fade-out), e.g. to keep one footstep of a take |
 | `pitch` | Semitones, tape-style: down is also longer and darker |
 | `highpass`, `lowpass` | Hz: remove rumble below / harshness above |
 | `reverb` | 0-1: room reverb, adds a tail |
-| `peak` | dBFS after processing (default -1). Every sound is levelled to this; balance sounds in the game with `volume` |
+| `peak` | dBFS after processing (default -1). Every variant is levelled to this; balance sounds in the game with `volume` |
 | `fade` | `{in, out}` seconds (default 0.005 and 0.05); not for loops |
 | `notes` | What it's for and how the game plays it |
 
-Processing runs in this order: mix, trim, length, pitch, filters, reverb, loop, level, fades.
+The processing fields (`trim` to `crossfade`) on the sound apply to every variant; the same field on a variant
+overrides it for that variant. Each variant renders: layers levelled and mixed, then trim, length, pitch, filters,
+reverb, loop, level, fades.
+
+**Keep variants simple.** One good take per variant usually sounds best: a listening test found layered variants
+worse than their takes. Layer only for a reason (a whoosh and a separate thud, a quiet synth sparkle on coins), and
+keep added layers well below the main one (-8 to -15 dB).
 
 ## Prompting the model
 Stable Audio Open Small makes up to 11 s of 44.1 kHz stereo; takes cost a fraction of a second, so make 6-8.
@@ -65,8 +73,8 @@ In the image, tonal sounds (creaks, squeals, chimes) show horizontal lines; nois
 smear; hits show vertical stripes. Pick takes whose shape fits the brief, then let the user listen.
 
 ## Variants, loops, levels
-- Sounds heard over and over get variants: footsteps 4-6, hits 3-4. Pick takes with similar loudness and brightness,
-  so they sound like the same thing.
+- Sounds heard over and over get variants: footsteps 4-6, hits 3-4, one take each. Pick takes with similar
+  loudness and brightness, so they sound like the same thing.
 - Ambience loops: 8-11 s, `"loop": true`. Avoid takes with a distinctive one-off event (a single loud bird call
   repeats noticeably every loop).
 - Everything is levelled to `peak`, so the game sets the balance: roughly footsteps 0.3-0.5, UI 0.5, impacts and
@@ -74,8 +82,8 @@ smear; hits show vertical stripes. Pick takes whose shape fits the brief, then l
 
 ## Synth layers
 For tones and accents: a coin's sparkle is two sines a fifth apart (e.g. 1568 and 2349 Hz, the second `at` 0.06,
-`decay` 0.4); a UI tick is a square at 1200 Hz for 0.03 s; a whoosh is noise swept by its filters. Layer a quiet
-synth over a generated take to add brightness or a clear start.
+`decay` 0.4); a UI tick is a square at 1200 Hz for 0.03 s. A UI sound can be synth layers only. Over a generated
+take, keep a synth layer quiet (-10 dB or lower): it is levelled like the take, so 0 dB is as loud as the take.
 
 ## In the game
 `engine.play_sound("sounds/<name>/<name>.ogg", volume = 0.5, pitch = 1)` (pick a variant at random and jitter the
