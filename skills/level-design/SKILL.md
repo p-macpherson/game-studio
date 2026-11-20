@@ -48,6 +48,13 @@ A scene is `assets/scenes/<name>.json`; the game loads it by its path under `ass
 - Vary rotations and scales a little (yaw and 0.8-1.3) so repeated props don't look stamped.
 - Group by purpose (props around a landmark), and keep the play area readable from the game's camera.
 
+## Surfaces (textures)
+Grounds, paths and floors are usually built-in planes with a texture from `assets/textures/` (made ones have
+`<name>.png`, `_normal.png` and `_roughness.png`; `texture.json` says its `tile` in metres). Set the Mesh_Renderer's
+material to the three files with `uv_scale` = the plane's x and z scale / `tile`, and drop its `color` (see the
+**texture-art** skill for the format). A path or patch on the ground is a thinner plane 0.01-0.02 m above it, so the
+two don't flicker. No texture for what you need? Ask the Art Director for one (`delegate`), with the surface and size.
+
 ## Check your work
 `preview_scene` builds the game, opens the scene paused and returns screenshots: `top` (from above: +Z is up the
 image, +X is to the left), `overview` (three-quarter, from the -Z side) and `game` (the scene's own Camera), or your own
