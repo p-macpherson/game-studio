@@ -11,7 +11,7 @@ import { createProject, readProject } from "./project";
 import { GenService, soundfontPath } from "./gen";
 import { generationRequests, ModelPipeline } from "./models";
 import { MusicPipeline } from "./music";
-import { RunService } from "./runner";
+import { RunService, type SceneView } from "./runner";
 import { SessionService } from "./sessions";
 import { SettingsStore } from "./settings";
 import { registerStudioFileScheme, serveStudioFiles } from "./studio-files";
@@ -67,7 +67,11 @@ async function main(): Promise<void> {
 	});
 	const pipeline = new ModelPipeline(gen);
 	const music = new MusicPipeline({ soundfont: () => soundfontPath(genRoot) });
-	const genRequests = generationRequests(pipeline, gen, { preview: (sessionId, name) => previewModel(sessionId, name), music });
+	const genRequests = generationRequests(pipeline, gen, {
+		preview: (sessionId, name) => previewModel(sessionId, name),
+		music,
+		previewScene: (sessionId, _cwd, p) => runner.previewScene(sessionId, String(p.scene), p.views as SceneView[] | undefined),
+	});
 	const sessions = new SessionService({
 		host,
 		settings: () => settings.get(),
@@ -194,7 +198,7 @@ async function main(): Promise<void> {
 		"run.checkouts": async () => runner.checkouts(),
 		"run.current": async () => runner.current(),
 		"run.build": (sessionId) => runner.build(sessionId),
-		"run.start": (sessionId, mode) => runner.start(sessionId, mode),
+		"run.start": (sessionId, mode, options) => runner.start(sessionId, mode, options),
 		"run.stop": () => runner.stop(),
 		"run.call": (cmd, args) => runner.call(cmd, args),
 		"run.stream": async (on) => runner.setStreaming(on),

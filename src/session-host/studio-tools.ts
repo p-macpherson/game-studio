@@ -138,6 +138,46 @@ export function studioTools(ctx: StudioToolContext) {
 			},
 		}),
 		defineTool({
+			name: "preview_scene",
+			label: "Preview scene in engine",
+			description:
+				"Show a scene or prefab in the game's own engine, paused, and see it: 'top' (from above: +Z is up the image, +X to the left), " +
+				"'overview' (three-quarter from the -Z side), 'game' (the scene's own Camera), or your own {position, target} views. Views are framed on the " +
+				"file's entities. Also lists problems in the file and the engine's warnings (unknown components or fields, missing prefabs or models). " +
+				"Use it before and after every change to a scene, after the edit has finished.",
+			parameters: Type.Object({
+				scene: Type.String({ description: "Repo-relative path, e.g. 'assets/scenes/clearing.json' or 'assets/prefabs/chest.json'" }),
+				views: Type.Optional(
+					Type.Array(
+						Type.Union([
+							Type.Literal("top"),
+							Type.Literal("overview"),
+							Type.Literal("game"),
+							Type.Object({ position: Type.Array(Type.Number()), target: Type.Array(Type.Number()) }),
+						]),
+						{ description: "Default: top, overview, game" },
+					),
+				),
+			}),
+			async execute(_id, params, signal, onUpdate) {
+				const r = (await ctx.request("preview_scene", params, signal, (text) => onUpdate?.({ content: [{ type: "text", text }], details: {} }))) as {
+					images: { view: string; image: string }[];
+					warnings: string[];
+				};
+				const content: ({ type: "text"; text: string } | { type: "image"; mimeType: string; data: string })[] = [
+					{
+						type: "text",
+						text: `${params.scene} in the game's engine, views in order: ${r.images.map((i) => i.view).join(", ")}.${r.warnings.length ? `\nProblems and engine warnings:\n${r.warnings.join("\n")}` : " No problems or engine warnings."}`,
+					},
+				];
+				for (const { image } of r.images) {
+					const [, mimeType, data] = /^data:([^;]+);base64,(.*)$/.exec(image) ?? [];
+					content.push({ type: "image", mimeType, data });
+				}
+				return { content, details: {} };
+			},
+		}),
+		defineTool({
 			name: "render_song",
 			label: "Render song",
 			description:

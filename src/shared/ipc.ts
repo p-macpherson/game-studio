@@ -1,7 +1,7 @@
 /** Contract between the renderer and the main process, exposed by the preload script as `window.studio`. */
 import type { HostInfo, PromptMode, StudioRequestMethod } from "./host";
 import type { AssetSearchHit, AssetSummary, ModuleInfo } from "./modules";
-import type { CheckoutId, CheckoutInfo, RunInfo, RunMode, TestReport } from "./run";
+import type { CheckoutId, CheckoutInfo, RunInfo, RunMode, RunOptions, TestReport } from "./run";
 import type { ConceptImage, GenJob, GenStatus } from "./gen";
 import type {
 	AgentTypeInfo,
@@ -63,7 +63,7 @@ export interface StudioApi {
 	"run.checkouts"(): Promise<CheckoutInfo[]>;
 	"run.current"(): Promise<RunInfo | null>;
 	"run.build"(sessionId: CheckoutId): Promise<RunInfo>;
-	"run.start"(sessionId: CheckoutId, mode: RunMode): Promise<RunInfo>;
+	"run.start"(sessionId: CheckoutId, mode: RunMode, options?: RunOptions): Promise<RunInfo>;
 	"run.stop"(): Promise<void>;
 	/** A control-protocol command for the running game (see engine/docs/control-protocol.md). */
 	"run.call"(cmd: string, args?: Record<string, unknown>): Promise<unknown>;

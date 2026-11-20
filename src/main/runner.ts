@@ -10,11 +10,13 @@ import {
 	type CheckoutInfo,
 	type RunInfo,
 	type RunMode,
+	type RunOptions,
 	type TestReport,
 	pairReplies,
 	parseDiagnostics,
 	scriptCommands,
 } from "../shared/run";
+import { parseScene, type SceneEntity, validateScene } from "../shared/scene";
 import { safeJoin, walk } from "./assets";
 import { EngineClient, freePort } from "./engine-client";
 import type { SessionService } from "./sessions";
@@ -26,6 +28,22 @@ const FRAME_INTERVAL_MS = 1000 / 30;
 const FRAMES_IN_FLIGHT = 4;
 const FRAME_REQUEST = { inline: true, format: "jpeg", quality: 80 };
 const TEST_TIMEOUT_MS = 180_000;
+
+export type SceneView = "top" | "overview" | "game" | { position: number[]; target: number[] };
+
+/** Centre and size of what a scene places (top-level positions; huge scaled entities like the ground left out). */
+export function sceneBounds(entities: SceneEntity[]): { center: number[]; extent: number } {
+	const ps = entities.flatMap((e) => {
+		const t = e.Transform as { position?: number[]; parent?: number; scale?: number[] } | undefined;
+		if (t?.parent || (t?.scale && Math.max(...t.scale) > 8)) return [];
+		return Array.isArray(t?.position) && t.position.length === 3 ? [t.position] : [[0, 0, 0]];
+	});
+	if (ps.length === 0) return { center: [0, 0, 0], extent: 4 };
+	const lo = [0, 1, 2].map((i) => Math.min(...ps.map((p) => p[i])));
+	const hi = [0, 1, 2].map((i) => Math.max(...ps.map((p) => p[i])));
+	const center = [(lo[0] + hi[0]) / 2, 0, (lo[2] + hi[2]) / 2];
+	return { center, extent: Math.max(3, (Math.max(hi[0] - lo[0], hi[2] - lo[2]) / 2) * 1.15 + 1.5) };
+}
 
 interface ActiveRun {
 	info: RunInfo;
@@ -82,11 +100,11 @@ export class RunService {
 	}
 
 	/** Builds and starts the game with a control server. Stops any previous run first. */
-	async start(sessionId: CheckoutId, mode: RunMode): Promise<RunInfo> {
-		return this.begin(sessionId, mode);
+	async start(sessionId: CheckoutId, mode: RunMode, options: RunOptions = {}): Promise<RunInfo> {
+		return this.begin(sessionId, mode, options);
 	}
 
-	private async begin(sessionId: CheckoutId, mode: RunMode | null): Promise<RunInfo> {
+	private async begin(sessionId: CheckoutId, mode: RunMode | null, options: RunOptions = {}): Promise<RunInfo> {
 		const co = this.checkout(sessionId);
 		await this.stop();
 		const run: ActiveRun = {
@@ -98,6 +116,7 @@ export class RunService {
 				state: "building",
 				diagnostics: [],
 				startedAt: new Date().toISOString(),
+				scene: options.scene,
 			},
 		};
 		this.run = run;
@@ -121,6 +140,7 @@ export class RunService {
 		const port = await freePort();
 		const args = [`--mode=${mode}`, `--control=${port}`];
 		if (mode === "hidden") args.push("--fps=60");
+		if (options.scene) args.push("--paused", `--scene=${options.scene}`);
 		const proc = spawn(join(co.cwd, "build/game"), args, { cwd: co.cwd, env: { ...process.env, NO_COLOR: "1" } });
 		run.proc = proc;
 		run.info.port = port;
@@ -144,6 +164,7 @@ export class RunService {
 			return run.info;
 		}
 		if (run.info.state !== "starting") return run.info;
+		if (options.scene) await run.client.call("debug", { game_ui: false }).catch(() => {});
 		run.info.state = "running";
 		this.changed(run);
 		if (mode === "hidden") void this.pumpFrames(run);
@@ -211,6 +232,56 @@ export class RunService {
 			const logs = (await client.call("logs")) as { level: string; text: string }[];
 			const errors = logs.filter((l) => l.level.trim() === "error" || (l.level.trim() === "warn" && /model|mesh|texture/i.test(l.text) && !/u32 to u16/.test(l.text))).map((l) => l.text);
 			return { images, errors };
+		} finally {
+			await client?.call("quit").catch(() => {});
+			client?.close();
+			setTimeout(() => proc.exitCode === null && proc.kill("SIGKILL"), 2000);
+		}
+	}
+
+	/**
+	 * Shows a scene or prefab (repo-relative path) in the game's own engine, paused, with the game's UI hidden, from
+	 * each view: "top", "overview" (three-quarter), "game" (the scene's own camera), or a {position, target}. Views
+	 * are framed on the file's entity positions. Returns JPEG data URLs and the engine's warnings.
+	 */
+	async previewScene(sessionId: CheckoutId, path: string, views: SceneView[] = ["top", "overview", "game"]): Promise<{ images: { view: string; image: string }[]; warnings: string[] }> {
+		const co = this.checkout(sessionId);
+		const file = safeJoin(co.cwd, path);
+		if (!existsSync(file)) throw new Error(`No ${path} in this checkout`);
+		const { scene, errors } = parseScene(readFileSync(file, "utf8"));
+		const problems = [...errors, ...(scene ? validateScene(scene) : [])];
+		const built = await this.exec(co, ["build"]);
+		if (built.code !== 0) {
+			throw new Error(`The game doesn't build, so it can't show the scene:\n${(built.stdout + built.stderr).trim().split("\n").slice(-12).join("\n")}`);
+		}
+		const port = await freePort();
+		const args = ["--mode=hidden", `--control=${port}`, "--fps=60", "--paused", `--scene=${path.replace(/^assets\//, "")}`];
+		const proc = spawn(join(co.cwd, "build/game"), args, { cwd: co.cwd, env: { ...process.env, NO_COLOR: "1" } });
+		let client: EngineClient | undefined;
+		try {
+			client = await EngineClient.connect(port, () => proc.exitCode === null);
+			await client.call("debug", { game_ui: false });
+			const { center, extent } = sceneBounds(scene?.entities ?? []);
+			const images: { view: string; image: string }[] = [];
+			for (const view of views) {
+				if (view === "game") {
+					await client.call("camera", { reset: true });
+				} else {
+					const cam =
+						view === "top"
+							? { position: [center[0], extent * 2.2, center[2] - extent * 0.02], target: center }
+							: view === "overview"
+								? { position: [center[0] + extent * 0.5, extent * 1.1, center[2] - extent * 1.5], target: center }
+								: view;
+					await client.call("camera", { ...cam, fov: 50 });
+				}
+				await client.call("wait", { frames: 4 });
+				const shot = (await client.call("screenshot", { inline: true, format: "jpeg", quality: 85 })) as { jpeg_base64: string };
+				images.push({ view: typeof view === "string" ? view : JSON.stringify(view), image: `data:image/jpeg;base64,${shot.jpeg_base64}` });
+			}
+			const logs = (await client.call("logs")) as { level: string; text: string }[];
+			const warnings = [...problems, ...logs.filter((l) => ["warn", "error"].includes(l.level.trim()) && !/u32 to u16/.test(l.text)).map((l) => l.text)];
+			return { images, warnings };
 		} finally {
 			await client?.call("quit").catch(() => {});
 			client?.close();

@@ -38,6 +38,13 @@ export interface RunInfo {
 	exitCode?: number | null;
 	diagnostics: Diagnostic[];
 	startedAt: string;
+	/** Set for the Scenes editor's run: the scene (assets-relative) shown paused, with the game's UI hidden. */
+	scene?: string;
+}
+
+export interface RunOptions {
+	/** Open this scene or prefab (assets-relative) paused, as the Scenes editor's live view. */
+	scene?: string;
 }
 
 export interface TestStep {

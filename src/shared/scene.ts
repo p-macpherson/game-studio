@@ -363,3 +363,64 @@ export function rotationDegrees(v: unknown): number[] {
 	if (isNumbers(v, 4)) return quatToEuler(v as number[]);
 	return [0, 0, 0];
 }
+
+// ---------------------------------------------------------------------------------------------
+// A batch of edits, as the Scenes section sends them to a session's worktree (`edit_scene`).
+
+export type SceneEdit =
+	/** Patch a component's fields (adding it if missing); a field set to null is removed. */
+	| { op: "set"; id: number; component: string; value: Record<string, unknown> | string }
+	| { op: "remove_component"; id: number; component: string }
+	| { op: "add"; entity: Omit<SceneEntity, "id"> & { id?: number } }
+	| { op: "delete"; id: number }
+	| { op: "duplicate"; id: number; position?: number[] }
+	| { op: "notes"; id: number; notes: string }
+	| { op: "environment"; value: Record<string, unknown> };
+
+export interface EditResult {
+	/** The entity each edit created (add, duplicate), in order. */
+	created: number[];
+	deleted: number[];
+}
+
+export function applyEdits(scene: SceneFile, edits: SceneEdit[]): { scene: SceneFile } & EditResult {
+	const created: number[] = [];
+	const deleted: number[] = [];
+	for (const e of edits) {
+		switch (e.op) {
+			case "set":
+				scene = setComponent(scene, e.id, e.component, e.value);
+				break;
+			case "remove_component":
+				scene = removeComponent(scene, e.id, e.component);
+				break;
+			case "add": {
+				const r = addEntity(scene, e.entity);
+				scene = r.scene;
+				created.push(r.id);
+				break;
+			}
+			case "delete": {
+				const r = deleteEntity(scene, e.id);
+				scene = r.scene;
+				deleted.push(...r.deleted);
+				break;
+			}
+			case "duplicate": {
+				const r = duplicateEntity(scene, e.id, e.position);
+				scene = r.scene;
+				created.push(r.id);
+				break;
+			}
+			case "notes":
+				scene = setEntityNotes(scene, e.id, e.notes);
+				break;
+			case "environment":
+				scene = setEnvironment(scene, e.value);
+				break;
+			default:
+				throw new Error(`unknown scene edit ${JSON.stringify(e)}`);
+		}
+	}
+	return { scene, created, deleted };
+}

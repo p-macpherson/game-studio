@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { StudioEvent } from "../shared/ipc";
@@ -113,6 +113,33 @@ describe.skipIf(!existsSync(join(engineRepo, "third_party/lib")))("RunService", 
 		} finally {
 			rmSync(join(project, "game/broken.odin"));
 		}
+	}, 60_000);
+
+	it("previews a scene paused from each view, with problems and engine warnings", async () => {
+		const path = "assets/scenes/main.json";
+		const original = readFileSync(join(project, path), "utf8");
+		try {
+			writeFileSync(join(project, path), original.replace('"Name": "Cube",', '"Name": "Cube", "Glow": {},'));
+			const r = await runner.previewScene(null, path, ["top", "game", { position: [3, 2, -3], target: [0, 1, 0] }]);
+			expect(r.images.map((i) => i.view)).toEqual(["top", "game", '{"position":[3,2,-3],"target":[0,1,0]}']);
+			expect(r.images[0].image).toMatch(/^data:image\/jpeg;base64,/);
+			expect(r.images[0].image).not.toBe(r.images[1].image);
+			expect(r.warnings.some((w) => w.includes('unknown component "Glow"'))).toBe(true);
+		} finally {
+			writeFileSync(join(project, path), original);
+		}
+	}, 60_000);
+
+	it("opens a scene paused for the Scenes editor, with file ids and picking", async () => {
+		const run = await runner.start(null, "hidden", { scene: "scenes/main.json" });
+		expect(run).toMatchObject({ state: "running", scene: "scenes/main.json" });
+		expect(await runner.call("info")).toMatchObject({ paused: true });
+		const rows = (await runner.call("entities")) as { name: string; scene_id?: number }[];
+		expect(rows.find((r) => r.name === "Cube")?.scene_id).toBe(4);
+		await runner.call("camera", { position: [0, 6, -6], target: [0, 1, 0] });
+		const pick = (await runner.call("pick", { x: 640, y: 360 })) as { hit: { scene_id?: number } | null };
+		expect(pick.hit?.scene_id).toBe(4);
+		await runner.stop();
 	}, 60_000);
 
 	it("runs a session's worktree", async () => {

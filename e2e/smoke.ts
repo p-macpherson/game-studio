@@ -6,6 +6,7 @@ import { readFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { _electron as electron, type Page } from "playwright";
+import { defaultOrbit, project } from "../src/modules/scenes/orbit.ts";
 
 const shots = resolve(process.argv[2] ?? "out/e2e");
 mkdirSync(shots, { recursive: true });
@@ -268,6 +269,40 @@ try {
 	await page.locator("[data-testid=render-status][data-state=current]").waitFor({ timeout: 30_000 });
 	await step("23-music-edit", page);
 
+	// Scenes: the template's scene opens live and paused; clicking the cube in the view selects it, an inspector
+	// edit writes the file in a Level Designer workspace, and duplicating adds an entity.
+	await nav.getByRole("button", { name: "Scenes" }).click();
+	await page.getByTestId("asset-item").filter({ hasText: "main" }).click();
+	const view = page.locator("[data-testid=scene-viewport] img");
+	await view.waitFor({ timeout: 60_000 });
+	await page.waitForTimeout(500);
+	await step("24-scenes", page);
+	const box = (await view.boundingBox())!;
+	const cubeAt = project(defaultOrbit(JSON.parse(readFileSync(join(projectPath, "assets/scenes/main.json"), "utf8")).entities, false), [0, 1, 0], 1280, 720)!;
+	await view.click({ position: { x: (cubeAt.x / 1280) * box.width, y: (cubeAt.y / 720) * box.height } });
+	await page.locator("[data-testid=entity-inspector] h3", { hasText: "Cube" }).waitFor();
+	const x = page.locator("[data-testid=component-Transform] .vec input").first();
+	await x.fill("2");
+	await x.press("Enter");
+	await page.locator(".version-bar .chip.on", { hasText: "Draft:" }).waitFor({ timeout: 30_000 });
+	await view.waitFor({ timeout: 60_000 });
+	await page.locator("[data-testid=component-Transform] .vec input").first().and(page.locator("[value='2']")).waitFor({ timeout: 30_000 });
+	await page.getByRole("button", { name: "Duplicate" }).click();
+	await page.getByTestId("outline-row").nth(4).waitFor({ timeout: 30_000 });
+	await page.waitForTimeout(800);
+	await step("25-scene-edit", page);
+
+	// A Level Designer looks at the scene with preview_scene.
+	await page.getByRole("button", { name: "+ New scene" }).click();
+	await page.locator(".agent-type.on", { hasText: "Level Designer" }).waitFor();
+	await page.getByTestId("new-session-prompt").fill("look at the scene");
+	await page.getByRole("button", { name: "Start session" }).click();
+	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
+	await page.getByTestId("composer").fill('tool preview_scene {"scene": "assets/scenes/main.json", "views": ["top", "game"]}');
+	await page.getByTestId("composer").press("Enter");
+	await page.getByTestId("chat").getByText(/^Result: assets\/scenes\/main\.json in the game's engine, views in order: top, game\./).waitFor({ timeout: 60_000 });
+	await step("26-preview-scene", page);
+
 	// Source control and accounts render.
 	await page.getByRole("button", { name: "Source Control" }).click();
 	await page.locator(".list-row", { hasText: "studio: session" }).first().waitFor();
@@ -283,5 +318,7 @@ try {
 	console.error(`failed; see ${join(shots, "failed.png")}`);
 	throw err;
 } finally {
+	// A running game (the Scenes live view) makes app.close() hang: stop it first.
+	await (await app.firstWindow()).evaluate(() => window.studio.call("run.stop")).catch(() => {});
 	await app.close();
 }

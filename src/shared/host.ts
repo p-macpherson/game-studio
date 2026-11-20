@@ -56,7 +56,9 @@ export type StudioRequestMethod =
 	| "finalize_model"
 	| "preview_model"
 	| "render_song"
-	| "edit_song";
+	| "edit_song"
+	| "edit_scene"
+	| "preview_scene";
 
 export type HostEvent =
 	/** A raw Pi AgentSessionEvent, JSON-sanitised. */

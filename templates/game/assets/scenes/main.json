@@ -1,0 +1,9 @@
+{
+  "notes": "The starter scene: a sun, the camera, the ground and a cube. Edit it in Game Studio's Scenes section.",
+  "entities": [
+    {"id": 1, "Name": "Sun", "Transform": {"rotation": [50, 30, 0]}, "Light": {"kind": "Directional", "intensity": 1.2, "shadows": true}},
+    {"id": 2, "Name": "Camera", "Transform": {"position": [0, 3, -7], "rotation": [19.65, 0, 0]}, "Camera": {}},
+    {"id": 3, "Name": "Ground", "Transform": {"scale": [20, 1, 20]}, "Mesh_Renderer": {"mesh": "plane", "material": {"color": [0.4, 0.6, 0.4, 1]}}},
+    {"id": 4, "Name": "Cube", "Transform": {"position": [0, 1, 0]}, "Mesh_Renderer": {"mesh": "cube", "material": {"color": [0.9, 0.3, 0.2, 1]}}}
+  ]
+}
