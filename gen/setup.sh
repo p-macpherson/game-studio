@@ -81,6 +81,15 @@ for cmd in fluidsynth ffmpeg; do
 	command -v "$cmd" >/dev/null || echo "   warning: $cmd isn't installed; music rendering needs it (sudo pacman -S $cmd)"
 done
 
+step "Sound effects: Stable Audio Open Small + CLAP (Stability AI Community License: free under \$1M annual revenue)"
+# Gated on Hugging Face: accept the licence at https://huggingface.co/stabilityai/stable-audio-open-small and log
+# this cache in once with: HF_HOME=$GEN/hf uvx --from 'huggingface_hub[cli,hf_xet]==2.4.0' hf auth login
+get stabilityai/stable-audio-open-small model.safetensors model_config.json LICENSE \
+	|| echo "   warning: couldn't download Stable Audio Open Small (accept its licence and log in, see above); sound generation is off"
+get laion/larger_clap_general
+# The model's T5 text encoder is loaded by name; the worker runs offline from this cache.
+HF_HOME="$GEN/hf" "${HF_CLI[@]}" download t5-base config.json spiece.model tokenizer.json model.safetensors >/dev/null
+
 step "Environment: image (FLUX.2 Klein)"
 mkenv image
 pip image "${TORCH_CU130[@]}" torch==2.14.1 torchvision
@@ -127,9 +136,17 @@ mkdir -p "$GEN/src/UniRig/experiments/skeleton" "$GEN/src/UniRig/experiments/ski
 ln -sfn "$GEN/models/VAST-AI/UniRig/skeleton/articulation-xl_quantization_256" "$GEN/src/UniRig/experiments/skeleton/articulation-xl_quantization_256"
 ln -sfn "$GEN/models/VAST-AI/UniRig/skin/articulation-xl" "$GEN/src/UniRig/experiments/skin/articulation-xl"
 
+step "Environment: stable-audio (sound effects)"
+# stable-audio-tools 0.0.20 pins Python < 3.11 and torch 2.7.1. Its inference code imports pytorch_lightning (only
+# declared by its train extra), and its pinned PyWavelets is built for NumPy 1.
+if [[ ! -x "$(env_python stable-audio)" ]]; then uv venv -q --python 3.10 "$GEN/envs/stable-audio"; fi
+pip stable-audio --index-url https://download.pytorch.org/whl/cu128 --extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match \
+	torch==2.7.1 torchaudio==2.7.1 stable-audio-tools==0.0.20 pytorch_lightning==2.5.5 'numpy<2' soundfile
+
 step "Checking the environments"
 "$(env_python image)" -c 'import torch, diffusers; assert torch.cuda.is_available(); print("   image ok", torch.__version__)'
 "$(env_python hunyuan3d)" -c 'import torch, hy3dgen, custom_rasterizer, mesh_processor; assert torch.cuda.is_available(); print("   hunyuan3d ok", torch.__version__)'
 "$(env_python unirig)" -c 'import torch, flash_attn, spconv.pytorch, torch_scatter, bpy; assert torch.cuda.is_available(); print("   unirig ok", torch.__version__)'
+"$(env_python stable-audio)" -c 'import torch, stable_audio_tools.inference.generation, transformers; assert torch.cuda.is_available(); print("   stable-audio ok", torch.__version__)'
 du -sh "$GEN/models" | sed 's/^/   weights: /'
 echo "Asset generation is ready."

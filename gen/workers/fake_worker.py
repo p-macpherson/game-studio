@@ -1,14 +1,18 @@
 """Fake worker for tests (GAME_STUDIO_GEN_FAKE=1): speaks the real protocol but writes fixture files instead of
 running models, so the queue, tools and UI can be exercised without a GPU. Runs on any Python 3.
 
-Ops: image, shape, texture, rig (same params and result shapes as the real workers). For testing the service
+Ops: image, shape, texture, rig, sound (same params and result shapes as the real workers). For testing the service
 itself, any op accepts "crash", "fail" and "sleep" params (see step). FAKE_WORKER_DELAY sets the default delay.
 """
+import math
 import os
+import random
 import shutil
+import struct
 import tempfile
 import sys
 import time
+import wave
 
 sys.path.insert(0, os.path.dirname(__file__))
 from protocol import Job, serve  # noqa: E402
@@ -54,6 +58,32 @@ def texture(job: Job, p: dict) -> dict:
     return {"mesh": copy("textured.glb", p["out"]), "model": "fake"}
 
 
+def sound(job: Job, p: dict) -> dict:
+    step(job, "sound", p)
+    # A stand-in take per seed: 0.2 s of silence, then a decaying tone whose pitch and level depend on the seed,
+    # then silence to the requested length (so trimming and levels have something to do). 16-bit stereo 44.1 kHz.
+    takes = []
+    for seed in p["seeds"]:
+        rng = random.Random(seed)
+        freq, level, rate = 200 + rng.random() * 800, 0.2 + rng.random() * 0.5, 44100
+        n = int(float(p["seconds"]) * rate)
+        path = os.path.join(p["out_dir"], f"{p.get('name', 'main')}-{seed}.wav")
+        os.makedirs(p["out_dir"], exist_ok=True)
+        with wave.open(path, "wb") as w:
+            w.setnchannels(2)
+            w.setsampwidth(2)
+            w.setframerate(rate)
+            frames = bytearray()
+            for i in range(n):
+                t = i / rate - 0.2
+                v = 0.0 if t < 0 else level * math.sin(2 * math.pi * freq * t) * math.exp(-t * 6)
+                s = int(max(-1, min(1, v)) * 32767)
+                frames += struct.pack("<hh", s, s)
+            w.writeframes(bytes(frames))
+        takes.append({"seed": seed, "path": path, "clap": round(0.3 + (seed % 7) * 0.02, 4)})
+    return {"takes": takes, "model": "fake"}
+
+
 def rig(job: Job, p: dict) -> dict:
     step(job, "rig", p)
     # A small rigged stick figure shaped like UniRig's output (fixtures/make_biped.py), so animate.py has a biped.
@@ -61,4 +91,4 @@ def rig(job: Job, p: dict) -> dict:
 
 
 if __name__ == "__main__":
-    serve({"image": image, "shape": shape, "texture": texture, "rig": rig})
+    serve({"image": image, "shape": shape, "texture": texture, "rig": rig, "sound": sound})

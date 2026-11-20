@@ -1,9 +1,9 @@
 /** Local asset generation: a GPU job queue over model workers. See the vault note "M4 3D Models". */
 
 /** A Python environment with its worker; only one runs at a time, since only one model family fits in VRAM. */
-export type GenFamily = "image" | "hunyuan3d" | "unirig";
+export type GenFamily = "image" | "hunyuan3d" | "unirig" | "stable-audio";
 
-export type GenJobKind = "image" | "shape" | "texture" | "rig" | BlenderJobKind;
+export type GenJobKind = "image" | "shape" | "texture" | "rig" | "sound" | BlenderJobKind;
 
 /** Jobs that run a script in gen/blender/ (on the CPU, beside the GPU queue's model workers). */
 export type BlenderJobKind = "finalize" | "animate" | "rig_prop";
@@ -53,6 +53,7 @@ export const FAMILY_OF: Record<Exclude<GenJobKind, BlenderJobKind>, { family: Ge
 	shape: { family: "hunyuan3d", op: "shape" },
 	texture: { family: "hunyuan3d", op: "texture" },
 	rig: { family: "unirig", op: "rig" },
+	sound: { family: "stable-audio", op: "sound" },
 };
 
 /** A concept image in a model's `concepts/` folder, with how it was made when the studio made it. */

@@ -12,6 +12,7 @@ import { safeJoin } from "./assets";
 import type { GenService } from "./gen";
 import type { MusicPipeline } from "./music";
 import { editScene } from "./scenes";
+import type { SoundPipeline } from "./sounds";
 import type { StudioRequest } from "./sessions";
 
 export const MODELS_DIR = "assets/models";
@@ -42,6 +43,8 @@ export function generationRequests(
 		music?: MusicPipeline;
 		/** Renders a scene in the game's engine (RunService.previewScene), for `preview_scene`. */
 		previewScene?(sessionId: string, cwd: string, params: Record<string, unknown>): Promise<unknown>;
+		/** Sound effects (assets/sounds/), for `generate_sound_takes` and `render_sound`. */
+		sounds?: SoundPipeline;
 	} = {},
 ) {
 	const jobs = new Map<string, Set<string>>();
@@ -81,6 +84,12 @@ export function generationRequests(
 					case "preview_scene":
 						if (!opts.previewScene) throw new Error("Scene previews aren't available here");
 						return await opts.previewScene(req.sessionId, req.cwd, req.params);
+					case "generate_sound":
+						if (!opts.sounds) throw new Error("Sound generation isn't available here");
+						return await opts.sounds.generateTakes(ctx, p);
+					case "render_sound":
+						if (!opts.sounds) throw new Error("Sound rendering isn't available here");
+						return await opts.sounds.render(ctx, p);
 				}
 			} finally {
 				jobs.delete(req.requestId);

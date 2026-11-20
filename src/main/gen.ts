@@ -13,6 +13,7 @@ const WORKER_SCRIPT: Record<GenFamily, string> = {
 	image: "image_worker.py",
 	hunyuan3d: "hunyuan_worker.py",
 	unirig: "unirig_worker.py",
+	"stable-audio": "audio_worker.py",
 };
 const JOB_HISTORY = 200;
 
@@ -209,6 +210,11 @@ export class GenService {
 						"envs/unirig/bin/python",
 						"src/UniRig/experiments/skeleton/articulation-xl_quantization_256/model.ckpt",
 						"src/UniRig/experiments/skin/articulation-xl/model.ckpt",
+					]),
+					component("sound", "Sound effects (Stable Audio Open Small)", [
+						"envs/stable-audio/bin/python",
+						"models/stabilityai/stable-audio-open-small/model.safetensors",
+						"models/laion/larger_clap_general/pytorch_model.bin",
 					]),
 				];
 		components.push(musicComponent(soundfontPath(root)));

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { ModelManifest } from "../shared/gen";
 import { GenService } from "./gen";
 import { ModelPipeline } from "./models";
+import { SoundPipeline } from "./sounds";
 import { tempDir } from "./test-helpers";
 
 describe.runIf(process.env.GAME_STUDIO_GEN_GPU === "1")("generation on the GPU", () => {
@@ -39,4 +40,24 @@ describe.runIf(process.env.GAME_STUDIO_GEN_GPU === "1")("generation on the GPU",
 			await gen.dispose();
 		}
 	}, 900_000);
+
+	it("makes a sound effect's takes with Stable Audio Open Small and renders the chosen one", async () => {
+		const gen = new GenService({ root: process.env.GAME_STUDIO_GEN ?? join(process.env.HOME!, ".local/share/game-studio/gen"), codeDir: resolve("gen"), emit: () => {} });
+		const sounds = new SoundPipeline({ gen });
+		const cwd = tempDir();
+		const ctx = { cwd, progress: (t: string) => console.log(t) };
+		try {
+			const r = await sounds.generateTakes(ctx, { name: "chest-open", prompt: "an old wooden treasure chest lid creaking open slowly, rusty hinges creak, close-up foley", seconds: 3, count: 4, seed: 1234 });
+			console.log(JSON.stringify(r.takes, null, 1), `\noutputs in ${cwd}`);
+			expect(r.takes.map((t) => t.seed)).toEqual([1234, 1235, 1236, 1237]);
+			for (const t of r.takes) {
+				expect(t.seconds).toBeCloseTo(3, 1);
+				expect(t.clap).toBeGreaterThan(0);
+			}
+			const out = await sounds.render(ctx, { name: "chest-open" });
+			expect(out.variants[0].peak_db).toBeCloseTo(-1, 0);
+		} finally {
+			await gen.dispose();
+		}
+	}, 300_000);
 });
