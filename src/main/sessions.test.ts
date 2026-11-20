@@ -203,13 +203,19 @@ describe("SessionService", () => {
 		expect(JSON.stringify((await service.messages(lead1.id)).at(-1))).toContain('agentType: expected \\"helper\\"');
 		expect(service.list().filter((s) => s.parentId === lead1.id)).toHaveLength(1);
 		// Sessions without edges get no delegate tool at all.
-		const live = (core as unknown as { sessions: Map<string, { session: { getActiveToolNames(): string[] } }> }).sessions;
+		type Live = { session: { getActiveToolNames(): string[]; agent: { state: { tools: { name: string; executionMode?: string }[] } } } };
+		const live = (core as unknown as { sessions: Map<string, Live> }).sessions;
 		expect(live.get(lead1.id)!.session.getActiveToolNames()).toContain("delegate");
 		expect(live.get(children[0].id)!.session.getActiveToolNames()).not.toContain("delegate");
 		// A type with an empty studioTools list keeps the studio basics but not the generation tools; others get them all.
 		expect(live.get(lead1.id)!.session.getActiveToolNames()).toEqual(expect.arrayContaining(["ask_user", "open_in_studio"]));
 		expect(live.get(lead1.id)!.session.getActiveToolNames()).not.toContain("generate_concept_images");
 		expect(live.get(children[0].id)!.session.getActiveToolNames()).toContain("generate_concept_images");
+		// Studio tools make Pi run a turn's calls one by one (a render must not run while bash writes its file);
+		// delegations may run side by side.
+		const mode = (name: string) => live.get(lead1.id)!.session.agent.state.tools.find((t) => t.name === name)?.executionMode;
+		expect(mode("request_review")).toBe("sequential");
+		expect(mode("delegate")).toBeUndefined();
 	}, 30_000);
 
 	it("refuses to merge when the main checkout is on another branch", async () => {

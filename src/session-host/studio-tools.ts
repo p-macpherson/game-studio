@@ -319,5 +319,9 @@ export function studioTools(ctx: StudioToolContext) {
 	];
 	// Every session talks to the studio; the rest (generation, renders, previews) only where its type allows.
 	const always = new Set(["set_session_title", "request_review", "open_in_studio", "ask_user", "delegate"]);
-	return ctx.studioTools ? tools.filter((t) => always.has(t.name) || ctx.studioTools!.includes(t.name)) : tools;
+	const allowed = ctx.studioTools ? tools.filter((t) => always.has(t.name) || ctx.studioTools!.includes(t.name)) : tools;
+	// Studio tools read what the agent's other tools write (render_sound reads sound.json): a turn that writes a file
+	// and renders it must not run the two at once, so any of these makes Pi run that turn's calls one by one.
+	// Delegations may run side by side.
+	return allowed.map((t) => (t.name === "delegate" ? t : { ...t, executionMode: "sequential" as const }));
 }

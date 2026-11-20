@@ -28,7 +28,7 @@ validates and renders it.
 |---|---|
 | `variants[].layers` | What the variant mixes: `{"take": "<id>"}` (a take, by the id `generate_sound_takes` gave) or `{"synth": {…}}` |
 | `layers[].gain`, `layers[].at` | dB against the variant's other layers (each is levelled first, so 0 means as loud as the others); seconds from the start (takes start at their first sound) |
-| synth layer | `{wave (sine, square, saw, triangle, noise), seconds, freq, to (sweep end), attack, decay (to -60 dB), vibrato {rate, depth}, highpass, lowpass}` |
+| synth layer | Nested under `synth`, beside the layer's `gain`/`at`: `{"synth": {"wave": "sine", "seconds": 0.3, "freq": 2600, "to": 3900, "decay": 0.25}, "gain": -18}`. Fields: `wave` (sine, square, saw, triangle, noise), `seconds`, `freq`, `to` (sweep end), `attack`, `decay` (to -60 dB), `vibrato {rate, depth}`, `highpass`, `lowpass` |
 | `loop` | A seamless loop: the end is crossfaded into the start (`crossfade` seconds, default a quarter of its length, at most 2) |
 | `trim` | Cuts the silence at both ends (quieter than `threshold` dB below the peak, default -50); `false` keeps it |
 | `length` | Seconds: cut after this long (after trimming, before the fade-out), e.g. to keep one footstep of a take |
