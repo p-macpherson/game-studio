@@ -218,6 +218,26 @@ describe("SessionService", () => {
 		expect(mode("delegate")).toBeUndefined();
 	}, 30_000);
 
+	it("keeps a person's edits unsaved until Save commits them; Revert drops them; Merge refuses while any are unsaved", async () => {
+		const s = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: "x" });
+		await settled(s.id);
+		writeFileSync(join(s.worktreePath, "faux-notes.md"), "edited by hand\n");
+		writeFileSync(join(s.worktreePath, "new.md"), "a new file\n");
+		expect((await service.worktreeUnsaved(s.worktreeId)).sort()).toEqual(["faux-notes.md", "new.md"]);
+		await expect(service.mergeWorktree(s.worktreeId)).rejects.toThrow(/unsaved changes \(2 files\)/);
+
+		await service.revertWorktree(s.worktreeId);
+		expect(readFileSync(join(s.worktreePath, "faux-notes.md"), "utf8")).toBe("x\n");
+		expect(existsSync(join(s.worktreePath, "new.md"))).toBe(false);
+
+		writeFileSync(join(s.worktreePath, "faux-notes.md"), "edited by hand\n");
+		await service.saveWorktree(s.worktreeId, "Scene main: set Transform");
+		expect(await service.worktreeUnsaved(s.worktreeId)).toEqual([]);
+		expect(sh(s.worktreePath, "log", "-1", "--format=%s").trim()).toBe("Scene main: set Transform");
+		await service.mergeWorktree(s.worktreeId);
+		expect(readFileSync(join(project, "faux-notes.md"), "utf8")).toBe("edited by hand\n");
+	});
+
 	it("refuses to merge when the main checkout is on another branch", async () => {
 		const s = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: "x" });
 		await settled(s.id);

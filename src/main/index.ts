@@ -1,7 +1,9 @@
 import { existsSync, type FSWatcher, readFileSync, watch } from "node:fs";
 import { join, resolve, sep } from "node:path";
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 import { leafName } from "../shared/asset-names";
+import { EditHistory } from "./edit-history";
+import { manualStep, moveStep } from "./edit-steps";
 import type { StudioApi, StudioEvent, StudioMethod } from "../shared/ipc";
 import type { ProjectInfo, Target } from "../shared/types";
 import { loadAgentTypes } from "./agent-types";
@@ -101,6 +103,8 @@ async function main(): Promise<void> {
 	};
 	serveStudioFiles(checkoutRoot);
 	const assets = new AssetService(checkoutRoot, sessions);
+	// Undo/redo of people's manual edits, per worktree, in memory (snapshots under userData, cleared at each launch).
+	const history = new EditHistory(join(app.getPath("userData"), "edit-history"));
 	/** A model rendered by the game's engine (for the In engine tab and the agents' preview_model tool). */
 	async function previewModel(checkout: string | null, name: string) {
 		const manifest = pipeline.manifest({ cwd: checkoutRoot(checkout) }, name);
@@ -200,7 +204,10 @@ async function main(): Promise<void> {
 		"assets.read": async (path, checkout) => assets.read(path, checkout ?? null),
 		"assets.search": async (moduleId, query, checkout) => assets.search(moduleId, query, checkout ?? null),
 		"assets.links": async (checkout) => assets.links(checkout ?? null),
-		"assets.move": async (moduleId, checkout, from, to) => assets.move(moduleId, checkout, from, to),
+		"assets.move": async (moduleId, checkout, from, to) => {
+			const step = moveStep(from, to);
+			return history.record(checkout, checkoutRoot(checkout), step.label, step.scopes, async () => assets.move(moduleId, checkout, from, to));
+		},
 
 		"run.checkouts": async () => runner.checkouts(),
 		"run.current": async () => runner.current(),
@@ -217,8 +224,24 @@ async function main(): Promise<void> {
 		"gen.jobs": async () => gen.list(),
 		"gen.cancel": async (jobId) => gen.cancel(jobId),
 		"gen.install": async () => gen.install(),
-		"worktrees.run": (worktreeId, method, params) =>
-			genRequests.studioRequest({ sessionId: worktreeId, requestId: `ui-${Date.now()}`, cwd: checkoutRoot(worktreeId), method, params, progress: () => {} }),
+		// A section's step: a person's manual edit, recorded for undo (previews change nothing and aren't).
+		"worktrees.run": (worktreeId, method, params) => {
+			const cwd = checkoutRoot(worktreeId);
+			const run = () => genRequests.studioRequest({ sessionId: worktreeId, requestId: `ui-${Date.now()}`, cwd, method, params, progress: () => {} });
+			const step = manualStep(method, params);
+			return step ? history.record(worktreeId, cwd, step.label, step.scopes, run) : run();
+		},
+		"history.get": async (worktreeId) => ({ steps: history.steps(worktreeId), unsaved: await sessions.worktreeUnsaved(worktreeId) }),
+		"history.undo": async (worktreeId) => history.undo(worktreeId, checkoutRoot(worktreeId)),
+		"history.redo": async (worktreeId) => history.redo(worktreeId, checkoutRoot(worktreeId)),
+		"worktrees.save": async (id, message) => {
+			await sessions.saveWorktree(id, message);
+			history.clear(id);
+		},
+		"worktrees.revert": async (id) => {
+			await sessions.revertWorktree(id);
+			history.clear(id);
+		},
 		"models3d.concepts": async (checkout, name) => pipeline.conceptImages({ cwd: checkoutRoot(checkout) }, name),
 		"models3d.preview": (checkout, name) => previewModel(checkout, name),
 		"sounds.usages": async (checkout, name) => soundUsages(checkoutRoot(checkout), name),
@@ -244,12 +267,26 @@ async function main(): Promise<void> {
 		"worktrees.list": async () => sessions.listWorktrees(),
 		"worktrees.create": (label) => sessions.createWorktree("project", label),
 		"worktrees.rename": async (id, label) => sessions.renameWorktree(id, label),
-		"worktrees.merge": (id) => sessions.mergeWorktree(id),
-		"worktrees.discard": (id) => sessions.discardWorktree(id),
+		"worktrees.merge": async (id) => {
+			await sessions.mergeWorktree(id);
+			history.clear(id);
+		},
+		"worktrees.discard": async (id) => {
+			await sessions.discardWorktree(id);
+			history.clear(id);
+		},
 		"worktrees.changedFiles": (id) => sessions.worktreeChangedFiles(id),
 		"sessions.raw": async (id) => sessions.raw(id),
-		"sessions.merge": (id) => sessions.merge(id),
-		"sessions.discard": (id) => sessions.discard(id),
+		"sessions.merge": async (id) => {
+			const worktree = sessions.get(id).worktreeId;
+			await sessions.merge(id);
+			history.clear(worktree);
+		},
+		"sessions.discard": async (id) => {
+			const worktree = sessions.get(id).worktreeId;
+			await sessions.discard(id);
+			history.clear(worktree);
+		},
 		"sessions.markDone": (id) => sessions.markDone(id),
 		"sessions.resume": (id) => sessions.resume(id),
 		"sessions.openTerminal": async (id) => {
@@ -267,6 +304,7 @@ async function main(): Promise<void> {
 	if (last && existsSync(join(last, ".studio/project.json"))) project = readProject(last);
 	sessions.load();
 	watchProject(project?.path);
+	setMenu();
 	createWindow();
 
 	app.on("window-all-closed", () => {
@@ -281,6 +319,31 @@ async function main(): Promise<void> {
 async function pickFolder(title: string): Promise<string | null> {
 	const result = await dialog.showOpenDialog(win!, { title, properties: ["openDirectory", "createDirectory"] });
 	return result.canceled ? null : result.filePaths[0];
+}
+
+/** Electron's default menu, except Undo/Redo: the page decides between text undo and the manual-edit history. */
+function setMenu(): void {
+	const send = (command: "undo" | "redo") => () => win?.webContents.send("studio:event", { type: "edit_command", command } satisfies StudioEvent);
+	Menu.setApplicationMenu(
+		Menu.buildFromTemplate([
+			{ role: "fileMenu" },
+			{
+				label: "Edit",
+				submenu: [
+					{ label: "Undo", accelerator: "CmdOrCtrl+Z", click: send("undo") },
+					{ label: "Redo", accelerator: "CmdOrCtrl+Shift+Z", click: send("redo") },
+					{ label: "Redo", accelerator: "CmdOrCtrl+Y", click: send("redo"), visible: false, acceleratorWorksWhenHidden: true },
+					{ type: "separator" },
+					{ role: "cut" },
+					{ role: "copy" },
+					{ role: "paste" },
+					{ role: "selectAll" },
+				],
+			},
+			{ role: "viewMenu" },
+			{ role: "windowMenu" },
+		]),
+	);
 }
 
 function createWindow(): void {

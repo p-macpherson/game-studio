@@ -1,6 +1,7 @@
 /** Contract between the renderer and the main process, exposed by the preload script as `window.studio`. */
 import type { HostInfo, PromptMode, StudioRequestMethod } from "./host";
 import type { AssetLinks } from "./asset-links";
+import type { HistoryStep } from "./history";
 import type { AssetSearchHit, AssetSummary, ModuleInfo, MoveResult } from "./modules";
 import type { CheckoutId, CheckoutInfo, RunInfo, RunMode, RunOptions, TestReport } from "./run";
 import type { ConceptImage, GenJob, GenStatus } from "./gen";
@@ -110,6 +111,15 @@ export interface StudioApi {
 	"worktrees.create"(label: string): Promise<WorktreeSummary>;
 	"worktrees.rename"(id: string, label: string): Promise<void>;
 	/** Merges a worktree into its base; every session in it ends as merged. */
+	/** A worktree's manual-edit history (oldest first) and its unsaved files (what Save commits). */
+	"history.get"(worktreeId: string): Promise<{ steps: HistoryStep[]; unsaved: string[] }>;
+	/** Undoes or redoes the latest manual edit in a worktree; returns its name. */
+	"history.undo"(worktreeId: string): Promise<string>;
+	"history.redo"(worktreeId: string): Promise<string>;
+	/** Commits a worktree's unsaved changes (clearing its history). */
+	"worktrees.save"(id: string, message: string): Promise<void>;
+	/** Puts a worktree's unsaved changes back to its last commit (clearing its history). */
+	"worktrees.revert"(id: string): Promise<void>;
 	"worktrees.merge"(id: string): Promise<void>;
 	"worktrees.discard"(id: string): Promise<void>;
 	"worktrees.changedFiles"(id: string): Promise<{ path: string; change: "added" | "modified" | "deleted" }[]>;
@@ -141,7 +151,9 @@ export type StudioEvent =
 	| { type: "gen_changed" }
 	| { type: "gen_setup"; text: string; done?: boolean; ok?: boolean }
 	| { type: "login_notice"; loginId: string; notice: LoginNotice }
-	| { type: "login_prompt"; loginId: string; prompt: LoginPrompt };
+	| { type: "login_prompt"; loginId: string; prompt: LoginPrompt }
+	/** Edit → Undo/Redo (the app menu's shortcuts): text undo in a text field, else the worktree's manual-edit history. */
+	| { type: "edit_command"; command: "undo" | "redo" };
 
 /** What the preload exposes. */
 export interface StudioBridge {

@@ -505,12 +505,52 @@ export class SessionService {
 		return [...this.entries.values()].filter((e) => e.record.worktreeId === worktreeId);
 	}
 
-	/** Merges a worktree's branch into its base; every session in it ends as merged. */
+	/** Uncommitted changes in a worktree's checkout (not the studio's records): what a Save commits, or Revert drops. */
+	async worktreeUnsaved(id: string): Promise<string[]> {
+		const w = this.worktrees.get(id);
+		if (!this.worktrees.hasCheckout(w)) return [];
+		return (await g.status(this.worktrees.path(w))).files.map((f) => f.path).filter((p) => !p.startsWith(".studio/"));
+	}
+
+	/** Commits a worktree's unsaved changes (a person's edits in the sections) as one commit. */
+	async saveWorktree(id: string, message: string): Promise<void> {
+		const w = this.worktrees.get(id);
+		this.assertIdleWorktree(id, "saving");
+		const paths = await this.worktreeUnsaved(id);
+		if (paths.length) await g.commitPaths(this.worktrees.path(w), paths, message.trim() || "Manual edits");
+		w.record.updatedAt = new Date().toISOString();
+		this.worktrees.save(w);
+		this.deps.emit({ type: "sessions_changed" });
+	}
+
+	/** Puts a worktree's unsaved changes back to its last commit (new files removed). */
+	async revertWorktree(id: string): Promise<void> {
+		const w = this.worktrees.get(id);
+		this.assertIdleWorktree(id, "reverting");
+		const dir = this.worktrees.path(w);
+		const files = (await g.status(dir)).files.filter((f) => !f.path.startsWith(".studio/"));
+		const tracked = files.filter((f) => f.index !== "?").map((f) => f.path);
+		if (tracked.length) await g.git(dir, ["restore", "--source=HEAD", "--staged", "--worktree", "--", ...tracked]);
+		for (const f of files.filter((x) => x.index === "?")) rmSync(join(dir, f.path), { force: true });
+		w.record.updatedAt = new Date().toISOString();
+		this.worktrees.save(w);
+		this.deps.emit({ type: "sessions_changed" });
+	}
+
+	/** Saving or reverting while an agent works there could take its half-written files: wait for it. */
+	private assertIdleWorktree(id: string, doing: string): void {
+		const running = this.sessionsIn(id).filter((e) => e.record.status === "in_progress" || e.record.status === "starting");
+		if (running.length) throw new Error(`Wait for ${running.map((e) => e.record.title).join(", ")} to finish before ${doing}`);
+	}
+
+	/** Merges a worktree's branch into its base; every session in it ends as merged. Unsaved changes must be saved first. */
 	async mergeWorktree(id: string): Promise<void> {
 		const w = this.worktrees.get(id);
 		const sessions = this.sessionsIn(id);
 		const running = sessions.filter((e) => e.record.status === "in_progress" || e.record.status === "starting");
 		if (running.length) throw new Error(`Stop the agent${running.length > 1 ? "s" : ""} first: ${running.map((e) => e.record.title).join(", ")}`);
+		const unsaved = await this.worktreeUnsaved(id);
+		if (unsaved.length) throw new Error(`“${w.record.label}” has unsaved changes (${unsaved.length} file${unsaved.length > 1 ? "s" : ""}): save or revert them first`);
 		await this.worktrees.merge(w, `${w.record.label}\n\nUncommitted work in worktree ${id}, committed by Game Studio when merging it.`);
 		for (const e of sessions) this.end(e, "merged");
 		await this.commitRecords(w, sessions, "merged");

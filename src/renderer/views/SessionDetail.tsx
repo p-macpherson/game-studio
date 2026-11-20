@@ -4,6 +4,7 @@ import type { SessionSummary } from "../../shared/types";
 import { findAgentType } from "../../shared/agents";
 import { call } from "../api";
 import { useStudio } from "../store";
+import { confirmDiscard, confirmMerge } from "../workspace";
 import { Chat } from "./Chat";
 import { Diff } from "./Diff";
 import { StatusBadge, TargetBadge } from "./Sessions";
@@ -79,7 +80,11 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 								<button
 									className="primary"
 									disabled={busy}
-									onClick={() => act(() => call("sessions.merge", s.id), `Merge worktree “${s.worktreeLabel}” into ${s.baseBranch}?${shared > 1 ? ` Its ${shared} sessions end with it.` : ""}`)}
+									onClick={() =>
+										act(async () => {
+											if (await confirmMerge(s.worktreeId, s.worktreeLabel, shared > 1 ? ` Its ${shared} sessions end with it.` : "")) await call("sessions.merge", s.id);
+										})
+									}
 								>
 									Merge
 								</button>
@@ -90,7 +95,11 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 							<button
 								className="danger"
 								disabled={busy}
-								onClick={() => act(() => call("sessions.discard", s.id), `Discard worktree “${s.worktreeLabel}”?${shared > 1 ? ` Its ${shared} sessions end with it.` : ""} The checkout is removed; the branch is kept, so it can be resumed.`)}
+								onClick={() =>
+									act(async () => {
+										if (await confirmDiscard(s.worktreeId, s.worktreeLabel, shared > 1 ? ` Its ${shared} sessions end with it.` : "")) await call("sessions.discard", s.id);
+									})
+								}
 							>
 								Discard
 							</button>

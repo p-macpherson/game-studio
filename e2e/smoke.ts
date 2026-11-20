@@ -342,6 +342,26 @@ try {
 	await page.waitForTimeout(800);
 	await step("25-scene-edit", page);
 
+	// Manual edits are unsaved, with an undo history: ↶ undoes the duplicate, the app menu's Edit → Undo the move;
+	// ↷ redoes; Save commits them (message from the steps) and the unsaved row goes away.
+	const sidebar = page.locator(".sidebar");
+	await sidebar.getByTestId("unsaved-count").filter({ hasText: "2 unsaved" }).waitFor({ timeout: 10_000 });
+	await sidebar.getByTestId("undo").click();
+	await page.getByTestId("notice").filter({ hasText: "Undid: Scene main: duplicated an entity" }).waitFor();
+	await page.getByTestId("outline-row").nth(4).waitFor({ state: "detached", timeout: 30_000 });
+	await app.evaluate(({ Menu }) => Menu.getApplicationMenu()!.items.find((m) => m.label === "Edit")!.submenu!.items.find((i) => i.label === "Undo")!.click());
+	await page.getByTestId("notice").filter({ hasText: "Undid: Scene main: set Transform" }).waitFor();
+	await sidebar.getByTestId("redo").click();
+	await sidebar.getByTestId("redo").click();
+	await page.getByTestId("outline-row").nth(4).waitFor({ timeout: 30_000 });
+	await sidebar.getByTestId("unsaved-count").click();
+	await sidebar.getByTestId("history-list").filter({ hasText: "Scene main: set Transform" }).waitFor();
+	await step("43-unsaved-edits", page);
+	await sidebar.getByTestId("worktree-save").click();
+	if (!(await page.getByTestId("save-message").inputValue()).startsWith("2 manual edits")) throw new Error("save message not from the steps");
+	await page.getByTestId("save-ok").click();
+	await sidebar.getByTestId("worktree-unsaved").waitFor({ state: "detached", timeout: 10_000 });
+
 	// A Level Designer looks at the scene with preview_scene.
 	await page.getByRole("button", { name: "+ New scene" }).click();
 	await page.locator(".agent-type.on", { hasText: "Level Designer" }).waitFor();

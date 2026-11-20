@@ -1972,3 +1972,46 @@ code,
 textarea {
 	font-variant-ligatures: none;
 }
+
+/* Manual edits: the unsaved row under the worktree selector, its step list, and short notices */
+.worktree-unsaved {
+	gap: 4px;
+	padding: 0 8px 6px;
+}
+.unsaved-count {
+	min-width: 0;
+	padding: 3px 4px;
+	color: var(--yellow);
+	text-align: left;
+}
+.history-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin: 0 8px 8px;
+	padding: 6px;
+	max-height: 220px;
+	overflow: auto;
+	font-size: 12px;
+}
+.history-step.undone {
+	color: var(--muted);
+	text-decoration: line-through;
+}
+.history-list button {
+	margin-top: 6px;
+	align-self: flex-start;
+}
+.toast {
+	position: fixed;
+	left: 50%;
+	bottom: 18px;
+	transform: translateX(-50%);
+	z-index: 50;
+	padding: 7px 14px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--panel-2);
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+	font-size: 12px;
+}

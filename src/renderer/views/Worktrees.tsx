@@ -4,11 +4,14 @@ import { useEffect, useState } from "react";
 import type { WorktreeSummary } from "../../shared/types";
 import { call } from "../api";
 import { isOpenProjectWorktree, useStudio } from "../store";
+import { confirmDiscard, confirmMerge, saveMessage } from "../workspace";
 
 const otherFiles = <T extends { path: string }>(files: T[]) => files.filter((f) => !f.path.startsWith(".studio/"));
 
 export function WorktreePicker() {
-	const { project, worktree, worktrees, sessions, assetsVersion, selectWorktree, refreshWorktrees, showError } = useStudio();
+	const { project, worktree, worktrees, sessions, assetsVersion, selectWorktree, refreshWorktrees, showError, history, refreshHistory, undo, redo } = useStudio();
+	const [showSteps, setShowSteps] = useState(false);
+	const [saving, setSaving] = useState<string | null>(null);
 	const [open, setOpen] = useState(false);
 	const [naming, setNaming] = useState<"new" | "rename" | null>(null);
 	const [label, setLabel] = useState("");
@@ -25,6 +28,7 @@ export function WorktreePicker() {
 			return;
 		}
 		let live = true;
+		void refreshHistory();
 		call("worktrees.changedFiles", current.id).then((f) => {
 			if (!live) return;
 			setChanged(otherFiles(f).map((x) => x.path));
@@ -33,7 +37,7 @@ export function WorktreePicker() {
 		return () => {
 			live = false;
 		};
-	}, [current?.id, current?.updatedAt, assetsVersion]);
+	}, [current?.id, current?.updatedAt, assetsVersion, refreshHistory]);
 
 	if (!project) return null;
 
@@ -42,6 +46,7 @@ export function WorktreePicker() {
 		try {
 			await what();
 			await refreshWorktrees();
+			await refreshHistory();
 			useStudio.setState((s) => ({ assetsVersion: s.assetsVersion + 1 }));
 		} catch (err) {
 			showError(err);
@@ -67,13 +72,21 @@ export function WorktreePicker() {
 	const merge = () => {
 		if (!current) return;
 		const files = changed.length ? `\n\n${changed.length} changed file${changed.length > 1 ? "s" : ""}:\n${changed.slice(0, 15).join("\n")}${changed.length > 15 ? "\n…" : ""}` : "\n\nIt has no changes.";
-		if (window.confirm(`Merge worktree “${current.label}” into the game?${files}`)) void act(() => call("worktrees.merge", current.id));
+		void act(async () => {
+			if (await confirmMerge(current.id, current.label, files)) await call("worktrees.merge", current.id);
+		});
 	};
 	const discard = () => {
-		if (current && window.confirm(`Discard worktree “${current.label}”? Its checkout is removed; the branch is kept, so its sessions can be resumed.`)) {
-			void act(() => call("worktrees.discard", current.id));
-		}
+		if (!current) return;
+		void act(async () => {
+			if (await confirmDiscard(current.id, current.label)) await call("worktrees.discard", current.id);
+		});
 	};
+	const mine = history && current && history.worktree === current.id ? history : null;
+	const steps = mine?.steps ?? [];
+	const unsaved = mine?.unsaved ?? [];
+	const done = steps.filter((s) => s.done);
+	const undone = steps.filter((s) => !s.done);
 
 	return (
 		<div className="worktree-picker" data-testid="worktree-picker">
@@ -103,6 +116,84 @@ export function WorktreePicker() {
 					<button className="small icon" disabled={busy || working(current)} onClick={discard} title="Discard this worktree">
 						✕
 					</button>
+				</div>
+			)}
+			{current && (steps.length > 0 || unsaved.length > 0) && (
+				<div className="worktree-unsaved row nav-label" data-testid="worktree-unsaved">
+					<button
+						className="ghost small grow ellipsis unsaved-count"
+						onClick={() => setShowSteps(!showSteps)}
+						title="Your edits in the sections that aren't saved (committed) yet: click for the list"
+						data-testid="unsaved-count"
+					>
+						{unsaved.length ? `${done.length || unsaved.length} unsaved` : "All saved"}
+					</button>
+					<button className="small icon" disabled={!done.length} onClick={() => void undo()} title={done.length ? `Undo: ${done.at(-1)!.label} (Ctrl+Z)` : "Nothing to undo"} data-testid="undo">
+						↶
+					</button>
+					<button className="small icon" disabled={!undone.length} onClick={() => void redo()} title={undone.length ? `Redo: ${undone[0].label} (Ctrl+Shift+Z)` : "Nothing to redo"} data-testid="redo">
+						↷
+					</button>
+					<button
+						className="small"
+						disabled={busy || !unsaved.length || working(current)}
+						onClick={() => setSaving(saveMessage(done.map((s) => s.label), unsaved))}
+						title={working(current) ? "Wait for the agent to finish" : "Commit your unsaved edits in this worktree"}
+						data-testid="worktree-save"
+					>
+						Save
+					</button>
+				</div>
+			)}
+			{current && showSteps && (steps.length > 0 || unsaved.length > 0) && (
+				<div className="card history-list nav-label" data-testid="history-list">
+					{[...steps].reverse().map((s, i) => (
+						<div key={i} className={`history-step ellipsis ${s.done ? "" : "undone"}`} title={`${s.label}\n${s.files.join("\n")}`}>
+							{s.label}
+						</div>
+					))}
+					{!steps.length && unsaved.map((f) => (
+						<div key={f} className="history-step ellipsis muted" title={f}>
+							{f}
+						</div>
+					))}
+					{unsaved.length > 0 && (
+						<button
+							className="small danger"
+							disabled={busy || working(current)}
+							onClick={() =>
+								window.confirm(`Revert every unsaved change in “${current.label}” to its last save? This can't be undone.`) &&
+								void act(() => call("worktrees.revert", current.id))
+							}
+							data-testid="worktree-revert"
+						>
+							Revert all
+						</button>
+					)}
+				</div>
+			)}
+			{current && saving !== null && (
+				<div className="modal-backdrop" onClick={() => setSaving(null)}>
+					<div className="modal col" style={{ width: 520 }} onClick={(e) => e.stopPropagation()} data-testid="save-dialog">
+						<h3>Save “{current.label}”</h3>
+						<span className="muted small">Commits your unsaved edits in this worktree. They reach the game when it's merged.</span>
+						<textarea rows={8} value={saving} onChange={(e) => setSaving(e.target.value)} data-testid="save-message" />
+						<div className="row" style={{ justifyContent: "flex-end" }}>
+							<button onClick={() => setSaving(null)}>Cancel</button>
+							<button
+								className="primary"
+								disabled={!saving.trim()}
+								onClick={() => {
+									const message = saving;
+									setSaving(null);
+									void act(() => call("worktrees.save", current.id, message));
+								}}
+								data-testid="save-ok"
+							>
+								Save
+							</button>
+						</div>
+					</div>
 				</div>
 			)}
 			{naming && (

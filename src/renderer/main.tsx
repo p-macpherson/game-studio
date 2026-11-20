@@ -21,7 +21,7 @@ const NAV: { view: View; label: string; icon: string }[] = [
 ];
 
 function App() {
-	const { project, view, setView, sessions, modules, error, refresh, handleEvent, newSession, run, worktreeChanges } = useStudio();
+	const { project, view, setView, sessions, modules, error, refresh, handleEvent, newSession, run, worktreeChanges, notice } = useStudio();
 	/** How many of a section's assets the selected worktree added, modified and removed. */
 	const changesIn = (m: (typeof modules)[number]) => {
 		const owned = worktreeChanges.filter((c) => moduleOwns(m, c.path));
@@ -118,6 +118,11 @@ function App() {
 				})()}
 			</main>
 			{newSession && <NewSessionDialog preset={newSession} />}
+			{notice && (
+				<div className="toast" data-testid="notice">
+					{notice}
+				</div>
+			)}
 		</div>
 	);
 }

@@ -3,6 +3,7 @@ import type { StudioEvent } from "../shared/ipc";
 import { type ModuleInfo, moduleOwns } from "../shared/modules";
 import type { CheckoutId, RunInfo, RunMode, TestReport } from "../shared/run";
 import type { AgentTypeInfo, ModelInfo, ProjectInfo, SessionSummary, Settings, Target, WorktreeSummary } from "../shared/types";
+import type { HistoryStep } from "../shared/history";
 import { call } from "./api";
 
 export type View = "sessions" | "source-control" | "settings" | "play" | `module:${string}`;
@@ -79,6 +80,15 @@ interface State {
 	worktrees: WorktreeSummary[];
 	/** The selected worktree's changed files (refreshed by the selector), for the sidebar's per-section counts. */
 	worktreeChanges: { path: string; change: "added" | "modified" | "deleted" }[];
+	/** The selected worktree's manual-edit history and unsaved files (refreshed with the selector). */
+	history: { worktree: string; steps: HistoryStep[]; unsaved: string[] } | null;
+	/** A short message shown for a moment (e.g. "Undid: Scene main: set Transform"). */
+	notice: string | null;
+	refreshHistory(): Promise<void>;
+	/** Undo/redo the latest manual edit in the selected worktree. */
+	undo(): Promise<void>;
+	redo(): Promise<void>;
+	notify(text: string): void;
 
 	/** Play & Test: which checkout to build/run/test, the current run, its console and latest frame. */
 	playCheckout: CheckoutId;
@@ -114,6 +124,22 @@ const emptyTranscript = (): Transcript => ({ messages: [], runningTools: {}, raw
 export const isOpenProjectWorktree = (w: WorktreeSummary) => w.target === "project" && w.status === "active" && w.checkout === "active";
 const RAW_LIMIT = 500;
 
+let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Undoes or redoes a manual edit in the selected worktree, then refreshes what shows it. */
+async function historyStep(command: "undo" | "redo"): Promise<void> {
+	const s = useStudio.getState();
+	if (!s.worktree) return s.notify(`Nothing to ${command}: select a worktree`);
+	try {
+		const label = await call(command === "undo" ? "history.undo" : "history.redo", s.worktree);
+		s.notify(`${command === "undo" ? "Undid" : "Redid"}: ${label}`);
+		useStudio.setState((x) => ({ assetsVersion: x.assetsVersion + 1 }));
+	} catch (err) {
+		s.showError(err);
+	}
+	await useStudio.getState().refreshHistory();
+}
+
 export const useStudio = create<State>((set, get) => ({
 	project: null,
 	settings: null,
@@ -131,6 +157,21 @@ export const useStudio = create<State>((set, get) => ({
 	worktree: null,
 	worktrees: [],
 	worktreeChanges: [],
+	history: null,
+	notice: null,
+	async refreshHistory() {
+		const worktree = get().worktree;
+		if (!worktree) return set({ history: null });
+		const h = await call("history.get", worktree).catch(() => null);
+		if (get().worktree === worktree) set({ history: h && { worktree, ...h } });
+	},
+	undo: () => historyStep("undo"),
+	redo: () => historyStep("redo"),
+	notify(text) {
+		set({ notice: text });
+		clearTimeout(noticeTimer);
+		noticeTimer = setTimeout(() => set({ notice: null }), 3500);
+	},
 	playCheckout: null,
 	playTab: "run",
 	settingsTab: "general",
@@ -254,6 +295,13 @@ export const useStudio = create<State>((set, get) => ({
 			case "assets_changed":
 				set((s) => ({ assetsVersion: s.assetsVersion + 1 }));
 				break;
+			case "edit_command": {
+				// In a text field, the text's own undo; elsewhere, the worktree's manual edits.
+				const el = document.activeElement as HTMLElement | null;
+				if (el && (el.matches("input, textarea, select") || el.isContentEditable)) document.execCommand(event.command);
+				else void get()[event.command]();
+				break;
+			}
 			case "focus_asset":
 				get().showAsset({ path: event.path, checkout: event.sessionId ?? null, line: event.line });
 				break;
