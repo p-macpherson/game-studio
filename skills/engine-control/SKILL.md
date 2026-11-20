@@ -35,3 +35,7 @@ command fails, including `assert`:
 ```
 
 Use `--fixed-dt` (which `build.sh test` passes) so physics assertions are deterministic.
+
+Sounds are logged even though tests run with audio off: `{"cmd": "assert", "sound": "chest-open", "frames": 5}` checks that
+a sound whose path contains "chest-open" started in the last 5 frames (`"played": false` checks that none did), and
+`sounds` lists every start (path, volume, position, and `missing` when the file doesn't exist).
