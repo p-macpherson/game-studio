@@ -39,11 +39,26 @@ if not meshes:
 
 
 def weld_and_smooth(ob) -> None:
+    """Welds the copies of a vertex the glTF importer made along texture seams. Only copies with the same skin
+    weights are welded: a prop rig's cut leaves the lid's and the base's rims at the same positions on purpose,
+    and welding them would pin the lid's edge to the base."""
     bm = bmesh.new()
     bm.from_mesh(ob.data)
-    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
+    deform = bm.verts.layers.deform.active
+    first: dict[tuple, bmesh.types.BMVert] = {}
+    doubles = {}
+    for v in bm.verts:
+        weights = tuple(sorted((g, round(w, 3)) for g, w in v[deform].items() if w > 1e-4)) if deform else ()
+        key = (round(v.co.x, 5), round(v.co.y, 5), round(v.co.z, 5), weights)
+        if key in first:
+            doubles[v] = first[key]
+        else:
+            first[key] = v
+    bmesh.ops.weld_verts(bm, targetmap=doubles)
+    # Smooth shading, except a prop rig's flat caps over its cut (material "cap", see rig_prop.py).
+    caps = {i for i, m in enumerate(ob.data.materials) if m and m.name.startswith("cap")}
     for f in bm.faces:
-        f.smooth = True
+        f.smooth = f.material_index not in caps
     bm.to_mesh(ob.data)
     bm.free()
     if ob.data.has_custom_normals:
@@ -82,8 +97,19 @@ def smooth_skin_weights(ob, passes: int, factor: float = 0.5) -> None:
             group.add([int(i)], float(weights[i, gi]), "REPLACE")
 
 
+def unset_default_metallic(ob) -> None:
+    """Hunyuan3D-Paint's export doesn't write metallicFactor, and glTF's default is 1: every generated model
+    imports as rough bare metal (grey stone renders silver-white; the engine draws everything as dark metal).
+    Metallic 1 with no metalness map is that default, not a choice: make it non-metal."""
+    for m in ob.data.materials:
+        bsdf = m and m.use_nodes and next((n for n in m.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+        if bsdf and not bsdf.inputs["Metallic"].is_linked and bsdf.inputs["Metallic"].default_value >= 0.999:
+            bsdf.inputs["Metallic"].default_value = 0.0
+
+
 for ob in meshes:
     weld_and_smooth(ob)
+    unset_default_metallic(ob)
     # Only right after automatic rigging; re-finalizing (e.g. after an agent's edits) must not smooth again.
     if p.get("smooth_weights") and any(m.type == "ARMATURE" for m in ob.modifiers):
         smooth_skin_weights(ob, int(p["smooth_weights"]))

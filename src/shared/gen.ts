@@ -84,6 +84,8 @@ export interface ModelManifest {
 	concept?: string;
 	/** How the concept was generated, when the studio made it (from concepts/concepts.json). */
 	conceptSource?: ConceptRecord;
+	/** The file in source/ the model was last finalized from (relative to the model folder). */
+	source?: string;
 	back?: string;
 	/** Metres; set when a 3D model is generated. */
 	height?: number;

@@ -85,7 +85,9 @@ if image and rim_uvs:
         x, y = min(int(uv.x % 1 * w), w - 1), min(int(uv.y % 1 * h), h - 1)
         i = (y * w + x) * 4
         samples.append(pixels[i : i + 3])
-    cap_colour = (*[sum(c[k] for c in samples) / len(samples) * 0.7 for k in range(3)], 1.0)  # a little darker: the inside
+    # Texture pixels are sRGB; a Base Color value is linear.
+    to_linear = lambda c: c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4  # noqa: E731
+    cap_colour = (*[to_linear(sum(c[k] for c in samples) / len(samples)) * 0.7 for k in range(3)], 1.0)  # a little darker: the inside
 cap_material = bpy.data.materials.new("cap")
 cap_material.use_nodes = True
 next(n for n in cap_material.node_tree.nodes if n.type == "BSDF_PRINCIPLED").inputs["Base Color"].default_value = cap_colour

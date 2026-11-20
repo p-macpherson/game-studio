@@ -47,7 +47,7 @@ def shape(job: Job, p: dict) -> dict:
 
 def texture(job: Job, p: dict) -> dict:
     step(job, "texture", p)
-    return {"mesh": copy("cube.glb", p["out"]), "model": "fake"}
+    return {"mesh": copy("textured.glb", p["out"]), "model": "fake"}
 
 
 def rig(job: Job, p: dict) -> dict:

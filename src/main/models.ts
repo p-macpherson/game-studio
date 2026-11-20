@@ -214,7 +214,7 @@ export class ModelPipeline {
 	async finalize(ctx: PipelineContext, p: { model: string; from?: string; height?: number }) {
 		const { dir, manifest } = this.existing(ctx, p.model);
 		if (p.height) manifest.height = p.height;
-		const from = p.from ? this.input(ctx, p.from) : this.latestSource(dir);
+		const from = p.from ? this.input(ctx, p.from) : this.latestSource(dir, manifest);
 		return this.finalizeStep(ctx, manifest, from);
 	}
 
@@ -275,6 +275,7 @@ export class ModelPipeline {
 		const smooth_weights = from === join(dir, "source/rigged.glb") ? SKIN_SMOOTHING_PASSES : 0;
 		const stats = await this.step(ctx, "finalize", `Finalize ${manifest.name}`, { in: from, out: glb, height: manifest.height ?? 1, thumbnail, smooth_weights });
 		this.record(manifest, "finalize", stats);
+		manifest.source = relative(dir, from);
 		manifest.stats = { ...stats, mesh: undefined, thumbnail: undefined };
 		this.writeManifest(ctx, manifest);
 		return { manifest, glb: this.rel(ctx, glb), thumbnail: this.rel(ctx, thumbnail) };
@@ -309,8 +310,10 @@ export class ModelPipeline {
 		return { dir: this.dir(ctx, name), manifest };
 	}
 
-	/** The most recently written source mesh (an edit, clips, a rig, the texture or the shape). */
-	private latestSource(dir: string): string {
+	/** What the model was last finalized from; for older manifests without that, the most recently written source
+	 * mesh (file times are only a guess: a git checkout gives every file the same time). */
+	private latestSource(dir: string, manifest: ModelManifest): string {
+		if (manifest.source && existsSync(join(dir, manifest.source))) return join(dir, manifest.source);
 		const candidates = ["edited.glb", "animated.glb", "prop-rig.glb", "rigged.glb", "textured.glb", "shape.glb"]
 			.map((f) => join(dir, "source", f))
 			.filter((f) => existsSync(f));

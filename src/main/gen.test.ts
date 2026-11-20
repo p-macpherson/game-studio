@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, utimesSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { GenJob, ModelManifest } from "../shared/gen";
@@ -116,6 +116,24 @@ const hasBlender = (() => {
 	}
 })();
 
+function glbJson(glb: string) {
+	const bytes = readFileSync(glb);
+	return JSON.parse(bytes.subarray(20, 20 + bytes.readUInt32LE(12)).toString("utf8"));
+}
+
+/** Faces of a model whose vertices are bound to different bones (rigid parts should have none). */
+function facesOnBothBones(glb: string): number {
+	const script = `
+import bpy, sys
+bpy.ops.wm.read_factory_settings(use_empty=True)
+bpy.ops.import_scene.gltf(filepath=sys.argv[-1])
+ob = next(o for o in bpy.context.scene.objects if o.type == "MESH")
+bone = [max(v.groups, key=lambda g: g.weight).group for v in ob.data.vertices]
+print("MIXED", sum(len({bone[i] for i in f.vertices}) > 1 for f in ob.data.polygons))`;
+	const out = execFileSync("blender", ["-b", "--python-expr", script, "--", glb], { encoding: "utf8" });
+	return Number(/MIXED (\d+)/.exec(out)![1]);
+}
+
 describe.skipIf(!hasBlender)("ModelPipeline", () => {
 	it("builds a model folder: concept, shape, texture, rig, then an engine-ready export with a manifest", async () => {
 		const { gen } = service();
@@ -160,17 +178,25 @@ describe.skipIf(!hasBlender)("ModelPipeline", () => {
 		expect(animated.clips).toEqual(["idle", "walk", "wave"]);
 		expect(animated.bones).toMatchObject({ hips: "bone_1", "upper_arm.L": "bone_5", "thigh.R": "bone_14" });
 		expect(read("hero").stats?.animations).toEqual(["idle", "walk", "wave"]);
+		// Re-finalizing uses what the model was built from, not the newest file (a checkout sets file times).
+		utimesSync(join(ctx.cwd, "assets/models/hero/source/animated.glb"), new Date(2020, 0), new Date(2020, 0));
+		await pipeline.finalize(ctx, { model: "hero" });
+		expect(read("hero")).toMatchObject({ source: "source/animated.glb", stats: { animations: ["idle", "walk", "wave"] } });
 		await pipeline.retexture(ctx, { model: "hero", image: images[0] });
 		expect(read("hero")).toMatchObject({ rig: "auto", clips: ["idle", "walk", "wave"], stats: { animations: ["idle", "walk", "wave"] } });
 
 		// A prop: the hinge rig replaces nothing (it wasn't rigged) and survives a re-texture.
 		await pipeline.concepts(ctx, { model: "chest", prompt: "a chest", count: 1, seed: 1 });
 		await pipeline.generate(ctx, { model: "chest", image: "assets/models/chest/concepts/chest-1.png", height: 0.6 });
+		// The texture had no metallicFactor (glTF default: 1, bare metal), like Hunyuan3D-Paint's: now non-metal.
+		expect(glbJson(join(ctx.cwd, "assets/models/chest/chest.glb")).materials[0].pbrMetallicRoughness).toMatchObject({ metallicFactor: 0 });
 		await expect(pipeline.animate(ctx, { model: "chest" })).rejects.toThrow(/isn't rigged/);
 		await pipeline.rigProp(ctx, { model: "chest", split: 0.6, hinge: "back" });
 		expect(read("chest")).toMatchObject({ rig: "prop", rigged: true, stats: { bones: 2, animations: ["close", "open"] } });
 		// Measured in the rest pose, not a frame of the imported clip (which would have opened the lid).
 		expect((read("chest").stats?.size as number[]).map((v) => Math.round(v * 100) / 100)).toEqual([0.6, 0.6, 0.6]);
+		// Finalize's weld kept the lid apart from the base: no face is bound to both bones (it would stretch).
+		expect(facesOnBothBones(join(ctx.cwd, "assets/models/chest/chest.glb"))).toBe(0);
 		await expect(pipeline.animate(ctx, { model: "chest" })).rejects.toThrow(/prop rig/);
 		await pipeline.retexture(ctx, { model: "chest", image: "assets/models/chest/concepts/chest-1.png" });
 		expect(read("chest")).toMatchObject({ rig: "prop", stats: { bones: 2, animations: ["close", "open"] } });

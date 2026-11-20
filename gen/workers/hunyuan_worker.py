@@ -45,7 +45,15 @@ def load(job: Job, key: str):
         from hy3dgen.texgen import Hunyuan3DPaintPipeline
 
         job.progress("Loading Hunyuan3D-Paint")
-        pipe = Hunyuan3DPaintPipeline.from_pretrained("tencent/Hunyuan3D-2", subfolder="hunyuan3d-paint-v2-0-turbo")
+        # The paint unet's own loader torch.loads its 7.3 GB fp32 checkpoint into RAM beside the fp32 model:
+        # about 20 GB of RAM at peak, enough to get the studio OOM-killed on a 32 GB machine in normal use.
+        # Memory-mapping the checkpoint keeps it in the page cache instead (peak 8 GB).
+        real_load = torch.load
+        torch.load = lambda *a, **k: real_load(*a, **{**k, "mmap": True})
+        try:
+            pipe = Hunyuan3DPaintPipeline.from_pretrained("tencent/Hunyuan3D-2", subfolder="hunyuan3d-paint-v2-0-turbo")
+        finally:
+            torch.load = real_load
         pipe.enable_model_cpu_offload()
     else:
         repo, sub = SHAPE_MODELS[key]
