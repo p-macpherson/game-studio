@@ -5,7 +5,7 @@ description: Handing work to sub-agents with the delegate tool. Writing briefs, 
 # Delegating
 
 `delegate` starts a sub-agent: a new session of another agent type, working in your worktree. It waits until the
-sub-agent finishes and returns its last message, its report. The user sees it under your session and can talk to it.
+sub-agent finishes and returns its last message, its report; the sub-agent is then marked done (the user sees it under your session and can resume it). To follow up, delegate again with what's left.
 
 ## Briefs
 The sub-agent starts with nothing but your brief. Include:

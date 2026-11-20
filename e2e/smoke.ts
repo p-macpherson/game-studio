@@ -569,8 +569,11 @@ try {
 	await page.getByTestId("new-session-prompt").fill('tool delegate {"agentType": "gameplay-engineer", "task": "a note from the sub-agent", "title": "Sub-agent note"}');
 	await page.getByRole("button", { name: "Start session" }).click();
 	await page.getByTestId("chat").getByText(/^Result:[\s\S]*Noted: a note from the sub-agent/).waitFor({ timeout: 60_000 });
-	await page.locator("[data-testid=session-item][data-depth='1']", { hasText: "Sub-agent note" }).waitFor();
-	await page.locator("[data-testid=session-item][data-depth='0']").filter({ has: page.getByTestId("tree-toggle") }).first().waitFor();
+	// Its report is back, so the sub-agent is done, and the parent's branch folds; the toggle shows it.
+	const parentRow = page.locator("[data-testid=session-item][data-depth='0']").filter({ hasText: "1 sub-agent" }).first();
+	await parentRow.waitFor({ timeout: 10_000 });
+	await parentRow.getByTestId("tree-toggle").click();
+	await page.locator("[data-testid=session-item][data-depth='1']", { hasText: "Sub-agent note" }).filter({ hasText: "Done" }).waitFor();
 	await step("32-session-tree", page);
 	await page.locator("[data-testid=session-item][data-depth='1']", { hasText: "Sub-agent note" }).click();
 	await page.getByTestId("session-family").getByText("↑ Sub-agent of").waitFor();

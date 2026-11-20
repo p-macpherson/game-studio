@@ -406,8 +406,11 @@ export class SessionService {
 			this.delegations.delete(requestId);
 		}
 		const done = this.get(child.id);
+		const report = done.error ? "" : lastAssistantText(await this.messages(child.id));
+		// Its job ends with its report (the parent retries or delegates again if needed): mark it done, so finished
+		// sub-agents don't pile up as idle. A person can still open and resume it.
+		await this.markDone(child.id).catch(() => {});
 		if (done.error) return `${type.name} (session “${done.title}”) stopped with an error: ${done.error}`;
-		const report = lastAssistantText(await this.messages(child.id));
 		return `${type.name} (session “${done.title}”) finished${done.reviewRequested ? " and asked for review" : ""}. Its report:\n\n${report || "(it wrote no report)"}`;
 	}
 

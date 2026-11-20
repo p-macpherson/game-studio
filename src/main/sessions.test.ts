@@ -190,7 +190,8 @@ describe("SessionService", () => {
 		await settled(lead1.id);
 		const children = service.list().filter((s) => s.parentId === lead1.id);
 		expect(children).toHaveLength(1);
-		expect(children[0]).toMatchObject({ agentType: "helper", worktreeId: lead1.worktreeId, status: "idle" });
+		// Once its report is back, the sub-agent is done (still resumable).
+		expect(children[0]).toMatchObject({ agentType: "helper", worktreeId: lead1.worktreeId, status: "done" });
 		expect(readFileSync(join(lead1.worktreePath, "faux-notes.md"), "utf8")).toBe("child note\n");
 		// The child's last message comes back as the report.
 		const report = JSON.stringify((await service.messages(lead1.id)).at(-1));
@@ -205,12 +206,14 @@ describe("SessionService", () => {
 		// Sessions without edges get no delegate tool at all.
 		type Live = { session: { getActiveToolNames(): string[]; agent: { state: { tools: { name: string; executionMode?: string }[] } } } };
 		const live = (core as unknown as { sessions: Map<string, Live> }).sessions;
+		const helper = await service.create({ agentType: "helper", target: "project", model: "faux/echo", prompt: "a helper of its own" });
+		await settled(helper.id);
 		expect(live.get(lead1.id)!.session.getActiveToolNames()).toContain("delegate");
-		expect(live.get(children[0].id)!.session.getActiveToolNames()).not.toContain("delegate");
+		expect(live.get(helper.id)!.session.getActiveToolNames()).not.toContain("delegate");
 		// A type with an empty studioTools list keeps the studio basics but not the generation tools; others get them all.
 		expect(live.get(lead1.id)!.session.getActiveToolNames()).toEqual(expect.arrayContaining(["ask_user", "open_in_studio"]));
 		expect(live.get(lead1.id)!.session.getActiveToolNames()).not.toContain("generate_concept_images");
-		expect(live.get(children[0].id)!.session.getActiveToolNames()).toContain("generate_concept_images");
+		expect(live.get(helper.id)!.session.getActiveToolNames()).toContain("generate_concept_images");
 		// Studio tools make Pi run a turn's calls one by one (a render must not run while bash writes its file);
 		// delegations may run side by side.
 		const mode = (name: string) => live.get(lead1.id)!.session.agent.state.tools.find((t) => t.name === name)?.executionMode;

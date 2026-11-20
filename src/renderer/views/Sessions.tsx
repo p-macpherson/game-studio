@@ -59,7 +59,8 @@ export function Sessions() {
 		(target === "all" || s.target === target) &&
 		(!search || `${s.title} ${s.agentType}`.toLowerCase().includes(search.toLowerCase()));
 	// The tree: sessions a person started at the top, each over the sub-agents it delegated to (in the order it
-	// started them). A session shows if it matches the filters or anything below it does.
+	// started them). A session shows if it matches the filters or anything below it does; a shown session's
+	// sub-agents all show (done ones too: their report is back), folded away once none is still going.
 	const ids = new Set(sessions.map((s) => s.id));
 	const children = new Map<string, SessionSummary[]>();
 	for (const s of [...sessions].sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
@@ -67,15 +68,16 @@ export function Sessions() {
 	}
 	const shown = (s: SessionSummary): boolean => matches(s) || (children.get(s.id) ?? []).some(shown);
 	const roots = sessions.filter((s) => !(s.parentId && ids.has(s.parentId)) && shown(s));
-	const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-	const toggleNode = (id: string) => setCollapsed((c) => (c.has(id) ? new Set([...c].filter((x) => x !== id)) : new Set([...c, id])));
+	// Folded or not, as the person chose; by default open while any sub-agent isn't done.
+	const [folded, setFolded] = useState<Map<string, boolean>>(new Map());
+	const toggleNode = (id: string, open: boolean) => setFolded((m) => new Map(m).set(id, open));
 	// Only a session of the shown worktree (or main's list): another worktree's stays selected for when you go back.
 	const selected = sessions.find((s) => s.id === selectedSession && inScope(s));
 	const running = (s: SessionSummary) => s.status === "in_progress" || s.status === "starting";
 
 	const node = (s: SessionSummary, depth: number) => {
-		const kids = (children.get(s.id) ?? []).filter(shown);
-		const open = !collapsed.has(s.id);
+		const kids = (children.get(s.id) ?? []).filter(inScope);
+		const open = !(folded.get(s.id) ?? !kids.some((k) => k.status !== "done"));
 		const working = kids.filter(running).length;
 		return (
 			<div key={s.id} className="session-node">
@@ -90,7 +92,7 @@ export function Sessions() {
 						{kids.length > 0 ? (
 							<button
 								className="tree-toggle"
-								onClick={(e) => (e.stopPropagation(), toggleNode(s.id))}
+								onClick={(e) => (e.stopPropagation(), toggleNode(s.id, open))}
 								title={open ? "Hide its sub-agents" : "Show its sub-agents"}
 								data-testid="tree-toggle"
 							>
