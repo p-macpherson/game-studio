@@ -285,6 +285,25 @@ describe("SessionService", () => {
 		expect(readFileSync(join(s.worktreePath, "faux-notes.md"), "utf8")).toBe("worktree note\n");
 	});
 
+	it("follows main's engine (a submodule) when updating, instead of offering to save the old one back", async () => {
+		sh(project, "-c", "protocol.file.allow=always", "submodule", "add", "-q", settings.engineRepo, "engine");
+		sh(project, "commit", "-qm", "Add the engine");
+		const s = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: "a note" });
+		await settled(s.id);
+		// The engine moves on, and main updates to it.
+		writeFileSync(join(settings.engineRepo, "new.txt"), "engine work\n");
+		sh(settings.engineRepo, "add", "new.txt");
+		sh(settings.engineRepo, "commit", "-qm", "Engine work");
+		const latest = sh(settings.engineRepo, "rev-parse", "HEAD").trim();
+		sh(join(project, "engine"), "-c", "protocol.file.allow=always", "fetch", "-q", settings.engineRepo);
+		sh(join(project, "engine"), "checkout", "-q", latest);
+		sh(project, "commit", "-qam", "Update engine");
+
+		expect(await service.updateWorktree(s.worktreeId)).toEqual({ commits: 1, conflicts: [] });
+		expect(await service.worktreeUnsaved(s.worktreeId)).toEqual([]);
+		expect(sh(join(s.worktreePath, "engine"), "rev-parse", "HEAD").trim()).toBe(latest);
+	});
+
 	it("refuses to merge when the main checkout is on another branch", async () => {
 		const s = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: "x" });
 		await settled(s.id);

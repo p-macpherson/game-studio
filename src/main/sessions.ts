@@ -536,6 +536,7 @@ export class SessionService {
 		if (unsaved.length) throw new Error(`“${w.record.label}” has unsaved changes (${unsaved.length} file${unsaved.length > 1 ? "s" : ""}): save or revert them first`);
 		await this.worktrees.ensureCheckout(w, (dir) => this.initSubmodules(dir));
 		const r = await this.worktrees.update(w);
+		if (!r.conflicts.length) await this.syncSubmodules(this.worktrees.path(w)); // main may have moved the engine
 		w.record.updatedAt = new Date().toISOString();
 		this.worktrees.save(w);
 		this.deps.emit({ type: "sessions_changed" });
@@ -546,6 +547,7 @@ export class SessionService {
 		const w = this.worktrees.get(id);
 		this.assertIdleWorktree(id, "aborting the update");
 		await this.worktrees.abortUpdate(w);
+		await this.syncSubmodules(this.worktrees.path(w));
 		w.record.updatedAt = new Date().toISOString();
 		this.worktrees.save(w);
 		this.deps.emit({ type: "sessions_changed" });
@@ -592,7 +594,31 @@ export class SessionService {
 	async worktreeUnsaved(id: string): Promise<string[]> {
 		const w = this.worktrees.get(id);
 		if (!this.worktrees.hasCheckout(w)) return [];
-		return (await g.status(this.worktrees.path(w))).files.map((f) => f.path).filter((p) => !p.startsWith(".studio/"));
+		const dir = this.worktrees.path(w);
+		const unsaved = async () => (await g.status(dir)).files.map((f) => f.path).filter((p) => !p.startsWith(".studio/"));
+		const files = await unsaved();
+		// A submodule (the engine) checked out at another commit than the branch records isn't an edit: an update
+		// from main moved the record. Check out the recorded one (when it has no edits of its own) instead of
+		// offering to save the old one back.
+		if ((await this.syncSubmodules(dir, files)).length) return unsaved();
+		return files;
+	}
+
+	/** Checks out, in a worktree's checkout, the commit the branch records for each drifted submodule without edits of its own. */
+	private async syncSubmodules(dir: string, changed?: string[]): Promise<string[]> {
+		if (!existsSync(join(dir, ".gitmodules"))) return [];
+		if (await g.git(dir, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]).then(() => true, () => false)) return [];
+		const paths = (await g.git(dir, ["config", "-f", ".gitmodules", "--get-regexp", "^submodule\\..*\\.path$"]).catch(() => ""))
+			.split("\n")
+			.map((l) => l.split(" ")[1])
+			.filter(Boolean);
+		const drifted: string[] = [];
+		for (const p of paths.filter((p) => !changed || changed.includes(p))) {
+			const own = await g.git(join(dir, p), ["status", "--porcelain", "--untracked-files=no"]).catch(() => "x");
+			if (!own.trim()) drifted.push(p);
+		}
+		if (drifted.length) await this.initSubmodules(dir);
+		return drifted;
 	}
 
 	/** Commits a worktree's unsaved changes (a person's edits in the sections) as one commit. */
