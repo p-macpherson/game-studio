@@ -67,8 +67,9 @@ describe.skipIf(!has("ffmpeg"))("SoundPipeline", () => {
 		expect(r.variants.map((v) => v.file.split("/").pop())).toEqual(["footstep.ogg", "footstep-2.ogg", "footstep-3.ogg"]);
 		expect(existsSync(join(cwd, "assets/sounds/footstep/takes/main-5.wav"))).toBe(true);
 
-		writeSound(cwd, "footstep", { ...footstep, layers: [{ ...footstep.layers[0], takes: [4] }] });
+		writeSound(cwd, "footstep", { ...footstep, length: 0.25, layers: [{ ...footstep.layers[0], takes: [4] }] });
 		await sounds.render({ cwd }, { name: "footstep" });
+		expect(decode(join(cwd, "assets/sounds/footstep/footstep.ogg")).seconds).toBeCloseTo(0.25, 2);
 		expect(existsSync(join(cwd, "assets/sounds/footstep/footstep.ogg"))).toBe(true);
 		expect(existsSync(join(cwd, "assets/sounds/footstep/footstep-2.ogg"))).toBe(false);
 		expect(existsSync(join(cwd, "assets/sounds/footstep/footstep-3.ogg"))).toBe(false);

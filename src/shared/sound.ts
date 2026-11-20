@@ -16,6 +16,8 @@ export interface Sound {
 	layers: Layer[];
 	/** Cut silence (quieter than `threshold` dB below the mix's peak, default -50) from both ends; false keeps it. Default true. */
 	trim?: boolean | { threshold?: number };
+	/** Seconds: cut the sound after this long (after trimming, before the fade-out), e.g. one footstep out of a take. */
+	length?: number;
 	/** Semitones, tape-style (lower is also longer). */
 	pitch?: number;
 	/** Hz: cut below / above. */
@@ -95,7 +97,7 @@ export function validateSound(json: unknown): SoundProblem[] {
 	const bad = (at: string, message: string) => out.push({ at, message });
 	if (!isObj(json)) return [{ at: "", message: "sound.json must be an object" }];
 	const s = json as Record<string, unknown>;
-	const known = ["notes", "loop", "layers", "trim", "pitch", "highpass", "lowpass", "reverb", "peak", "fade", "crossfade"];
+	const known = ["notes", "loop", "layers", "trim", "length", "pitch", "highpass", "lowpass", "reverb", "peak", "fade", "crossfade"];
 	for (const k of Object.keys(s)) if (!known.includes(k)) bad(k, `Unknown field (fields: ${known.join(", ")})`);
 	if (!Array.isArray(s.layers) || s.layers.length === 0) {
 		bad("layers", "At least one layer (generate or synth)");
@@ -105,6 +107,7 @@ export function validateSound(json: unknown): SoundProblem[] {
 		if (v === undefined) return;
 		if (!num(v) || (v as number) < lo || (v as number) > hi) bad(at, `Must be a number from ${lo} to ${hi}${unit}`);
 	};
+	range("length", s.length, 0.01, 60, " seconds");
 	range("pitch", s.pitch, -24, 24, " semitones");
 	range("highpass", s.highpass, 10, 20000, " Hz");
 	range("lowpass", s.lowpass, 10, 20000, " Hz");

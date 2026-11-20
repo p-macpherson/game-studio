@@ -29,6 +29,7 @@ processed into one OGG per variant. `render_sound` validates and renders it; `ge
 | `layers[].gain`, `layers[].at` | dB (default 0); seconds from the start (default 0) |
 | `loop` | A seamless loop: the end is crossfaded into the start (`crossfade` seconds, default a quarter of its length, at most 2) |
 | `trim` | Cuts the silence at both ends (quieter than `threshold` dB below the peak, default -50); `false` keeps it |
+| `length` | Seconds: cut after this long (after trimming, before the fade-out), e.g. to keep one footstep of a take |
 | `pitch` | Semitones, tape-style: down is also longer and darker |
 | `highpass`, `lowpass` | Hz: remove rumble below / harshness above |
 | `reverb` | 0-1: room reverb, adds a tail |
@@ -36,7 +37,7 @@ processed into one OGG per variant. `render_sound` validates and renders it; `ge
 | `fade` | `{in, out}` seconds (default 0.005 and 0.05); not for loops |
 | `notes` | What it's for and how the game plays it |
 
-Processing runs in this order: mix, trim, pitch, filters, reverb, loop, level, fades.
+Processing runs in this order: mix, trim, length, pitch, filters, reverb, loop, level, fades.
 
 ## Prompting the model
 Stable Audio Open Small makes up to 11 s of 44.1 kHz stereo; takes cost a fraction of a second, so make 6-8.
@@ -45,7 +46,7 @@ Stable Audio Open Small makes up to 11 s of 44.1 kHz stereo; takes cost a fracti
   "distant", "in a stone hall" or "outdoors" place it.
 - No music words (it drifts into music) and no speech. For exact pitches (chimes, UI tones) use a synth layer.
 - Generate a little longer than the sound: trimming removes the silence after it. One-shots 1-4 s, loops 8-11 s.
-- "a single X" still often gives two or a noise bed: check `events`.
+- "a single X" still often gives two or a noise bed: check `events`, and keep the first one with `length`.
 
 ## Judging takes without listening
 Each take comes back measured, with an image (waveform over a log-frequency spectrogram, low frequencies at the

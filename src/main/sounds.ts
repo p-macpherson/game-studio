@@ -91,8 +91,8 @@ export class SoundError extends Error {
 export const soundHash = (text: string) => createHash("sha1").update(text).digest("hex");
 
 /** The processing fields the section edits directly. */
-export type SoundEdits = { [K in "pitch" | "highpass" | "lowpass" | "reverb" | "peak" | "loop" | "fade"]?: Sound[K] | null };
-const EDITABLE: (keyof SoundEdits)[] = ["pitch", "highpass", "lowpass", "reverb", "peak", "loop", "fade"];
+export type SoundEdits = { [K in "notes" | "length" | "pitch" | "highpass" | "lowpass" | "reverb" | "peak" | "loop" | "fade"]?: Sound[K] | null };
+const EDITABLE: (keyof SoundEdits)[] = ["notes", "length", "pitch", "highpass", "lowpass", "reverb", "peak", "loop", "fade"];
 
 export interface SoundUsage {
 	path: string;
@@ -123,11 +123,12 @@ export function soundUsages(cwd: string, name: string): SoundUsage[] {
 	return out;
 }
 
-/** Mix → processed sound, in the documented order: trim, pitch, filters, reverb, loop, level, fades. */
+/** Mix → processed sound, in the documented order: trim, length, pitch, filters, reverb, loop, level, fades. */
 export function processSound(sound: Sound, a: Audio): Audio {
 	let x = a;
 	const trim = sound.trim !== false;
 	if (trim) x = trimSilence(x, typeof sound.trim === "object" ? (sound.trim.threshold ?? -50) : -50);
+	if (sound.length && frames(x) > sound.length * RATE) x = x.map((ch) => ch.slice(0, Math.round(sound.length! * RATE)));
 	if (sound.pitch) x = pitchShift(x, sound.pitch);
 	if (sound.highpass) x = filter(x, "highpass", sound.highpass);
 	if (sound.lowpass) x = filter(x, "lowpass", sound.lowpass);

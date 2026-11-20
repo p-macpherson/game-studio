@@ -393,8 +393,9 @@ function SynthLayers({ sound }: { sound: Sound }) {
 	);
 }
 
-type Field = "pitch" | "highpass" | "lowpass" | "reverb" | "peak" | "fadeOut";
+type Field = "length" | "pitch" | "highpass" | "lowpass" | "reverb" | "peak" | "fadeOut";
 const FIELDS: { key: Field; label: string; unit: string; step: number; placeholder: string }[] = [
+	{ key: "length", label: "Length", unit: "s", step: 0.05, placeholder: "all" },
 	{ key: "pitch", label: "Pitch", unit: "semitones", step: 0.5, placeholder: "0" },
 	{ key: "highpass", label: "High-pass", unit: "Hz", step: 10, placeholder: "off" },
 	{ key: "lowpass", label: "Low-pass", unit: "Hz", step: 100, placeholder: "off" },
