@@ -15,6 +15,7 @@ import type { GenService } from "./gen";
 import type { MusicPipeline } from "./music";
 import { editScene } from "./scenes";
 import type { SoundPipeline } from "./sounds";
+import type { TexturePipeline } from "./textures";
 import type { StudioRequest } from "./sessions";
 
 export const MODELS_DIR = "assets/models";
@@ -42,6 +43,8 @@ export function generationRequests(
 		preview?(sessionId: string, model: string): Promise<{ images: string[]; errors: string[] }>;
 		/** Renders songs (assets/music/), for `render_song`. */
 		music?: MusicPipeline;
+		/** Tileable surface textures (assets/textures/), for `generate_texture` and `make_texture`. */
+		textures?: TexturePipeline;
 		/** Renders a scene in the game's engine (RunService.previewScene), for `preview_scene`. */
 		previewScene?(sessionId: string, cwd: string, params: Record<string, unknown>): Promise<unknown>;
 		/** Sound effects (assets/sounds/), for `generate_sound_takes` and `render_sound`. */
@@ -63,6 +66,12 @@ export function generationRequests(
 						if (!m) throw new Error(`${from} isn't a studio asset (or a folder of them)`);
 						return moveAsset(ctx.cwd, m.info, from, to);
 					}
+					case "generate_texture":
+						if (!opts.textures) throw new Error("Texture generation isn't available here");
+						return await opts.textures.candidates(ctx, p);
+					case "make_texture":
+						if (!opts.textures) throw new Error("Texture generation isn't available here");
+						return await opts.textures.make(ctx, p);
 					case "generate_concepts":
 						return await pipeline.concepts(ctx, p);
 					case "generate_model":

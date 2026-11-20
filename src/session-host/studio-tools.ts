@@ -276,6 +276,51 @@ export function studioTools(ctx: StudioToolContext) {
 			execute: generation("finalize_model"),
 		}),
 		defineTool({
+			name: "generate_texture",
+			label: "Generate texture candidates",
+			description:
+				"Generate seamless candidates for a tileable surface texture (ground, path, wall, floor, wood, fabric…) in assets/textures/<name>/candidates/: " +
+				"two per seed, made seamless two ways (\"roll\" during generation, \"quilt\" by cutting afterwards; either can win, see the texture-art skill). " +
+				"The prompt is the surface itself, e.g. 'mossy cobblestone path, rounded grey stones'; the studio adds top-down, flat-lit and seamless. " +
+				"Returns each candidate's source path and a sheet showing each tiled 2x2: look for visible seams, repeating blotches and lighting before choosing.",
+			parameters: Type.Object({
+				name: Type.String({ description: "The texture's folder under assets/textures/, lower-kebab-case, '/' for folders: e.g. 'grass', 'ground/cobblestone'" }),
+				prompt: Type.String(),
+				count: Type.Optional(Type.Number({ description: "Seeds (1-4, default 2), each giving two candidates" })),
+				seed: Type.Optional(Type.Number()),
+			}),
+			async execute(_id, params, signal, onUpdate) {
+				const { sheet, ...r } = (await ctx.request("generate_texture", params, signal, (text) => onUpdate?.({ content: [{ type: "text", text }], details: {} }))) as { sheet?: string };
+				const [, mimeType, data] = /^data:([^;]+);base64,(.*)$/.exec(sheet ?? "") ?? [];
+				const text = `${JSON.stringify(r, null, 2)}${data ? "\nEach candidate tiled 2x2, in the order above:" : ""}`;
+				return { content: [{ type: "text" as const, text }, ...(data ? [{ type: "image" as const, mimeType, data }] : [])], details: {} };
+			},
+		}),
+		defineTool({
+			name: "make_texture",
+			label: "Make texture",
+			description:
+				"Make (or remake) a texture from a chosen candidate: writes <name>.png, <name>_normal.png and <name>_roughness.png, which a Mesh_Renderer's material " +
+				"uses as texture, normal_map and roughness_map. Also sets texture.json's tile (metres per repeat, how scenes size its tiling), normal_strength " +
+				"(relief, 0-20, default 4) and roughness ([min, max], default [0.55, 0.95]). Returns a preview: the colour tiled 2x2, the normal and roughness maps.",
+			parameters: Type.Object({
+				name: Type.String(),
+				source: Type.Optional(Type.String({ description: "The chosen candidate, e.g. 'candidates/grass-1001-quilt.png' (default: the current one)" })),
+				tile: Type.Optional(Type.Number({ description: "Metres per repeat in the world, e.g. 2 for grass, 1 for planks, 3 for a stone wall" })),
+				normal_strength: Type.Optional(Type.Number()),
+				roughness: Type.Optional(Type.Tuple([Type.Number(), Type.Number()])),
+				notes: Type.Optional(Type.String({ description: "What it's for" })),
+			}),
+			async execute(_id, params, signal, onUpdate) {
+				const { preview, ...r } = (await ctx.request("make_texture", params, signal, (text) => onUpdate?.({ content: [{ type: "text", text }], details: {} }))) as {
+					preview?: string;
+				};
+				const [, mimeType, data] = /^data:([^;]+);base64,(.*)$/.exec(preview ?? "") ?? [];
+				const text = `${JSON.stringify(r, null, 2)}${data ? "\nThe colour tiled 2x2, the normal map, the roughness map:" : ""}`;
+				return { content: [{ type: "text" as const, text }, ...(data ? [{ type: "image" as const, mimeType, data }] : [])], details: {} };
+			},
+		}),
+		defineTool({
 			name: "move_asset",
 			label: "Move asset",
 			description:

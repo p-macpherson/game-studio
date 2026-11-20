@@ -15,6 +15,7 @@ import { GenService, soundfontPath } from "./gen";
 import { generationRequests, ModelPipeline } from "./models";
 import { MusicPipeline } from "./music";
 import { SoundPipeline, soundUsages } from "./sounds";
+import { TexturePipeline } from "./textures";
 import { RunService, type SceneView } from "./runner";
 import { SessionService } from "./sessions";
 import { SettingsStore } from "./settings";
@@ -73,10 +74,12 @@ async function main(): Promise<void> {
 	const pipeline = new ModelPipeline(gen);
 	const music = new MusicPipeline({ soundfont: () => soundfontPath(genRoot) });
 	const sounds = new SoundPipeline({ gen });
+	const textures = new TexturePipeline(gen);
 	const genRequests = generationRequests(pipeline, gen, {
 		preview: (sessionId, name) => previewModel(sessionId, name),
 		music,
 		sounds,
+		textures,
 		previewScene: (sessionId, _cwd, p) => runner.previewScene(sessionId, String(p.scene), p.views as SceneView[] | undefined),
 	});
 	const sessions = new SessionService({

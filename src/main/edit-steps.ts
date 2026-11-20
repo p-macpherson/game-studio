@@ -27,6 +27,9 @@ export function manualStep(method: string, params: Record<string, unknown>): { l
 		const what = method === "generate_sound" ? "new takes" : method === "render_sound" ? "rendered" : [...(params.variants ? ["variants"] : []), ...set].join(", ") || "edited";
 		return { label: `Sound ${name}: ${what}`, scopes: [{ path: `assets/sounds/${name}` }] };
 	}
+	if (method === "generate_texture" || method === "make_texture") {
+		return { label: `Texture ${name}: ${method === "generate_texture" ? "new candidates" : "made"}`, scopes: [{ path: `assets/textures/${name}` }] };
+	}
 	if (method === "edit_song" || method === "render_song") {
 		return { label: `Music ${name}: ${method === "render_song" ? "rendered" : "edited"}`, scopes: [{ path: `assets/music/${name}` }] };
 	}

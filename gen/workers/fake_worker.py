@@ -1,7 +1,7 @@
 """Fake worker for tests (GAME_STUDIO_GEN_FAKE=1): speaks the real protocol but writes fixture files instead of
 running models, so the queue, tools and UI can be exercised without a GPU. Runs on any Python 3.
 
-Ops: image, shape, texture, rig, sound (same params and result shapes as the real workers). For testing the service
+Ops: image, surface, surface_make, shape, texture, rig, sound (same params and result shapes as the real workers). For testing the service
 itself, any op accepts "crash", "fail" and "sleep" params (see step). FAKE_WORKER_DELAY sets the default delay.
 """
 import math
@@ -52,6 +52,33 @@ def image(job: Job, p: dict) -> dict:
     return {"images": images, "seeds": [seed + i for i in range(count)], "model": "fake", "prompt": p["prompt"], "sheet": sheet}
 
 
+def surface(job: Job, p: dict) -> dict:
+    step(job, "surface", p)
+    count, seed, name = int(p.get("count", 2)), int(p.get("seed") or 1), p["name"]
+    images, seeds, methods = [], [], []
+    for i in range(count):
+        for method in ("roll", "quilt"):
+            images.append(copy("concept.png", os.path.join(p["out_dir"], f"{name}-{seed + i}-{method}.png")))
+            seeds.append(seed + i)
+            methods.append(method)
+    fd, sheet = tempfile.mkstemp(prefix="gs-surfaces-", suffix=".png")
+    os.close(fd)
+    shutil.copyfile(os.path.join(FIXTURES, "concept.png"), sheet)
+    return {"images": images, "seeds": seeds, "methods": methods, "model": "fake", "prompt": p["prompt"], "sheet": sheet}
+
+
+def surface_make(job: Job, p: dict) -> dict:
+    step(job, "surface_make", p)
+    files = [os.path.join(p["out_dir"], f"{p['name']}{s}.png") for s in ("", "_normal", "_roughness")]
+    for f in files:
+        os.makedirs(p["out_dir"], exist_ok=True)
+        shutil.copyfile(p["source"], f)
+    fd, preview = tempfile.mkstemp(prefix="gs-surfaces-", suffix=".png")
+    os.close(fd)
+    shutil.copyfile(os.path.join(FIXTURES, "concept.png"), preview)
+    return {"files": files, "preview": preview}
+
+
 def shape(job: Job, p: dict) -> dict:
     step(job, "shape", p)
     return {"mesh": copy("cube.glb", p["out"]), "faces": 12, "vertices": 24, "seed": int(p.get("seed") or 1), "model": "fake"}
@@ -95,4 +122,4 @@ def rig(job: Job, p: dict) -> dict:
 
 
 if __name__ == "__main__":
-    serve({"image": image, "shape": shape, "texture": texture, "rig": rig, "sound": sound})
+    serve({"image": image, "surface": surface, "surface_make": surface_make, "shape": shape, "texture": texture, "rig": rig, "sound": sound})

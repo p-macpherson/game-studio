@@ -3,7 +3,7 @@
 /** A Python environment with its worker; only one runs at a time, since only one model family fits in VRAM. */
 export type GenFamily = "image" | "hunyuan3d" | "unirig" | "stable-audio";
 
-export type GenJobKind = "image" | "shape" | "texture" | "rig" | "sound" | BlenderJobKind;
+export type GenJobKind = "image" | "surface" | "surface_make" | "shape" | "texture" | "rig" | "sound" | BlenderJobKind;
 
 /** Jobs that run a script in gen/blender/ (on the CPU, beside the GPU queue's model workers). */
 export type BlenderJobKind = "finalize" | "animate" | "rig_prop";
@@ -52,6 +52,9 @@ export interface GenStatus {
 /** Which worker runs each GPU job kind (Blender jobs run on the CPU). */
 export const FAMILY_OF: Record<Exclude<GenJobKind, BlenderJobKind>, { family: GenFamily; op: string }> = {
 	image: { family: "image", op: "image" },
+	// Tileable surface textures (M9): candidates on the GPU, then the maps (CPU, in the same worker).
+	surface: { family: "image", op: "surface" },
+	surface_make: { family: "image", op: "surface_make" },
 	shape: { family: "hunyuan3d", op: "shape" },
 	texture: { family: "hunyuan3d", op: "texture" },
 	rig: { family: "unirig", op: "rig" },
