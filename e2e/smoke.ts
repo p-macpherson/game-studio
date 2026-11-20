@@ -191,6 +191,7 @@ try {
 	await selectMain(page);
 	await nav.getByRole("button", { name: "Sessions" }).click();
 	await page.getByRole("button", { name: "+ New session" }).click();
+	await page.locator(".agent-type", { has: page.locator("strong", { hasText: /^3D Modeller$/ }) }).click();
 	await page.getByTestId("new-session-prompt").fill('tool generate_concept_images {"model": "crate", "prompt": "a wooden crate", "count": 2, "seed": 4}');
 	await page.getByRole("button", { name: "Start session" }).click();
 	await page.getByTestId("chat").getByText(/^Result:[\s\S]*crate-4\.png/).waitFor({ timeout: 30_000 });

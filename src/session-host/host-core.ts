@@ -166,6 +166,7 @@ export class HostCore implements HostApi {
 		const tools = studioTools({
 			sessionId: spec.id,
 			delegatesTo: spec.delegatesTo,
+			studioTools: spec.studioTools,
 			post: this.opts.post,
 			ask: (questionId, signal) =>
 				new Promise<string>((resolve, reject) => {

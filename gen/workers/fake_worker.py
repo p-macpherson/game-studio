@@ -22,11 +22,15 @@ DELAY = float(os.environ.get("FAKE_WORKER_DELAY", "0.05"))
 
 
 def step(job: Job, op: str, p: dict) -> None:
-    """Test hooks in any op's params: {"crash": true} exits the worker, {"fail": "msg"} raises, {"sleep": s} waits."""
+    """Test hooks in any op's params: {"crash": true} exits the worker, {"fail": "msg"} raises, {"fail_once": path}
+    raises a CUDA out-of-memory error the first time (marking the path), {"sleep": s} waits."""
     if p.get("crash"):
         os._exit(3)
     if p.get("fail"):
         raise RuntimeError(p["fail"])
+    if p.get("fail_once") and not os.path.exists(p["fail_once"]):
+        open(p["fail_once"], "w").close()
+        raise RuntimeError("CUDA out of memory (fake)")
     job.progress(f"Faking {op}", 0.5)
     time.sleep(float(p.get("sleep", DELAY)))
 

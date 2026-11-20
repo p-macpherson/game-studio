@@ -277,8 +277,18 @@ export class GenService {
 			job.result = { ...result, seconds: result.seconds ?? Math.round((Date.now() - Date.parse(job.startedAt!)) / 100) / 10 };
 			this.finish(job, "done");
 		} catch (err) {
-			job.error = (err as Error).message;
-			this.finish(job, cancelled ? "cancelled" : "failed");
+			const message = (err as Error).message;
+			// Out of GPU memory is often another process's memory or fragmentation: retry once, in a fresh worker.
+			if (!cancelled && !job.retried && /CUDA out of memory|OutOfMemoryError/.test(message) && !(BLENDER_JOBS as readonly string[]).includes(job.kind)) {
+				job.retried = true;
+				await this.stopWorker();
+				job.status = "queued";
+				job.progress = { message: "Out of GPU memory: retrying in a fresh worker" };
+				this.changed(job);
+			} else {
+				job.error = message;
+				this.finish(job, cancelled ? "cancelled" : "failed");
+			}
 		} finally {
 			this.running = null;
 			if (this.worker && !this.jobs.some((j) => j.status === "queued")) {

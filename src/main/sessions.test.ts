@@ -18,7 +18,7 @@ const general: AgentTypeInfo = {
 };
 
 const helper: AgentTypeInfo = { ...general, id: "helper", name: "Helper", targets: ["project"], delegatesTo: [] };
-const lead: AgentTypeInfo = { ...general, id: "lead", name: "Lead", targets: ["project"], delegatesTo: ["helper"] };
+const lead: AgentTypeInfo = { ...general, id: "lead", name: "Lead", targets: ["project"], delegatesTo: ["helper"], studioTools: [] };
 
 describe("SessionService", () => {
 	let root: string;
@@ -206,6 +206,10 @@ describe("SessionService", () => {
 		const live = (core as unknown as { sessions: Map<string, { session: { getActiveToolNames(): string[] } }> }).sessions;
 		expect(live.get(lead1.id)!.session.getActiveToolNames()).toContain("delegate");
 		expect(live.get(children[0].id)!.session.getActiveToolNames()).not.toContain("delegate");
+		// A type with an empty studioTools list keeps the studio basics but not the generation tools; others get them all.
+		expect(live.get(lead1.id)!.session.getActiveToolNames()).toEqual(expect.arrayContaining(["ask_user", "open_in_studio"]));
+		expect(live.get(lead1.id)!.session.getActiveToolNames()).not.toContain("generate_concept_images");
+		expect(live.get(children[0].id)!.session.getActiveToolNames()).toContain("generate_concept_images");
 	}, 30_000);
 
 	it("refuses to merge when the main checkout is on another branch", async () => {

@@ -21,6 +21,7 @@ export function parseAgentType(text: string, fallbackId: string, source: AgentTy
 		source,
 		delegatesTo: Array.isArray(meta.delegatesTo) ? meta.delegatesTo.map(String) : [],
 		...(Array.isArray(meta.aliases) ? { aliases: meta.aliases.map(String) } : {}),
+		...(Array.isArray(meta.studioTools) ? { studioTools: meta.studioTools.map(String) } : {}),
 	};
 }
 

@@ -8,6 +8,8 @@ export interface StudioToolContext {
 	post(event: HostEvent): void;
 	/** Waits for the user's answer to an `ask_user` question. */
 	ask(questionId: string, signal: AbortSignal | undefined): Promise<string>;
+	/** The studio tools it may use beyond the always-on ones; absent means all. */
+	studioTools?: string[];
 	/** The agent types this session may delegate to; none means no `delegate` tool. */
 	delegatesTo?: { id: string; name: string; description: string }[];
 	/** Calls a main-process service (asset generation) and waits for its reply. */
@@ -59,7 +61,7 @@ export function studioTools(ctx: StudioToolContext) {
 			]
 		: [];
 
-	return [
+	const tools = [
 		...delegation,
 		defineTool({
 			name: "generate_concept_images",
@@ -315,4 +317,7 @@ export function studioTools(ctx: StudioToolContext) {
 			},
 		}),
 	];
+	// Every session talks to the studio; the rest (generation, renders, previews) only where its type allows.
+	const always = new Set(["set_session_title", "request_review", "open_in_studio", "ask_user", "delegate"]);
+	return ctx.studioTools ? tools.filter((t) => always.has(t.name) || ctx.studioTools!.includes(t.name)) : tools;
 }

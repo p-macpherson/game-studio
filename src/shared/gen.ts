@@ -23,6 +23,8 @@ export interface GenJob {
 	error?: string;
 	/** The session that asked for it, if any. */
 	sessionId?: string;
+	/** It ran out of GPU memory once and was retried in a fresh worker. */
+	retried?: boolean;
 	createdAt: string;
 	startedAt?: string;
 	finishedAt?: string;

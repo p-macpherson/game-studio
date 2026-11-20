@@ -18,6 +18,8 @@ export interface SessionOpenSpec {
 	thinking?: ThinkingLevel;
 	appendSystemPrompt: string[];
 	skillPaths: string[];
+	/** The studio tools it may use beyond the ones every session has; absent means all (see AgentTypeInfo.studioTools). */
+	studioTools?: string[];
 	/** Agent types this session may hand tasks to; with any, it gets the `delegate` tool. */
 	delegatesTo?: { id: string; name: string; description: string }[];
 }

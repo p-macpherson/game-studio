@@ -44,6 +44,17 @@ describe("GenService", () => {
 		expect(gen.status().worker?.family).toBe("image");
 	});
 
+	it("retries a job once in a fresh worker when the GPU runs out of memory", async () => {
+		const { gen, workerPid } = service();
+		const out = tempDir();
+		await gen.run("shape", { image: "x.png", out: join(out, "warm.glb") });
+		const before = workerPid();
+		const job = await gen.wait(gen.submit("shape", { image: "x.png", out: join(out, "a.glb"), fail_once: join(out, "oom") }).id);
+		expect(job).toMatchObject({ status: "done", retried: true });
+		expect(existsSync(join(out, "oom"))).toBe(true); // it did fail once
+		expect(workerPid()).not.toBe(before); // and ran again in a new worker
+	});
+
 	it("reports failures, and restarts a worker that crashed", async () => {
 		const { gen } = service();
 		const failed = await gen.wait(gen.submit("shape", { fail: "no mesh for you" }).id);

@@ -339,6 +339,7 @@ export class SessionService {
 			appendSystemPrompt: [this.preamble(e, agentType), agentType.prompt].filter(Boolean),
 			skillPaths: agentType.skills.map((s) => join(this.deps.skillsDir, s)).filter((p) => existsSync(p)),
 			delegatesTo: this.delegatesTo(e, agentType),
+			...(agentType.studioTools ? { studioTools: agentType.studioTools } : {}),
 		});
 		this.live.add(e.record.id);
 		this.touch(e.record.id);

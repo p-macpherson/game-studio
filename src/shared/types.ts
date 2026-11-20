@@ -143,6 +143,11 @@ export interface AgentTypeInfo {
 	/** System prompt text appended to Pi's base prompt. */
 	prompt: string;
 	source: "builtin" | "project";
+	/**
+	 * The studio tools it gets beyond the ones every session has (set_session_title, request_review, open_in_studio,
+	 * ask_user, delegate); absent means all. Directors leave generation to the specialists they delegate to.
+	 */
+	studioTools?: string[];
 	/** Old ids it answers to (sessions of a type that was renamed or replaced keep working). */
 	aliases?: string[];
 	/** Agent types it may hand tasks to (`delegate`): edges of the delegation graph, which has no cycles. */
