@@ -1,3 +1,4 @@
+import { leafName, nameFromPath } from "../../shared/asset-names";
 import type { ModuleInfo } from "../../shared/modules";
 import { parseSound } from "../../shared/sound";
 
@@ -12,8 +13,8 @@ export const sounds: ModuleInfo = {
 	noun: "sound",
 };
 
-/** The sound's folder name from its asset path (`assets/sounds/<name>/sound.json`). */
-export const soundName = (assetPath: string) => assetPath.split("/").at(-2) ?? assetPath;
+/** The sound's name from its asset path: its folder under assets/sounds (`ui/click` for `assets/sounds/ui/click/sound.json`). */
+export const soundName = (assetPath: string) => nameFromPath("assets/sounds", assetPath);
 
 export function summarizeSound(text: string, path: string): { title: string; excerpt: string } {
 	const { sound, problems } = parseSound(text);
@@ -22,5 +23,5 @@ export function summarizeSound(text: string, path: string): { title: string; exc
 		? [sound.loop ? "loop" : "one-shot", `${n} variant${n > 1 ? "s" : ""}`]
 		: [`${problems.length} problem${problems.length > 1 ? "s" : ""} in sound.json`];
 	const excerpt = [sound?.notes, facts.join(" · ")].filter(Boolean).join(" — ");
-	return { title: soundName(path), excerpt: excerpt.length > 180 ? `${excerpt.slice(0, 177)}…` : excerpt };
+	return { title: leafName(soundName(path)), excerpt: excerpt.length > 180 ? `${excerpt.slice(0, 177)}…` : excerpt };
 }

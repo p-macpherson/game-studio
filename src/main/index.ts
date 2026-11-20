@@ -1,6 +1,7 @@
 import { existsSync, type FSWatcher, readFileSync, watch } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { leafName } from "../shared/asset-names";
 import type { StudioApi, StudioEvent, StudioMethod } from "../shared/ipc";
 import type { ProjectInfo, Target } from "../shared/types";
 import { loadAgentTypes } from "./agent-types";
@@ -104,7 +105,7 @@ async function main(): Promise<void> {
 	async function previewModel(checkout: string | null, name: string) {
 		const manifest = pipeline.manifest({ cwd: checkoutRoot(checkout) }, name);
 		if (!manifest?.stats) throw new Error(`"${name}" has no 3D model yet`);
-		return runner.preview(checkout, `assets/models/${name}/${name}.glb`, manifest.height ?? 1);
+		return runner.preview(checkout, `assets/models/${name}/${leafName(name)}.glb`, manifest.height ?? 1);
 	}
 	const repo = (target: Target) => sessions.repoFor(target);
 	const setProject = (info: ProjectInfo | null) => {
@@ -198,6 +199,7 @@ async function main(): Promise<void> {
 		"assets.list": (moduleId, checkout) => assets.list(moduleId, checkout ?? null),
 		"assets.read": async (path, checkout) => assets.read(path, checkout ?? null),
 		"assets.search": async (moduleId, query, checkout) => assets.search(moduleId, query, checkout ?? null),
+		"assets.move": async (moduleId, checkout, from, to) => assets.move(moduleId, checkout, from, to),
 
 		"run.checkouts": async () => runner.checkouts(),
 		"run.current": async () => runner.current(),

@@ -8,7 +8,9 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 import type { ConceptImage, ConceptRecord, GenJob, GenJobKind, ModelManifest } from "../shared/gen";
-import { safeJoin } from "./assets";
+import { ASSET_NAME, leafName } from "../shared/asset-names";
+import { moveAsset } from "./asset-move";
+import { MODULES, safeJoin } from "./assets";
 import type { GenService } from "./gen";
 import type { MusicPipeline } from "./music";
 import { editScene } from "./scenes";
@@ -18,7 +20,6 @@ import type { StudioRequest } from "./sessions";
 export const MODELS_DIR = "assets/models";
 /** Compared on the robot: 3 passes fix most joint artefacts; 12 start to make joints lumpy. */
 const SKIN_SMOOTHING_PASSES = 3;
-const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 export interface PipelineContext {
 	/** Checkout root (absolute). */
@@ -56,6 +57,12 @@ export function generationRequests(
 			const p = req.params as never;
 			try {
 				switch (req.method) {
+					case "move_asset": {
+						const { from, to } = req.params as { from: string; to: string };
+						const m = MODULES.find((b) => b.info.roots.some((r) => from.startsWith(`${r}/`)));
+						if (!m) throw new Error(`${from} isn't a studio asset (or a folder of them)`);
+						return moveAsset(ctx.cwd, m.info, from, to);
+					}
 					case "generate_concepts":
 						return await pipeline.concepts(ctx, p);
 					case "generate_model":
@@ -108,13 +115,14 @@ export class ModelPipeline {
 	constructor(private readonly gen: GenService) {}
 
 	dir(ctx: PipelineContext, name: string): string {
-		if (!NAME.test(name)) throw new Error(`Model names are lower-kebab-case (e.g. "treasure-chest"), not "${name}"`);
+		if (!ASSET_NAME.test(name)) throw new Error(`Model names are lower-kebab-case, with "/" for folders (e.g. "treasure-chest", "props/barrel"), not "${name}"`);
 		return safeJoin(ctx.cwd, `${MODELS_DIR}/${name}`);
 	}
 
 	manifest(ctx: PipelineContext, name: string): ModelManifest | null {
 		const file = join(this.dir(ctx, name), "model.json");
-		return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as ModelManifest) : null;
+		// The folder is the truth: a model moved into another folder keeps working before its manifest is rewritten.
+		return existsSync(file) ? { ...(JSON.parse(readFileSync(file, "utf8")) as ModelManifest), name } : null;
 	}
 
 	async concepts(
@@ -279,7 +287,7 @@ export class ModelPipeline {
 	private async animateStep(ctx: PipelineContext, manifest: ModelManifest, clips?: string[]): Promise<string> {
 		const dir = this.dir(ctx, manifest.name);
 		const out = join(dir, "source/animated.glb");
-		const r = await this.step(ctx, "animate", `Animations for ${manifest.name}`, { in: join(dir, `${manifest.name}.glb`), out, clips });
+		const r = await this.step(ctx, "animate", `Animations for ${manifest.name}`, { in: join(dir, `${leafName(manifest.name)}.glb`), out, clips });
 		if (!r.biped) throw new Error(`Can't animate "${manifest.name}" automatically: ${(r.problems as string[]).join("; ")}`);
 		this.record(manifest, "animate", r);
 		manifest.bones = r.roles as Record<string, string>;
@@ -303,7 +311,7 @@ export class ModelPipeline {
 
 	private async finalizeStep(ctx: PipelineContext, manifest: ModelManifest, from: string) {
 		const dir = this.dir(ctx, manifest.name);
-		const glb = join(dir, `${manifest.name}.glb`);
+		const glb = join(dir, `${leafName(manifest.name)}.glb`);
 		const thumbnail = join(dir, "thumbnail.png");
 		// UniRig's raw weights crumple necks and dent shoulders; a light smoothing fixes most of it. It always starts
 		// from the raw rig in source/, so re-finalizing gives the same result. An agent's own edits aren't touched.

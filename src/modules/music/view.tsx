@@ -9,6 +9,7 @@ import { call, sha1, studioFile } from "../../renderer/api";
 import { useStudio } from "../../renderer/store";
 import { AssetBrowser, type AssetContentProps } from "../../renderer/views/AssetBrowser";
 import { runInWorktree } from "../../renderer/workspace";
+import { leafName } from "../../shared/asset-names";
 import { formatTime, pieceName } from "./info";
 
 const COLOURS = ["#e8a33d", "#5aa9e6", "#7bc47f", "#d8737f", "#b48ee8", "#4fc1b4", "#e6d45a", "#e58f5a"];
@@ -136,7 +137,7 @@ function PieceDetail({ asset, text, checkout }: AssetContentProps) {
 			)}
 			{render.kind !== "none" && render.kind !== "loading" && (
 				<Player
-					src={studioFile(checkout, `${dir}/${name}.ogg`, `${version}:${render.kind}`)}
+					src={studioFile(checkout, `${dir}/${leafName(name)}.ogg`, `${version}:${render.kind}`)}
 					loop={song?.loop !== false}
 					timeline={timeline}
 					onSection={setSection}

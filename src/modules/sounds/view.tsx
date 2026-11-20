@@ -10,6 +10,7 @@ import { call, sha1, studioFile } from "../../renderer/api";
 import { useStudio } from "../../renderer/store";
 import { AssetBrowser, type AssetContentProps } from "../../renderer/views/AssetBrowser";
 import { runInWorktree } from "../../renderer/workspace";
+import { leafName } from "../../shared/asset-names";
 import { soundName } from "./info";
 
 const bumpAssets = () => useStudio.setState((s) => ({ assetsVersion: s.assetsVersion + 1 }));
@@ -335,7 +336,7 @@ function SoundDetail({ asset, text, checkout }: AssetContentProps) {
 							variant={v}
 							sound={sound}
 							url={files[i] ? file(files[i]) : undefined}
-							fileName={variantFile(name, i)}
+							fileName={variantFile(leafName(name), i)}
 							records={records}
 							selected={selected}
 							busy={!!busy}
@@ -359,7 +360,7 @@ function SoundDetail({ asset, text, checkout }: AssetContentProps) {
 					))
 				) : (
 					<div className="muted small">
-						Not used in the game yet. Game code plays it with <code>{`engine.play_sound("sounds/${name}/${name}.ogg")`}</code> (or a random variant).
+						Not used in the game yet. Game code plays it with <code>{`engine.play_sound("sounds/${name}/${leafName(name)}.ogg")`}</code> (or a random variant).
 					</div>
 				)}
 			</div>

@@ -25,6 +25,7 @@ import {
 	validateSound,
 	variantFile,
 } from "../shared/sound";
+import { ASSET_NAME, leafName } from "../shared/asset-names";
 import { safeJoin } from "./assets";
 import {
 	type Audio,
@@ -139,7 +140,7 @@ export class SoundPipeline {
 	constructor(private readonly deps: { gen: GenService; ffmpeg?: string }) {}
 
 	dir(cwd: string, name: string): string {
-		if (!SOUND_NAME.test(name)) throw new Error(`A sound's name is lower-kebab-case (e.g. "chest-open"), not "${name}"`);
+		if (!ASSET_NAME.test(name)) throw new Error(`A sound's name is lower-kebab-case, with "/" for folders (e.g. "chest-open", "ui/click"), not "${name}"`);
 		return safeJoin(cwd, `${SOUNDS_DIR}/${name}`);
 	}
 
@@ -224,7 +225,7 @@ export class SoundPipeline {
 			const variants: SoundRenderResult["variants"] = [];
 			const wavs: string[] = [];
 			for (const [i, v] of sound.variants.entries()) {
-				ctx.progress?.(`Rendering ${variantFile(p.name, i)}`);
+				ctx.progress?.(`Rendering ${variantFile(leafName(p.name), i)}`);
 				// Each layer trimmed and levelled to full scale first, so gains compare layers as they're heard.
 				const parts = v.layers.map((l) => ({
 					audio: normalizePeak("take" in l ? trimSilence(this.loadTake(dir, l.take)) : [synth(l.synth)], 0),
@@ -234,13 +235,13 @@ export class SoundPipeline {
 				const audio = processSound(processingOf(sound, v), mix(parts));
 				const wav = join(tmp, `v${i}.wav`);
 				writeFileSync(wav, encodeWav(audio));
-				await this.ffmpeg(["-y", "-loglevel", "error", "-i", wav, "-c:a", "libvorbis", "-q:a", "6", join(dir, variantFile(p.name, i))]);
+				await this.ffmpeg(["-y", "-loglevel", "error", "-i", wav, "-c:a", "libvorbis", "-q:a", "6", join(dir, variantFile(leafName(p.name), i))]);
 				wavs.push(wav);
-				variants.push({ file: `${SOUNDS_DIR}/${p.name}/${variantFile(p.name, i)}`, ...measure(audio) });
+				variants.push({ file: `${SOUNDS_DIR}/${p.name}/${variantFile(leafName(p.name), i)}`, ...measure(audio) });
 			}
 			// Fewer variants than last time: remove the extra files.
 			for (const f of readdirSync(dir)) {
-				const m = new RegExp(`^${p.name}-(\\d+)\\.ogg$`).exec(f);
+				const m = new RegExp(`^${leafName(p.name)}-(\\d+)\\.ogg$`).exec(f);
 				if (m && Number(m[1]) > sound.variants.length) rmSync(join(dir, f));
 			}
 			const info: SoundRenderInfo = { sound: soundHash(text), files: variants.map((v) => v.file.split("/").pop()!), renderedAt: new Date().toISOString() };

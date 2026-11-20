@@ -25,6 +25,7 @@ import { call, studioFile } from "../../renderer/api";
 import { useStudio } from "../../renderer/store";
 import { AssetBrowser, type AssetContentProps } from "../../renderer/views/AssetBrowser";
 import { runInWorktree } from "../../renderer/workspace";
+import { leafName, nameFromPath } from "../../shared/asset-names";
 import { enginePath, isPrefab, type PrefabInfo, prefabIndex } from "./info";
 import { defaultOrbit, FOV, type Orbit, orbitDrag, orbitPosition, pan, project, type Vec3 } from "./orbit";
 
@@ -315,8 +316,8 @@ function SceneDetail({ asset, text, checkout: shownCheckout, assets }: AssetCont
 			.filter((a) => isPrefab(a.path) && a.path !== asset.path)
 			.map((a) => ({ label: a.title.replace(/ \(prefab\)$/, ""), entity: { prefab: enginePath(a.path) } as Omit<SceneEntity, "id"> }));
 		const meshes = models.map((m) => {
-			const n = m.path.split("/").at(-2) ?? m.title;
-			return { label: n, entity: { Name: m.title, Mesh_Renderer: { mesh: `models/${n}/${n}.glb` } } as Omit<SceneEntity, "id"> };
+			const n = nameFromPath("assets/models", m.path);
+			return { label: n, entity: { Name: m.title, Mesh_Renderer: { mesh: `models/${n}/${leafName(n)}.glb` } } as Omit<SceneEntity, "id"> };
 		});
 		return { prefabs, meshes };
 	}, [assets, asset.path, models]);

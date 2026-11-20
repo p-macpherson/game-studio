@@ -1849,3 +1849,27 @@ button.link {
 .tree-icon span {
 	display: none;
 }
+.context-menu {
+	position: fixed;
+	z-index: 30;
+	display: flex;
+	flex-direction: column;
+	min-width: 140px;
+	padding: 4px;
+}
+.context-menu button {
+	text-align: left;
+}
+.modal-backdrop.clear {
+	background: transparent;
+}
+.move-notice {
+	gap: 8px;
+	padding: 6px 12px;
+	border-bottom: 1px solid var(--border);
+	font-size: 12px;
+	color: var(--muted);
+}
+.tree-row[draggable="true"] {
+	cursor: grab;
+}

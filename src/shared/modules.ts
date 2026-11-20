@@ -29,6 +29,18 @@ export interface AssetSummary {
 	change?: "added" | "modified" | "deleted";
 }
 
+/** What moving or renaming an asset (or a folder of them) did. */
+export interface MoveResult {
+	/** Where it is now (an asset's path, or a folder). */
+	to: string;
+	/** How many files moved. */
+	files: number;
+	/** Files whose references to what moved were rewritten. */
+	updated: string[];
+	/** Game code or tests moved or changed: build and test before merging. */
+	code: boolean;
+}
+
 export interface AssetSearchHit {
 	path: string;
 	line: number;

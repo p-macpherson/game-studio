@@ -1,3 +1,4 @@
+import { leafName, nameFromPath } from "../../shared/asset-names";
 import type { ModelManifest } from "../../shared/gen";
 import type { ModuleInfo } from "../../shared/modules";
 
@@ -19,8 +20,8 @@ export const models3d: ModuleInfo = {
 /** "treasure-chest" -> "Treasure chest". */
 export const modelTitle = (name: string) => name.charAt(0).toUpperCase() + name.slice(1).replace(/-/g, " ");
 
-/** The model's folder name from its asset path (`assets/models/<name>/model.json`). */
-export const modelName = (assetPath: string) => assetPath.split("/").at(-2) ?? assetPath;
+/** The model's name from its asset path: its folder under assets/models (`props/barrel` for `assets/models/props/barrel/model.json`). */
+export const modelName = (assetPath: string) => nameFromPath("assets/models", assetPath);
 
 export function summarizeModel(text: string, path: string): { title: string; excerpt: string } {
 	let m: Partial<ModelManifest> = {};
@@ -29,7 +30,7 @@ export function summarizeModel(text: string, path: string): { title: string; exc
 	} catch {
 		// A half-written or hand-broken manifest still lists, by folder name.
 	}
-	const name = m.name ?? modelName(path);
+	const name = leafName(modelName(path));
 	const facts = m.stats
 		? [m.height && `${m.height} m`, m.textured && "textured", m.rigged && "rigged", typeof m.stats.triangles === "number" && `${m.stats.triangles.toLocaleString("en")} tris`]
 		: ["concepts only"];

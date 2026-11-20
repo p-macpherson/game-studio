@@ -2,13 +2,14 @@
 // studio), and what that worktree changed.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
-import { type AssetSearchHit, type AssetSummary, type ModuleInfo, moduleOwns } from "../shared/modules";
+import { type AssetSearchHit, type AssetSummary, type ModuleInfo, type MoveResult, moduleOwns } from "../shared/modules";
 import { designDocs, summarizeMarkdown } from "../modules/design-docs/info";
 import { gameCode, summarizeCode } from "../modules/game-code/info";
 import { models3d, summarizeModel } from "../modules/3d-models/info";
 import { music, summarizeSong } from "../modules/music/info";
 import { scenes, summarizeScene } from "../modules/scenes/info";
 import { sounds, summarizeSound } from "../modules/sounds/info";
+import { moveAsset } from "./asset-move";
 import type { SessionService } from "./sessions";
 
 export interface ModuleBackend {
@@ -89,6 +90,12 @@ export class AssetService {
 		if (!MODULES.some((m) => moduleOwns(m.info, path))) throw new Error(`${path} isn't a studio asset`);
 		const full = safeJoin(this.checkoutRoot(checkout), path);
 		return existsSync(full) ? readFileSync(full, "utf8") : "";
+	}
+
+	/** Moves or renames an asset or a folder of them, in a worktree (never main), rewriting references (asset-move.ts). */
+	move(moduleId: string, checkout: string | null, from: string, to: string): MoveResult {
+		if (!checkout) throw new Error("Moves happen in a worktree: select or create one first");
+		return moveAsset(this.checkoutRoot(checkout), this.backend(moduleId).info, from, to);
 	}
 
 	search(moduleId: string, query: string, checkout: string | null = null): AssetSearchHit[] {

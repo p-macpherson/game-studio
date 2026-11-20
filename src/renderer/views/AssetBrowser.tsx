@@ -3,10 +3,12 @@
 // the sessions linked to the asset. Each module draws an asset's content.
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { type ChangeCounts, assetTree, type TreeNode, treeLeaves } from "../../shared/asset-tree";
+import type { MoveResult } from "../../shared/modules";
 import { type AssetSearchHit, type AssetSummary, type ModuleInfo, moduleOwns } from "../../shared/modules";
 import type { WorktreeSummary } from "../../shared/types";
 import { call, relativeTime } from "../api";
 import { type NewSessionPreset, useStudio } from "../store";
+import { editCheckout } from "../workspace";
 import { StatusBadge } from "./Sessions";
 
 export interface AssetContentProps {
@@ -88,6 +90,11 @@ export function AssetBrowser(props: AssetBrowserProps) {
 	// Filters (with a worktree selected): only what it changed; whether to list what it removed.
 	const [onlyChanged, setOnlyChanged] = useState(false);
 	const [includeRemoved, setIncludeRemoved] = useState(true);
+	// Moving and renaming: the right-click menu, the path being edited, what's dragged, and what the last move did.
+	const [menu, setMenu] = useState<{ x: number; y: number; node: TreeNode } | null>(null);
+	const [moving, setMoving] = useState<{ node: TreeNode; value: string; rename: boolean } | null>(null);
+	const [dragged, setDragged] = useState<TreeNode | null>(null);
+	const [moved, setMoved] = useState<(MoveResult & { name: string; folder: boolean }) | null>(null);
 	// Folded folders, remembered per section.
 	const foldKey = `asset-tree-folded:${module.id}`;
 	const [folded, setFolded] = useState<string[]>(() => JSON.parse(localStorage.getItem(foldKey) ?? "[]"));
@@ -147,13 +154,70 @@ export function AssetBrowser(props: AssetBrowserProps) {
 	// While searching or filtering, every folder is open so the matches show.
 	const filtering = !!query.trim() || onlyChanged;
 
+	// Paths are edited relative to the item's root, without what the section implies (the manifest file, a lone extension).
+	const manifest = module.extensions.every((e) => e.startsWith("/")) ? module.extensions[0] : null;
+	const lone = !manifest && module.extensions.length === 1 ? module.extensions[0] : "";
+	const rootOf = (path: string) => module.roots.find((r) => path === r || path.startsWith(`${r}/`)) ?? module.roots[0];
+	const pathOf = (n: TreeNode) => (n.kind === "folder" ? n.key : n.asset.path);
+	const relOf = (path: string, folder: boolean) => {
+		const rel = path.slice(rootOf(path).length + 1);
+		if (folder) return rel;
+		return manifest ? rel.slice(0, -manifest.length) : lone ? rel.slice(0, -lone.length) : rel;
+	};
+	const editable = (n: TreeNode) => relOf(pathOf(n), n.kind === "folder");
+	const targetOf = (n: TreeNode, rel: string) => `${rootOf(pathOf(n))}/${rel}${n.kind === "folder" ? "" : manifest ?? lone}`;
+	const movable = (n: TreeNode) => (n.kind === "folder" ? !module.roots.includes(n.key) : n.asset.change !== "deleted");
+	const move = async (n: TreeNode, rel: string) => {
+		setMoving(null);
+		const to = targetOf(n, rel.trim().replace(/^\/+|\/+$/g, ""));
+		if (to === pathOf(n)) return;
+		try {
+			// Like any section edit: in the selected worktree, or a new one when main is shown.
+			const at = await editCheckout(`Move: ${n.name}`);
+			const r = await call("assets.move", module.id, at, pathOf(n), to);
+			setMoved({ ...r, name: n.name, folder: n.kind === "folder" });
+			useStudio.setState((s) => ({ assetsVersion: s.assetsVersion + 1 }));
+			if (n.kind === "leaf") showAsset({ path: r.to });
+		} catch (err) {
+			showError(err);
+		}
+	};
+	/** Dropping `n` on a folder (or the root, `into` = its key) moves it there, keeping its name. */
+	const dropInto = (into: string, n: TreeNode) => {
+		const name = editable(n).split("/").pop()!;
+		const root = rootOf(into);
+		if (rootOf(pathOf(n)) !== root || into === pathOf(n) || into.startsWith(`${pathOf(n)}/`)) return;
+		void move(n, into === root ? name : `${into.slice(root.length + 1)}/${name}`);
+	};
+	const rowEvents = (n: TreeNode) =>
+		movable(n)
+			? {
+					draggable: true,
+					onDragStart: () => setDragged(n),
+					onDragEnd: () => setDragged(null),
+					onContextMenu: (e: React.MouseEvent) => {
+						e.preventDefault();
+						setMenu({ x: e.clientX, y: e.clientY, node: n });
+					},
+				}
+			: {};
+	const dropTarget = (key: string) => ({
+		onDragOver: (e: React.DragEvent) => dragged && e.preventDefault(),
+		onDrop: (e: React.DragEvent) => {
+			e.preventDefault();
+			e.stopPropagation();
+			if (dragged) dropInto(key, dragged);
+			setDragged(null);
+		},
+	});
+
 	const row = (n: TreeNode, depth: number): ReactNode => {
 		const indent = { paddingLeft: 8 + depth * 14 };
 		if (n.kind === "folder") {
 			const open = filtering || !folded.includes(n.key);
 			return (
 				<div key={n.key} role="group">
-					<button className="tree-row tree-folder" style={indent} aria-expanded={open} onClick={() => toggleFolder(n.key)} data-testid="tree-folder">
+					<button className="tree-row tree-folder" style={indent} aria-expanded={open} onClick={() => toggleFolder(n.key)} data-testid="tree-folder" {...rowEvents(n)} {...dropTarget(n.key)}>
 						<span className="caret">{open ? "▾" : "▸"}</span>
 						<span className="grow ellipsis">{n.name}</span>
 						<ChangeCountsLabel {...n.changes} />
@@ -174,6 +238,7 @@ export function AssetBrowser(props: AssetBrowserProps) {
 					style={indent}
 					title={tooltip}
 					onClick={() => showAsset({ path: a.path })}
+					{...rowEvents(n)}
 				>
 					<span className="caret" />
 					{icon && <span className="tree-icon">{icon}</span>}
@@ -220,12 +285,69 @@ export function AssetBrowser(props: AssetBrowserProps) {
 						</div>
 					)}
 				</div>
+				{moved && (
+					<div className="move-notice row" data-testid="move-notice">
+						<span className="grow" title={moved.updated.join("\n")}>
+							Moved {moved.name} to <code>{relOf(moved.to, moved.folder)}</code>
+							{moved.updated.length > 0 ? `, updating ${moved.updated.length} file${moved.updated.length > 1 ? "s" : ""} that referred to it.` : "."}
+							{moved.code && <span className="change-modified"> Game code changed: run the tests in Play &amp; Test before merging.</span>}
+						</span>
+						<button className="ghost small" onClick={() => setMoved(null)}>
+							✕
+						</button>
+					</div>
+				)}
 				<div className="session-items">
 					{assets?.length === 0 && <div className="empty">{props.emptyText}</div>}
 					{!!assets?.length && visible.length === 0 && <div className="empty">Nothing matches.</div>}
-					<div className="asset-tree" role="tree">{tree.map((n) => row(n, 0))}</div>
+					<div className="asset-tree" role="tree" {...(module.roots.length === 1 ? dropTarget(module.roots[0]) : {})}>
+						{tree.map((n) => row(n, 0))}
+					</div>
 				</div>
 			</div>
+			{menu && (
+				<div className="modal-backdrop clear" onClick={() => setMenu(null)} onContextMenu={(e) => (e.preventDefault(), setMenu(null))}>
+					<div className="card context-menu" style={{ left: menu.x, top: menu.y }} data-testid="tree-menu">
+						<button className="ghost" onClick={() => (setMenu(null), setMoving({ node: menu.node, value: editable(menu.node), rename: true }))}>
+							Rename…
+						</button>
+						<button className="ghost" onClick={() => (setMenu(null), setMoving({ node: menu.node, value: editable(menu.node), rename: false }))}>
+							Move to…
+						</button>
+					</div>
+				</div>
+			)}
+			{moving && (
+				<div className="modal-backdrop" onClick={() => setMoving(null)}>
+					<div className="modal col" style={{ width: 460 }} onClick={(e) => e.stopPropagation()} data-testid="move-dialog">
+						<h3>{moving.rename ? "Rename" : "Move"} {moving.node.name}</h3>
+						<label className="col">
+							<span className="muted small">
+								Path in <code>{rootOf(pathOf(moving.node))}/</code>
+								{moving.node.kind === "leaf" && (manifest || lone) ? ` (without ${manifest ? manifest.slice(1) : lone})` : ""}: folders with "/"
+							</span>
+							<input
+								autoFocus
+								value={moving.value}
+								onFocus={(e) => moving.rename && e.target.setSelectionRange(e.target.value.lastIndexOf("/") + 1, e.target.value.length)}
+								onChange={(e) => setMoving({ ...moving, value: e.target.value })}
+								onKeyDown={(e) => (e.key === "Enter" ? void move(moving.node, moving.value) : e.key === "Escape" && setMoving(null))}
+								data-testid="move-path"
+							/>
+						</label>
+						<span className="muted small">
+							References to it in scenes, prefabs, game code, tests and docs are updated. It happens in the selected worktree (or a new one), so
+							nothing changes in the game until you merge.
+						</span>
+						<div className="row" style={{ justifyContent: "flex-end" }}>
+							<button onClick={() => setMoving(null)}>Cancel</button>
+							<button className="primary" onClick={() => void move(moving.node, moving.value)} data-testid="move-ok">
+								{moving.rename ? "Rename" : "Move"}
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
 			{selected && assets ? (
 				<div className="session-detail">
 					<div className="session-header">

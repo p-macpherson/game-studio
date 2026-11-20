@@ -1,3 +1,4 @@
+import { leafName, nameFromPath } from "../../shared/asset-names";
 import type { ModuleInfo } from "../../shared/modules";
 import { GM_PROGRAMS, parseSong, type Song } from "../../shared/song";
 
@@ -12,8 +13,8 @@ export const music: ModuleInfo = {
 	noun: "piece",
 };
 
-/** The piece's folder name from its asset path (`assets/music/<name>/song.json`). */
-export const pieceName = (assetPath: string) => assetPath.split("/").at(-2) ?? assetPath;
+/** The piece's name from its asset path: its folder under assets/music (`themes/goblin` for `assets/music/themes/goblin/song.json`). */
+export const pieceName = (assetPath: string) => nameFromPath("assets/music", assetPath);
 
 export const formatTime = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, "0")}`;
 
@@ -35,5 +36,5 @@ export function summarizeSong(text: string, path: string): { title: string; exce
 		errors.length && `${errors.length} problem${errors.length > 1 ? "s" : ""} in the score`,
 	].filter(Boolean);
 	const excerpt = [song?.style, facts.join(" · ")].filter(Boolean).join(" — ");
-	return { title: song?.title || pieceName(path), excerpt: excerpt.length > 180 ? `${excerpt.slice(0, 177)}…` : excerpt };
+	return { title: song?.title || leafName(pieceName(path)), excerpt: excerpt.length > 180 ? `${excerpt.slice(0, 177)}…` : excerpt };
 }

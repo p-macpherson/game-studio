@@ -10,10 +10,10 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { drumName, GM_PROGRAMS, parseSong, pitchName, TICKS_PER_BEAT, type Song, type Timeline } from "../shared/song";
+import { ASSET_NAME, leafName } from "../shared/asset-names";
 import { safeJoin } from "./assets";
 
 export const MUSIC_DIR = "assets/music";
-const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const RATE = 44100;
 /** A song that doesn't loop gets this much room for its last notes to ring out. */
 const TAIL_SECONDS = 3;
@@ -47,7 +47,7 @@ export class MusicPipeline {
 	constructor(private readonly deps: { soundfont(): string; fluidsynth?: string; ffmpeg?: string }) {}
 
 	dir(cwd: string, name: string): string {
-		if (!NAME.test(name)) throw new Error(`A piece's name is lower-kebab-case (e.g. "goblin-theme"), not "${name}"`);
+		if (!ASSET_NAME.test(name)) throw new Error(`A piece's name is lower-kebab-case, with "/" for folders (e.g. "goblin-theme", "themes/goblin"), not "${name}"`);
 		return safeJoin(cwd, `${MUSIC_DIR}/${name}`);
 	}
 
@@ -102,13 +102,13 @@ export class MusicPipeline {
 			audio = loop ? loopFromPasses(audio, loopFrames) : sliceFrames(audio, 0, loopFrames + TAIL_SECONDS * RATE);
 			const cut = join(tmp, "cut.wav");
 			writeFileSync(cut, writeWav(audio));
-			const ogg = join(dir, `${p.name}.ogg`);
+			const ogg = join(dir, `${leafName(p.name)}.ogg`);
 			ctx.progress?.("Encoding OGG");
 			await run(this.deps.ffmpeg ?? "ffmpeg", ["-y", "-loglevel", "error", "-i", cut, "-c:a", "libvorbis", "-q:a", "5", ogg]);
 			const seconds = audio.frames / RATE;
 			const info: RenderInfo = { song: songHash(text), seconds: Math.round(seconds * 1000) / 1000, loop, renderedAt: new Date().toISOString() };
 			writeFileSync(join(dir, "render.json"), `${JSON.stringify(info, null, "\t")}\n`);
-			return summarize(song, timeline, `${MUSIC_DIR}/${p.name}/${p.name}.ogg`, info);
+			return summarize(song, timeline, `${MUSIC_DIR}/${p.name}/${leafName(p.name)}.ogg`, info);
 		} finally {
 			rmSync(tmp, { recursive: true, force: true });
 		}

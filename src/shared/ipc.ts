@@ -1,6 +1,6 @@
 /** Contract between the renderer and the main process, exposed by the preload script as `window.studio`. */
 import type { HostInfo, PromptMode, StudioRequestMethod } from "./host";
-import type { AssetSearchHit, AssetSummary, ModuleInfo } from "./modules";
+import type { AssetSearchHit, AssetSummary, ModuleInfo, MoveResult } from "./modules";
 import type { CheckoutId, CheckoutInfo, RunInfo, RunMode, RunOptions, TestReport } from "./run";
 import type { ConceptImage, GenJob, GenStatus } from "./gen";
 import type {
@@ -60,6 +60,8 @@ export interface StudioApi {
 	/** From the main checkout, or from a session's worktree when `sessionId` is given. */
 	"assets.read"(path: string, checkout?: string | null): Promise<string>;
 	"assets.search"(moduleId: string, query: string, checkout?: string | null): Promise<AssetSearchHit[]>;
+	/** Moves or renames an asset (or a folder of them) in a worktree, rewriting references to it. */
+	"assets.move"(moduleId: string, checkout: string, from: string, to: string): Promise<MoveResult>;
 
 	/** Main checkout plus session worktrees the game can be built and run from. */
 	"run.checkouts"(): Promise<CheckoutInfo[]>;

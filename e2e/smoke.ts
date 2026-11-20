@@ -378,6 +378,30 @@ try {
 	await crateItem.waitFor({ state: "detached" });
 	await page.getByTestId("tree-folder").filter({ hasText: "prefabs" }).click();
 	await crateItem.waitFor();
+	// Rename from the tree's menu into a new folder: the scene placing it is updated (still "used 2× in main").
+	await crateItem.click({ button: "right" });
+	await page.getByTestId("tree-menu").getByRole("button", { name: "Rename…" }).click();
+	await page.getByTestId("move-path").fill("props/box");
+	await page.getByTestId("move-ok").click();
+	await page.getByTestId("asset-item").filter({ has: page.locator(".title", { hasText: /^box$/ }) }).filter({ hasText: "used 2× in main" }).waitFor({ timeout: 10_000 });
+	await page.getByTestId("tree-folder").filter({ hasText: "props" }).waitFor();
+	await page.getByTestId("move-notice").filter({ hasText: "updating 1 file" }).waitFor();
+	await step("38-asset-moved", page);
+	// Agents move through the same tool (here the faux Level Designer, in the same worktree).
+	await nav.getByRole("button", { name: "Sessions" }).click();
+	await page.locator(".session-item", { hasText: "look at the scene" }).click();
+	await page.getByTestId("composer").fill('tool move_asset {"from": "assets/prefabs/props/box.json", "to": "assets/prefabs/props/crate.json"}');
+	await page.getByTestId("composer").press("Enter");
+	await page.getByTestId("chat").getByText(/^Result:[\s\S]*"to": "assets\/prefabs\/props\/crate\.json"/).waitFor({ timeout: 30_000 });
+	await nav.getByRole("button", { name: "Scenes" }).click();
+	const boxItem = page.getByTestId("asset-item").filter({ has: page.locator(".title", { hasText: /^crate$/ }) });
+	// Dragging it onto prefabs/ moves it back up, keeping its new name.
+	await boxItem.filter({ hasText: "used 2× in main" }).waitFor({ timeout: 10_000 });
+	await boxItem.dragTo(page.getByTestId("tree-folder").filter({ hasText: /^.prefabs/ }));
+	await page.getByTestId("tree-folder").filter({ hasText: "props" }).waitFor({ state: "detached", timeout: 10_000 });
+	await boxItem.filter({ hasText: "used 2× in main" }).waitFor();
+	await page.getByTestId("asset-item").filter({ has: page.locator(".title", { hasText: /^main$/ }) }).click();
+	await page.locator("[data-testid=scene-viewport] img").waitFor({ timeout: 60_000 });
 	const wheelKept = await page.getByTestId("scene-viewport").evaluate((el) => !el.dispatchEvent(new WheelEvent("wheel", { deltaY: 100, bubbles: true, cancelable: true })));
 	if (!wheelKept) throw new Error("the scene's wheel zoom lets the page scroll");
 

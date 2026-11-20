@@ -16,7 +16,7 @@ export interface StudioToolContext {
 	request(method: StudioRequestMethod, params: Record<string, unknown>, signal: AbortSignal | undefined, progress: (text: string) => void): Promise<unknown>;
 }
 
-const MODEL_NAME = Type.String({ description: "The model's folder name under assets/models/, lower-kebab-case, e.g. 'treasure-chest'" });
+const MODEL_NAME = Type.String({ description: "The model's folder under assets/models/, lower-kebab-case, with '/' for folders: e.g. 'treasure-chest', 'props/barrel'" });
 
 const ok = (text: string) => ({ content: [{ type: "text" as const, text }], details: {} });
 
@@ -217,7 +217,7 @@ export function studioTools(ctx: StudioToolContext) {
 				"takes of a new sound also write its sound.json (one variant: the first good take). Then compose the variants in sound.json from take ids " +
 				"(usually one take each) and render_sound. Describe one sound, how it's recorded and how long (see the sound-design skill).",
 			parameters: Type.Object({
-				name: Type.String({ description: "The sound's folder name under assets/sounds/, lower-kebab-case, e.g. 'chest-open'" }),
+				name: Type.String({ description: "The sound's folder under assets/sounds/, lower-kebab-case, with '/' for folders: e.g. 'chest-open', 'ui/click'" }),
 				prompt: Type.String({ description: "e.g. 'an old wooden chest lid creaking open slowly, rusty hinges, close-up foley, dry'" }),
 				seconds: Type.Number({ description: "Length to generate, 0.1-11 (trimming cuts the silence after)" }),
 				count: Type.Optional(Type.Number({ description: "How many takes (1-12, default 6)" })),
@@ -259,7 +259,7 @@ export function studioTools(ctx: StudioToolContext) {
 				"the file the game plays with engine.play_music. Loops render seamlessly unless the song sets loop: false. Takes about a second. " +
 				"On a problem it lists every one with where it is (e.g. 'sections.A.tracks.bass: bar 3 has 4.5 beats, but a bar is 4'). " +
 				"On success it describes what was rendered (sections, tracks, note counts and ranges): check that against what you meant, since you can't listen. Render after every edit.",
-			parameters: Type.Object({ name: Type.String({ description: "The piece's folder name under assets/music/, lower-kebab-case, e.g. 'goblin-theme'" }) }),
+			parameters: Type.Object({ name: Type.String({ description: "The piece's folder under assets/music/, lower-kebab-case, with '/' for folders: e.g. 'goblin-theme', 'themes/goblin'" }) }),
 			execute: generation("render_song"),
 		}),
 		defineTool({
@@ -274,6 +274,23 @@ export function studioTools(ctx: StudioToolContext) {
 				height: Type.Optional(Type.Number()),
 			}),
 			execute: generation("finalize_model"),
+		}),
+		defineTool({
+			name: "move_asset",
+			label: "Move asset",
+			description:
+				"Move or rename a studio asset, or a folder of them, in your worktree, and rewrite every reference to it: paths in scenes, prefabs, manifests, game " +
+				"code and tests, and links between design docs. A renamed model, sound or piece renames its own files too (barrel.glb → cask.glb). Use it " +
+				"instead of mv/git mv for anything under assets/, docs/design/, game/ or tests/. Paths are repo-relative: an asset by its file (a model, " +
+				"sound or piece by its model.json, sound.json or song.json), a folder by its path. Returns the files it updated; build and run the tests if " +
+				"game code changed.",
+			parameters: Type.Object({
+				from: Type.String({ description: "e.g. 'assets/models/barrel/model.json', 'assets/prefabs/rock.json', 'assets/models/props'" }),
+				to: Type.String({ description: "e.g. 'assets/models/props/barrel/model.json', 'assets/prefabs/scenery/rock.json', 'assets/models/scenery'" }),
+			}),
+			async execute(_id, params, signal) {
+				return ok(JSON.stringify(await ctx.request("move_asset", params, signal, () => {}), null, 2));
+			},
 		}),
 		defineTool({
 			name: "set_session_title",
