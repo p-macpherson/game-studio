@@ -16,7 +16,8 @@ like: read the relevant ones first.
 2. Make the change in the file: place, move, add or remove entities; keep ids unique and stable, prefab
    references as references, and a `notes` line on anything whose purpose isn't obvious.
 3. `preview_scene` again **after the edit has finished** and look at the images: is everything on the ground,
-   not inside something else, at a sensible size, reachable, framed the way you meant? Fix and look again.
+   not inside something else, at a sensible size, reachable, framed the way you meant? Fix and look again. Where the player should walk over or between
+   things, walk them there (see the skill): previews don't show what's solid.
 4. `./build.sh test` still passes (the game's scripted tests run in the scene).
 5. Summarise in level terms ("four lanterns ring the chests, about 2 m out, facing in"), then `open_in_studio`
    on the scene so the user sees it in the Scenes section.

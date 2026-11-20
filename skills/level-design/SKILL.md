@@ -39,6 +39,9 @@ A scene is `assets/scenes/<name>.json`; the game loads it by its path under `ass
   stands them on flat ground at height 0. `model.json` next to each records its size.
 - A model is placed with `Mesh_Renderer.mesh = "models/<name>/<name>.glb"`. Add `"Rigid_Body": {}` (static box
   around the mesh) when the player should bump into it; small decoration can do without.
+- **A prefab instance gets all of the prefab's components, its `Rigid_Body` included**, at any scale: read the
+  prefab before saying what an instance does. An instance can't drop a component, so anything the player should walk
+  over (stepping stones, pebbles) places the model directly, with `Mesh_Renderer` and no `Rigid_Body`.
 
 ## Placement that reads well
 - Leave walking room: about 1.5 m between things the player walks between; nothing inside anything else.
@@ -50,3 +53,8 @@ A scene is `assets/scenes/<name>.json`; the game loads it by its path under `ass
 image, +X is to the left), `overview` (three-quarter, from the -Z side) and `game` (the scene's own Camera), or your own
 `{position, target}` views. It also lists problems in the file and engine warnings. Call it **after the edit has
 finished** (tools in one batch can run at the same time), and look at every image before saying it's done.
+Include `game` in the last check: it's what the player sees.
+
+Paused previews don't show what's solid. When the player should walk along or through something you placed, walk them
+there: a scripted run (**engine-control** skill) that sets the player's Transform next to it, holds the move action
+and asserts on the position. Keep the script in `build/` (`./build.sh test build/walk.jsonl`) so it isn't committed.
