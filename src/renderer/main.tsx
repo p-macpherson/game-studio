@@ -23,6 +23,12 @@ function App() {
 	const { project, view, setView, sessions, modules, error, refresh, handleEvent, newSession, run } = useStudio();
 	const [ready, setReady] = useState(false);
 	const [skipPicker, setSkipPicker] = useState(false);
+	// The menu can shrink to an icon rail (labels become tooltips); remembered across launches.
+	const [collapsed, setCollapsed] = useState(() => localStorage.getItem("sidebar-collapsed") === "1");
+	const toggleSidebar = () => {
+		localStorage.setItem("sidebar-collapsed", collapsed ? "0" : "1");
+		setCollapsed(!collapsed);
+	};
 
 	useEffect(() => {
 		const off = onEvent((e) => useStudio.getState().handleEvent(e));
@@ -36,13 +42,13 @@ function App() {
 	const active = sessions.filter((s) => s.status !== "done").length;
 	const activeModule = modules.find((m) => view === `module:${m.id}`);
 	return (
-		<div className="shell">
+		<div className={`shell ${collapsed ? "collapsed" : ""}`}>
 			<nav className="sidebar">
-				<ProjectMenu />
+				{!collapsed && <ProjectMenu />}
 				{NAV.map((n) => (
-					<button key={n.view} className={`nav-item ${view === n.view ? "active" : ""}`} onClick={() => setView(n.view)}>
-						<span>{n.icon}</span>
-						{n.label}
+					<button key={n.view} className={`nav-item ${view === n.view ? "active" : ""}`} title={n.label} aria-label={n.label} onClick={() => setView(n.view)}>
+						<span className="nav-icon">{n.icon}</span>
+						<span className="nav-label">{n.label}</span>
 						{n.view === "sessions" && active > 0 && <span className="count">{active}</span>}
 					</button>
 				))}
@@ -53,19 +59,31 @@ function App() {
 							<button
 								key={m.id}
 								className={`nav-item ${view === `module:${m.id}` ? "active" : ""}`}
+								title={m.name}
+								aria-label={m.name}
 								onClick={() => setView(`module:${m.id}`)}
 							>
-								<span>{m.icon}</span>
-								{m.name}
+								<span className="nav-icon">{m.icon}</span>
+								<span className="nav-label">{m.name}</span>
 							</button>
 						))}
-						<button className={`nav-item ${view === "play" ? "active" : ""}`} onClick={() => setView("play")}>
-							<span>▶</span>
-							Play &amp; Test
+						<button className={`nav-item ${view === "play" ? "active" : ""}`} title="Play & Test" aria-label="Play & Test" onClick={() => setView("play")}>
+							<span className="nav-icon">▶</span>
+							<span className="nav-label">Play &amp; Test</span>
 							{run?.state === "running" && <span className="count">●</span>}
 						</button>
 					</>
 				)}
+				<button
+					className="nav-item sidebar-toggle"
+					data-testid="sidebar-toggle"
+					title={collapsed ? "Expand the menu" : "Collapse the menu"}
+					aria-label={collapsed ? "Expand the menu" : "Collapse the menu"}
+					onClick={toggleSidebar}
+				>
+					<span className="nav-icon">{collapsed ? "»" : "«"}</span>
+					<span className="nav-label">Collapse</span>
+				</button>
 			</nav>
 			<main className="main">
 				{error && (

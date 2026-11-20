@@ -303,6 +303,14 @@ try {
 	await page.getByTestId("chat").getByText(/^Result: assets\/scenes\/main\.json in the game's engine, views in order: top, game\./).waitFor({ timeout: 60_000 });
 	await step("26-preview-scene", page);
 
+	// The menu collapses to an icon rail; its buttons keep their names (as tooltips).
+	await page.getByTestId("sidebar-toggle").click();
+	await nav.getByRole("button", { name: "Scenes" }).click();
+	await page.getByTestId("scene-editor").waitFor();
+	await step("27-sidebar-collapsed", page);
+	await page.getByTestId("sidebar-toggle").click();
+	await nav.getByRole("button", { name: "Source Control" }).waitFor();
+
 	// Source control and accounts render.
 	await page.getByRole("button", { name: "Source Control" }).click();
 	await page.locator(".list-row", { hasText: "studio: session" }).first().waitFor();

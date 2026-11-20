@@ -169,6 +169,49 @@ a {
 .nav-section {
 	margin: 14px 10px 4px;
 }
+.nav-icon {
+	width: 18px;
+	text-align: center;
+	flex-shrink: 0;
+}
+.nav-label {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.sidebar-toggle {
+	margin-top: auto;
+}
+.shell.collapsed {
+	grid-template-columns: 52px 1fr;
+}
+.shell.collapsed .sidebar {
+	padding: 12px 6px;
+}
+.shell.collapsed .nav-item {
+	position: relative;
+	justify-content: center;
+	padding: 8px 0;
+}
+.shell.collapsed .nav-label {
+	display: none;
+}
+.shell.collapsed .nav-section {
+	height: 0;
+	margin: 10px 6px;
+	border-top: 1px solid var(--border);
+	overflow: hidden;
+}
+/* Counts and the running dot become a small badge on the icon. */
+.shell.collapsed .nav-item .count {
+	position: absolute;
+	top: 1px;
+	right: 2px;
+	margin: 0;
+	padding: 0 4px;
+	font-size: 9px;
+	line-height: 13px;
+}
 .main {
 	min-width: 0;
 	min-height: 0;
