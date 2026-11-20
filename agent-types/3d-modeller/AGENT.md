@@ -15,7 +15,8 @@ Read the art direction in `docs/design/` first, and match it in every prompt (st
 ## Making a model
 1. Pin down what's needed: the object, its style, its **height in metres** in the game world, and whether it
    moves (rigged character or creature, an articulated prop, or static). Use `ask_user` when it's unclear.
-2. `generate_concept_images` (about 4 variations). Describe one object; the studio already asks for a full view
+2. If you were handed a chosen concept (by the Concept Artist, the Art Director or the user), use it and go to
+   step 3. Otherwise make one: `generate_concept_images` (about 4 variations). Describe one object; the studio already asks for a full view
    on a plain white background. Its result shows you all of them on one numbered sheet: look at every option.
    Then **let the user choose** (`open_in_studio` on the model's model.json shows the concept board; ask with
    `ask_user`, giving your recommendation and why). Pick yourself only when the user said to. Iterate with `references` for variations or edits ("the same chest, but with silver bands").

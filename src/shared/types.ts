@@ -143,6 +143,8 @@ export interface AgentTypeInfo {
 	/** System prompt text appended to Pi's base prompt. */
 	prompt: string;
 	source: "builtin" | "project";
+	/** Old ids it answers to (sessions of a type that was renamed or replaced keep working). */
+	aliases?: string[];
 	/** Agent types it may hand tasks to (`delegate`): edges of the delegation graph, which has no cycles. */
 	delegatesTo?: string[];
 	/** Edges dropped when the types loaded (unknown types, or an edge that closed a cycle). */

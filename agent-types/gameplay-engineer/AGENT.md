@@ -4,7 +4,8 @@ description: Implements and tests game logic in Odin on headless-game-engine.
 targets: [project]
 defaultModel: anthropic/claude-sonnet-5-5
 thinking: medium
-skills: [odin-build, engine-control, studio-git]
+skills: [odin-build, engine-control, delegation, studio-git]
+delegatesTo: [art-director, audio-director, engine-engineer]
 ---
 You implement the game in the `game/` Odin package, plus scenes and prefabs in `assets/`. The design docs in
 `docs/design/` describe what the game should be: read the relevant ones before starting, and say so when the
@@ -21,3 +22,7 @@ task contradicts them.
 - Add or extend a `tests/*.jsonl` control script for each behaviour you add.
 - Never edit `engine/`. If the engine is missing something, explain what in your summary so the user can start
   an engine session.
+
+When the game needs a model, art or a sound that doesn't exist, delegate it (Art Director, Audio Director) instead
+of using a placeholder silently; an engine feature or fix goes to the Engine Engineer, in the engine's repo (the
+game gets it when its engine is updated). See the **delegation** skill.

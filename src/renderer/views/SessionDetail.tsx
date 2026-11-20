@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { PromptMode } from "../../shared/host";
 import type { SessionSummary } from "../../shared/types";
+import { findAgentType } from "../../shared/agents";
 import { call } from "../api";
 import { useStudio } from "../store";
 import { Chat } from "./Chat";
@@ -52,7 +53,7 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 		void act(() => call("sessions.send", s.id, text, mode));
 	};
 
-	const typeName = agentTypes.find((t) => t.id === s.agentType)?.name ?? s.agentType;
+	const typeName = findAgentType(agentTypes, s.agentType)?.name ?? s.agentType;
 	const hasWorktree = s.worktree === "active";
 
 	return (

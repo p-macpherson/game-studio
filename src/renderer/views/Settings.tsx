@@ -8,6 +8,7 @@ import { AssetGeneration } from "./Generation";
 const TABS: { id: SettingsTab; label: string }[] = [
 	{ id: "general", label: "General" },
 	{ id: "accounts", label: "Accounts" },
+	{ id: "agents", label: "Agents" },
 ];
 
 const FIELDS: { key: "engineRepo" | "studioRepo" | "worktreeRoot"; label: string; help: string }[] = [
@@ -28,7 +29,7 @@ export function SettingsView() {
 					</button>
 				))}
 			</div>
-			{settingsTab === "accounts" ? <AccountsPanel /> : <GeneralSettings />}
+			{settingsTab === "accounts" ? <AccountsPanel /> : settingsTab === "agents" ? <AgentTypes /> : <GeneralSettings />}
 		</div>
 	);
 }
@@ -87,5 +88,46 @@ function GeneralSettings() {
 				</span>
 			</div>
 		</>
+	);
+}
+
+/** The agent types, which repos they work in, and the delegation graph: who each may hand tasks to. */
+function AgentTypes() {
+	const { agentTypes } = useStudio();
+	const name = (id: string) => agentTypes.find((t) => t.id === id)?.name ?? id;
+	const delegatedBy = (id: string) => agentTypes.filter((t) => t.delegatesTo?.includes(id)).map((t) => t.name);
+	return (
+		<div className="col" data-testid="agent-types">
+			<p className="muted">
+				Any of these can be started from New Session. Sessions delegate along these edges only (a type lists them as <code>delegatesTo</code> in its
+				AGENT.md); the edges never form a loop.
+			</p>
+			{agentTypes.map((t) => (
+				<div key={t.id} className="card col agent-type-card" data-testid="agent-type-card">
+					<div className="row">
+						<strong className="grow">{t.name}</strong>
+						<span className="muted small">
+							{t.targets.join(", ")} · {t.defaultModel ?? "any model"} · {t.source}
+						</span>
+					</div>
+					<div className="muted small">{t.description}</div>
+					<div className="small">
+						<span className="muted">Delegates to: </span>
+						{t.delegatesTo?.length ? t.delegatesTo.map(name).join(", ") : "nobody"}
+						{delegatedBy(t.id).length > 0 && (
+							<>
+								<span className="muted"> · delegated to by </span>
+								{delegatedBy(t.id).join(", ")}
+							</>
+						)}
+					</div>
+					{t.problems?.map((p) => (
+						<div key={p} className="msg error small">
+							{p}
+						</div>
+					))}
+				</div>
+			))}
+		</div>
 	);
 }

@@ -20,6 +20,7 @@ export function parseAgentType(text: string, fallbackId: string, source: AgentTy
 		prompt: body,
 		source,
 		delegatesTo: Array.isArray(meta.delegatesTo) ? meta.delegatesTo.map(String) : [],
+		...(Array.isArray(meta.aliases) ? { aliases: meta.aliases.map(String) } : {}),
 	};
 }
 
@@ -56,7 +57,15 @@ function loadDir(dir: string, source: AgentTypeInfo["source"]): AgentTypeInfo[] 
 	if (!existsSync(dir)) return [];
 	return readdirSync(dir, { withFileTypes: true })
 		.filter((e) => e.isDirectory() && existsSync(join(dir, e.name, "AGENT.md")))
-		.map((e) => parseAgentType(readFileSync(join(dir, e.name, "AGENT.md"), "utf8"), e.name, source));
+		.map((e) => {
+			try {
+				return parseAgentType(readFileSync(join(dir, e.name, "AGENT.md"), "utf8"), e.name, source);
+			} catch (err) {
+				// One broken AGENT.md mustn't take every type down: it shows in Settings → Agents with the error.
+				const message = (err as Error).message.split("\n")[0];
+				return { id: e.name, name: e.name, description: "", targets: [], skills: [], prompt: "", source, problems: [`AGENT.md can't be read: ${message}`] };
+			}
+		});
 }
 
 /** Built-in types, overridden by id with the project's `.studio/agent-types/`. */

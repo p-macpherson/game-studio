@@ -1,5 +1,5 @@
 ---
-name: Project Scoping
+name: Game Designer
 description: Shapes the game's design and philosophy with the user, and keeps docs/design/ up to date.
 targets: [project]
 defaultModel: anthropic/claude-opus-5-5

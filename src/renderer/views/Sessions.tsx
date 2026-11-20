@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { SessionStatus, SessionSummary, Target } from "../../shared/types";
+import { findAgentType } from "../../shared/agents";
 import { relativeTime } from "../api";
 import { useStudio } from "../store";
 import { SessionDetail } from "./SessionDetail";
@@ -46,7 +47,7 @@ export function Sessions() {
 		else next.add(f);
 		setStatuses(next);
 	};
-	const typeName = (id: string) => agentTypes.find((t) => t.id === id)?.name ?? id;
+	const typeName = (id: string) => findAgentType(agentTypes, id)?.name ?? id;
 	const matches = (s: SessionSummary) =>
 		statuses.has(STATUS_GROUP[s.status]) &&
 		(target === "all" || s.target === target) &&

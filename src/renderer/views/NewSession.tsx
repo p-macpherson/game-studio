@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { Target } from "../../shared/types";
+import { findAgentType } from "../../shared/agents";
 import { call } from "../api";
 import { type NewSessionPreset, useStudio } from "../store";
 
@@ -9,7 +10,7 @@ export function NewSessionDialog({ preset }: { preset: NewSessionPreset }) {
 	const { agentTypes, models, project, openNewSession, openSettings, selectSession, showError, worktree, worktrees, selectWorktree } = useStudio();
 	const currentWorktree = worktrees.find((w) => w.id === worktree);
 	const [typeId, setTypeId] = useState(
-		agentTypes.find((t) => t.id === preset.agentType)?.id ?? agentTypes.find((t) => t.id === "general")?.id ?? agentTypes[0]?.id,
+		(preset.agentType && findAgentType(agentTypes, preset.agentType)?.id) ?? agentTypes.find((t) => t.id === "chief-director")?.id ?? agentTypes[0]?.id,
 	);
 	const type = agentTypes.find((t) => t.id === typeId);
 	const targets = useMemo(() => (type?.targets ?? []).filter((t) => t !== "project" || project), [type, project]);

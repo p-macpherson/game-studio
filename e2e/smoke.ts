@@ -101,9 +101,9 @@ try {
 	await page.locator(".markdown h1", { hasText: "E2E Game" }).waitFor();
 	await step("08-design-docs", page);
 
-	// "New doc" starts a Project Scoping session in a new worktree, which the sidebar selects; its new doc shows there.
+	// "New doc" starts a Game Designer session in a new worktree, which the sidebar selects; its new doc shows there.
 	await page.getByRole("button", { name: "+ New doc" }).click();
-	await page.locator(".agent-type.on", { hasText: "Project Scoping" }).waitFor();
+	await page.locator(".agent-type.on", { hasText: "Game Designer" }).waitFor();
 	await page.getByTestId("new-session-prompt").fill("write docs/design/Combat.md: # Combat\n\nHit things. See [the overview](Overview.md).");
 	await page.getByRole("button", { name: "Start session" }).click();
 	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
@@ -248,7 +248,7 @@ try {
 	await page.locator(".model-side select").filter({ hasText: "Rest pose" }).selectOption("open");
 	await step("21-prop-rig", page);
 
-	// Music: "New piece" starts a Music Composer session; its score renders, and the section shows and plays it.
+	// Music: "New piece" starts a Composer session; its score renders, and the section shows and plays it.
 	const theme = {
 		title: "E2E Theme",
 		tempo: 120,
@@ -259,7 +259,7 @@ try {
 	};
 	await nav.getByRole("button", { name: "Music" }).click();
 	await page.getByRole("button", { name: "+ New piece" }).click();
-	await page.locator(".agent-type.on", { hasText: "Music Composer" }).waitFor();
+	await page.locator(".agent-type.on", { hasText: "Composer" }).waitFor();
 	await page.getByTestId("new-session-prompt").fill(`write assets/music/e2e-theme/song.json: ${JSON.stringify(theme)}`);
 	await page.getByRole("button", { name: "Start session" }).click();
 	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
@@ -360,7 +360,7 @@ try {
 	// links back to it.
 	await nav.getByRole("button", { name: "Sessions" }).click();
 	await page.getByRole("button", { name: "+ New session" }).click();
-	await page.locator(".agent-type", { hasText: "General" }).click();
+	await page.locator(".agent-type.on", { hasText: "Chief Director" }).waitFor();
 	await page.getByTestId("new-session-prompt").fill('tool delegate {"agentType": "gameplay-engineer", "task": "a note from the sub-agent", "title": "Sub-agent note"}');
 	await page.getByRole("button", { name: "Start session" }).click();
 	await page.getByTestId("chat").getByText(/^Result:[\s\S]*Noted: a note from the sub-agent/).waitFor({ timeout: 60_000 });
@@ -379,6 +379,9 @@ try {
 	await page.getByRole("button", { name: "Accounts", exact: true }).click();
 	await page.getByText("Available models").waitFor();
 	await step("07-accounts", page);
+	await page.getByRole("button", { name: "Agents", exact: true }).click();
+	await page.getByTestId("agent-type-card").filter({ hasText: "Delegates to: Game Designer, Art Director, Audio Director" }).waitFor();
+	await step("33-agent-types", page);
 	console.log(`passed; screenshots in ${shots}`);
 } catch (err) {
 	const page = await app.firstWindow();

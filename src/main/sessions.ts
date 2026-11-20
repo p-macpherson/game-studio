@@ -6,6 +6,7 @@ import { basename, join } from "node:path";
 import type { HostEvent, PromptMode, StudioRequestMethod } from "../shared/host";
 import type { StudioEvent } from "../shared/ipc";
 import type { AgentTypeInfo, NewSessionRequest, PendingQuestion, SessionRecord, SessionSummary, Settings, Target, WorktreeRecord, WorktreeSummary } from "../shared/types";
+import { findAgentType } from "../shared/agents";
 import * as g from "./git";
 import type { HostLink } from "./host-link";
 import { type FileChange, type Worktree, WORKTREES_DIR, WorktreeStore } from "./worktrees";
@@ -140,7 +141,10 @@ export class SessionService {
 	/** The agent types of a session and of every session above it. */
 	private chainTypes(e: Entry): Set<string> {
 		const types = new Set<string>();
-		for (let x: Entry | undefined = e; x; x = x.record.parentId ? this.entries.get(x.record.parentId) : undefined) types.add(x.record.agentType);
+		const all = this.deps.agentTypes();
+		for (let x: Entry | undefined = e; x; x = x.record.parentId ? this.entries.get(x.record.parentId) : undefined) {
+			types.add(findAgentType(all, x.record.agentType)?.id ?? x.record.agentType);
+		}
 		return types;
 	}
 
@@ -238,7 +242,7 @@ export class SessionService {
 	// ── creating and driving sessions ───────────────────────────────────────────────────────────────
 
 	async create(req: NewSessionRequest): Promise<SessionSummary> {
-		const agentType = this.deps.agentTypes().find((t) => t.id === req.agentType);
+		const agentType = findAgentType(this.deps.agentTypes(), req.agentType);
 		if (!agentType) throw new Error(`Unknown agent type ${req.agentType}`);
 		if (!agentType.targets.includes(req.target)) throw new Error(`${agentType.name} sessions can't target the ${req.target}`);
 		const repoPath = this.repoFor(req.target);
@@ -303,7 +307,7 @@ export class SessionService {
 		];
 		const parent = r.parentId ? this.entries.get(r.parentId) : undefined;
 		if (parent) {
-			const parentType = this.deps.agentTypes().find((t) => t.id === parent.record.agentType)?.name ?? parent.record.agentType;
+			const parentType = findAgentType(this.deps.agentTypes(), parent.record.agentType)?.name ?? parent.record.agentType;
 			lines.push(`- You are a sub-agent: the ${parentType} session "${parent.record.title}" handed you this task and is waiting for you. Your last message is your report to it: what you did, where it is, and anything left or uncertain.`);
 		}
 		lines.push("- Other sessions may work in this worktree at the same time: commit only your own files (`git add <paths>`, not `-A`), and if git says index.lock exists, wait a moment and try again.");
@@ -322,7 +326,7 @@ export class SessionService {
 	}
 
 	private async open(e: Entry): Promise<void> {
-		const agentType = this.deps.agentTypes().find((t) => t.id === e.record.agentType);
+		const agentType = findAgentType(this.deps.agentTypes(), e.record.agentType);
 		if (!agentType) throw new Error(`Agent type ${e.record.agentType} no longer exists`);
 		const sessionFile = e.record.piSessionFile ? join(this.sessionDir(e), e.record.piSessionFile) : undefined;
 		const { sessionFile: file } = await this.deps.host.call("openSession", {
@@ -360,8 +364,8 @@ export class SessionService {
 	 */
 	private async delegate(parent: Entry, p: { agentType?: string; task?: string; title?: string }, requestId: string, progress: (text: string) => void): Promise<string> {
 		const types = this.deps.agentTypes();
-		const parentType = types.find((t) => t.id === parent.record.agentType);
-		const type = types.find((t) => t.id === p.agentType);
+		const parentType = findAgentType(types, parent.record.agentType);
+		const type = p.agentType ? findAgentType(types, p.agentType) : undefined;
 		if (!type) throw new Error(`There's no agent type "${p.agentType}"`);
 		const allowed = parentType ? this.delegatesTo(parent, parentType) : [];
 		if (!allowed.some((t) => t.id === type.id)) {
