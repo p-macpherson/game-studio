@@ -11,25 +11,13 @@ import { ProjectMenu, ProjectPicker } from "./views/Projects";
 import { Sessions } from "./views/Sessions";
 import { SettingsView } from "./views/Settings";
 import { SourceControl } from "./views/SourceControl";
+import { ChangeCountsLabel } from "./views/AssetBrowser";
 import { WorktreePicker } from "./views/Worktrees";
 
 const NAV: { view: View; label: string; icon: string }[] = [
 	{ view: "sessions", label: "Sessions", icon: "💬" },
 	{ view: "source-control", label: "Source Control", icon: "⎇" },
 ];
-
-/** A section's changes in the selected worktree, in the change colours: new, modified, removed. */
-function NavChanges({ added, modified, deleted }: { added: number; modified: number; deleted: number }) {
-	if (!added && !modified && !deleted) return null;
-	const title = [added && `${added} new`, modified && `${modified} modified`, deleted && `${deleted} removed`].filter(Boolean).join(", ");
-	return (
-		<span className="nav-changes" title={`In the selected worktree: ${title}`} data-testid="nav-changes">
-			{added > 0 && <span className="change-added">{added}</span>}
-			{modified > 0 && <span className="change-modified">{modified}</span>}
-			{deleted > 0 && <span className="change-deleted">{deleted}</span>}
-		</span>
-	);
-}
 
 function App() {
 	const { project, view, setView, sessions, modules, error, refresh, handleEvent, newSession, run, worktreeChanges } = useStudio();
@@ -83,7 +71,7 @@ function App() {
 							>
 								<span className="nav-icon">{m.icon}</span>
 								<span className="nav-label">{m.name}</span>
-								<NavChanges {...changesIn(m)} />
+								<ChangeCountsLabel {...changesIn(m)} />
 							</button>
 						))}
 						<button className={`nav-item ${view === "play" ? "active" : ""}`} title="Play & Test" aria-label="Play & Test" onClick={() => setView("play")}>

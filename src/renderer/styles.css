@@ -1769,21 +1769,21 @@ button.link {
 	font-size: 12px;
 	color: var(--muted);
 }
-.nav-changes {
+.change-counts {
 	display: flex;
 	gap: 5px;
 	margin-left: auto;
 	font-size: 11px;
 	font-weight: 600;
 }
-.shell.collapsed .nav-changes {
+.shell.collapsed .change-counts {
 	position: absolute;
 	right: 4px;
 	bottom: 2px;
 	gap: 1px;
 	font-size: 0;
 }
-.shell.collapsed .nav-changes > span::before {
+.shell.collapsed .change-counts > span::before {
 	content: "";
 	display: inline-block;
 	width: 5px;
@@ -1792,38 +1792,60 @@ button.link {
 	background: currentColor;
 }
 
-/* Lists under headings (e.g. Scenes, then Prefabs) */
-.asset-group {
+/* The asset tree: folders and leaves, indented by depth */
+.asset-tree {
+	padding: 4px 0;
+}
+.tree-row {
 	display: flex;
 	align-items: center;
 	gap: 6px;
 	width: 100%;
-	margin: 0;
+	min-height: 26px;
+	padding: 2px 10px 2px 8px;
 	background: none;
 	border: none;
 	border-radius: 0;
-	cursor: pointer;
-	text-align: left;
-	font-weight: 600;
-	padding: 10px 12px 4px;
-	font-size: 11px;
-	text-transform: uppercase;
-	letter-spacing: 0.05em;
-	color: var(--muted);
-	border-bottom: 1px solid var(--border);
-}
-.prefab-thumb {
-	float: right;
-	width: 56px;
-	height: 56px;
-	margin-left: 8px;
-	object-fit: contain;
-	background: #121317;
-	border-radius: 6px;
-}
-.asset-group:hover {
 	color: var(--text);
+	font-size: 13px;
+	text-align: left;
+	cursor: pointer;
 }
-.asset-group .caret {
+.tree-row:hover {
+	background: var(--panel);
+}
+.tree-row.selected {
+	background: var(--panel-2);
+	box-shadow: inset 2px 0 0 var(--accent);
+}
+.tree-row .caret {
 	width: 10px;
+	flex-shrink: 0;
+	color: var(--muted);
+	font-size: 10px;
+}
+.tree-folder {
+	color: var(--muted);
+	font-weight: 600;
+}
+.tree-row .title {
+	flex-shrink: 0;
+	max-width: 60%;
+}
+.tree-icon {
+	display: flex;
+	flex-shrink: 0;
+	width: 22px;
+	height: 22px;
+}
+.tree-icon > img,
+.tree-icon > div {
+	width: 22px !important;
+	height: 22px !important;
+	border-radius: 3px;
+	object-fit: contain;
+	font-size: 0;
+}
+.tree-icon span {
+	display: none;
 }

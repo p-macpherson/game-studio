@@ -1,7 +1,8 @@
-// The common shape of a module section: a searchable asset list and a viewer, both showing the checkout
-// selected in the sidebar (main, or a worktree: its changes shown, other worktrees' hidden), with actions, a
-// banner over what the worktree changed, and the sessions linked to the asset. Each module draws an asset's content.
-import { Fragment, type ReactNode, useEffect, useMemo, useState } from "react";
+// The common shape of a module section: a searchable tree of its assets and a viewer, both showing the checkout
+// selected in the sidebar (main, or a worktree: its changes labelled, other worktrees' hidden), with actions and
+// the sessions linked to the asset. Each module draws an asset's content.
+import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ChangeCounts, assetTree, type TreeNode, treeLeaves } from "../../shared/asset-tree";
 import { type AssetSearchHit, type AssetSummary, type ModuleInfo, moduleOwns } from "../../shared/modules";
 import type { WorktreeSummary } from "../../shared/types";
 import { call, relativeTime } from "../api";
@@ -24,8 +25,10 @@ export interface AssetBrowserProps {
 	/** What "New" does: open the New Session dialog with this preset, or run `onNew` instead. */
 	newPreset?: NewSessionPreset;
 	onNew?(): void;
-	/** Drawn at the top of each list item (e.g. a thumbnail), from the shown checkout. */
+	/** A small icon before each item's name in the tree (e.g. a thumbnail), from the shown checkout. */
 	itemPreview?(asset: AssetSummary, checkout?: string): ReactNode;
+	/** A short note after an item's name (e.g. where it's used). */
+	itemHint?(asset: AssetSummary): string | undefined;
 	modifyLabel: string;
 	modifyPlaceholder: string;
 	emptyText: string;
@@ -34,22 +37,19 @@ export interface AssetBrowserProps {
 	content(props: AssetContentProps): ReactNode;
 	/** Extra header buttons for the selected asset. */
 	actions?(asset: AssetSummary, checkout?: string): ReactNode;
-	/** Drawn at the bottom of each list item (e.g. where it's used). */
-	itemFooter?(asset: AssetSummary, checkout?: string): ReactNode;
-	/** Lists the assets under headings, in this order (e.g. Scenes, then Prefabs). */
-	groups?: { name: string; has(asset: AssetSummary): boolean }[];
 }
 
-type Groups = NonNullable<AssetBrowserProps["groups"]>;
-const groupName = (a: AssetSummary, groups: Groups) => groups.find((g) => g.has(a))?.name ?? "Other";
-/** The assets in their groups' order (stable within a group); unchanged without groups. */
-function inGroups(assets: AssetSummary[], groups?: Groups): AssetSummary[] {
-	if (!groups) return assets;
-	const rank = (a: AssetSummary) => {
-		const i = groups.findIndex((g) => g.has(a));
-		return i < 0 ? groups.length : i;
-	};
-	return assets.map((a, i) => ({ a, i })).sort((x, y) => rank(x.a) - rank(y.a) || x.i - y.i).map((x) => x.a);
+/** How many things the selected worktree added, modified and removed, in the change colours (sidebar, folders). */
+export function ChangeCountsLabel({ added, modified, deleted }: ChangeCounts) {
+	if (!added && !modified && !deleted) return null;
+	const title = [added && `${added} new`, modified && `${modified} modified`, deleted && `${deleted} removed`].filter(Boolean).join(", ");
+	return (
+		<span className="change-counts" title={`In the selected worktree: ${title}`} data-testid="change-counts">
+			{added > 0 && <span className="change-added">{added}</span>}
+			{modified > 0 && <span className="change-modified">{modified}</span>}
+			{deleted > 0 && <span className="change-deleted">{deleted}</span>}
+		</span>
+	);
 }
 
 const CHANGE_LABEL = { added: "New", modified: "Modified", deleted: "Removed" } as const;
@@ -75,10 +75,6 @@ export function Highlight({ text, query }: { text: string; query: string }) {
 	);
 }
 
-/**
- * Shown over an asset the selected worktree added or changed: it isn't in the game until the worktree is merged.
- * Merging (or discarding) takes the whole worktree, so the other files it changed are listed first.
- */
 export function AssetBrowser(props: AssetBrowserProps) {
 	const { module } = props;
 	const { focus, showAsset, assetsVersion, sessions, openNewSession, selectSession, showError, project, worktree, worktrees } = useStudio();
@@ -92,23 +88,23 @@ export function AssetBrowser(props: AssetBrowserProps) {
 	// Filters (with a worktree selected): only what it changed; whether to list what it removed.
 	const [onlyChanged, setOnlyChanged] = useState(false);
 	const [includeRemoved, setIncludeRemoved] = useState(true);
-	// Folded group headings, remembered per section.
-	const groupsKey = `asset-groups-hidden:${module.id}`;
-	const [hiddenGroups, setHiddenGroups] = useState<string[]>(() => JSON.parse(localStorage.getItem(groupsKey) ?? "[]"));
-	const toggleGroup = (name: string) => {
-		const next = hiddenGroups.includes(name) ? hiddenGroups.filter((g) => g !== name) : [...hiddenGroups, name];
-		localStorage.setItem(groupsKey, JSON.stringify(next));
-		setHiddenGroups(next);
+	// Folded folders, remembered per section.
+	const foldKey = `asset-tree-folded:${module.id}`;
+	const [folded, setFolded] = useState<string[]>(() => JSON.parse(localStorage.getItem(foldKey) ?? "[]"));
+	const toggleFolder = (key: string) => {
+		const next = folded.includes(key) ? folded.filter((k) => k !== key) : [...folded, key];
+		localStorage.setItem(foldKey, JSON.stringify(next));
+		setFolded(next);
 	};
 
 	useEffect(() => {
 		// Only the latest request counts: one started during a merge can finish after the one that followed it.
 		let live = true;
-		call("assets.list", module.id, worktree).then((a) => live && setAssets(inGroups(a, props.groups)), (err) => live && showError(err));
+		call("assets.list", module.id, worktree).then((a) => live && setAssets(a), (err) => live && showError(err));
 		return () => {
 			live = false;
 		};
-	}, [module.id, assetsVersion, project?.path, worktree, showError, props.groups]);
+	}, [module.id, assetsVersion, project?.path, worktree, showError]);
 
 	useEffect(() => {
 		const q = query.trim();
@@ -122,7 +118,7 @@ export function AssetBrowser(props: AssetBrowserProps) {
 	useEffect(() => {
 		// A focused asset of ours that isn't listed yet was just created: the list catches up on its next refresh.
 		const waitingFor = focus && moduleOwns(module, focus.path);
-		if (assets && assets.length > 0 && !selected && !waitingFor) showAsset({ path: (pickDefault?.(assets) ?? assets[0]).path });
+		if (assets && assets.length > 0 && !selected && !waitingFor) showAsset({ path: (pickDefault?.(assets) ?? treeLeaves(assetTree(module, assets))[0].asset).path });
 	}, [assets, selected, showAsset, pickDefault, focus, module]);
 
 	useEffect(() => {
@@ -147,46 +143,57 @@ export function AssetBrowser(props: AssetBrowserProps) {
 	}, [assets, hits, query, onlyChanged, includeRemoved]);
 
 	const linkedSessions = selected ? sessions.filter((s) => s.linkedAsset === selected.path) : [];
-	const subtitle = (path: string) => (module.roots.length === 1 ? path.slice(module.roots[0].length + 1) : path);
+	const tree = useMemo(() => assetTree(module, visible), [module, visible]);
+	// While searching or filtering, every folder is open so the matches show.
+	const filtering = !!query.trim() || onlyChanged;
 
-	// With groups: one section per heading (in order, only those with something to show); headings fold away.
-	const sections: { name?: string; items: AssetSummary[] }[] = props.groups
-		? [...props.groups.map((g) => g.name), "Other"]
-				.map((name) => ({ name, items: visible.filter((a) => groupName(a, props.groups!) === name) }))
-				.filter((sec) => sec.items.length > 0)
-		: [{ items: visible }];
-	const item = (a: AssetSummary) => (
-		<div
-			key={a.path}
-			data-testid="asset-item"
-			className={`session-item asset-item ${a.path === selected?.path ? "selected" : ""}`}
-			onClick={() => showAsset({ path: a.path })}
-		>
-			{props.itemPreview?.(a, checkout)}
-			<div className="row">
-				<span className={`title grow ellipsis ${a.change === "deleted" ? "removed" : ""}`}>{a.title}</span>
-				{a.change && <ChangeLabel change={a.change} />}
-				{a.updatedAt && (
-					<span className="muted" style={{ fontSize: 11 }}>
-						{relativeTime(a.updatedAt)}
+	const row = (n: TreeNode, depth: number): ReactNode => {
+		const indent = { paddingLeft: 8 + depth * 14 };
+		if (n.kind === "folder") {
+			const open = filtering || !folded.includes(n.key);
+			return (
+				<div key={n.key} role="group">
+					<button className="tree-row tree-folder" style={indent} aria-expanded={open} onClick={() => toggleFolder(n.key)} data-testid="tree-folder">
+						<span className="caret">{open ? "▾" : "▸"}</span>
+						<span className="grow ellipsis">{n.name}</span>
+						<ChangeCountsLabel {...n.changes} />
+					</button>
+					{open && n.children.map((c) => row(c, depth + 1))}
+				</div>
+			);
+		}
+		const a = n.asset;
+		const hint = props.itemHint?.(a);
+		const icon = props.itemPreview?.(a, checkout);
+		const tooltip = [a.title !== n.name ? a.title : "", a.excerpt, a.updatedAt ? `Changed ${relativeTime(a.updatedAt)}` : ""].filter(Boolean).join("\n");
+		return (
+			<div key={n.key}>
+				<div
+					data-testid="asset-item"
+					className={`tree-row asset-item ${a.path === selected?.path ? "selected" : ""}`}
+					style={indent}
+					title={tooltip}
+					onClick={() => showAsset({ path: a.path })}
+				>
+					<span className="caret" />
+					{icon && <span className="tree-icon">{icon}</span>}
+					<span className={`title ellipsis ${a.change === "deleted" ? "removed" : ""}`}>{n.name}</span>
+					<span className="muted small grow ellipsis" data-testid="item-hint">
+						{hint ?? (a.title.toLowerCase() !== n.name.toLowerCase() ? a.title : "")}
 					</span>
-				)}
+					{a.change && <ChangeLabel change={a.change} />}
+				</div>
+				{hits
+					.filter((h) => h.path === a.path)
+					.slice(0, 3)
+					.map((h) => (
+						<div key={h.line} className="hit ellipsis" style={{ paddingLeft: 30 + depth * 14 }}>
+							{h.line}: <Highlight text={h.text} query={query.trim()} />
+						</div>
+					))}
 			</div>
-			<span className="muted ellipsis" style={{ fontSize: 11 }}>
-				{subtitle(a.path)}
-			</span>
-			{a.excerpt && <span className="excerpt">{a.excerpt}</span>}
-			{hits
-				.filter((h) => h.path === a.path)
-				.slice(0, 3)
-				.map((h) => (
-					<div key={h.line} className="hit ellipsis">
-						{h.line}: <Highlight text={h.text} query={query.trim()} />
-					</div>
-				))}
-			{props.itemFooter?.(a, checkout)}
-		</div>
-	);
+		);
+	};
 
 	const modify = (path: string) =>
 		openNewSession({ agentType: module.agentType, target: "project", linkedAsset: path, context: `About ${path}`, placeholder: props.modifyPlaceholder });
@@ -216,24 +223,7 @@ export function AssetBrowser(props: AssetBrowserProps) {
 				<div className="session-items">
 					{assets?.length === 0 && <div className="empty">{props.emptyText}</div>}
 					{!!assets?.length && visible.length === 0 && <div className="empty">Nothing matches.</div>}
-					{sections.map((sec) => (
-						<Fragment key={sec.name ?? ""}>
-							{sec.name && (
-								<button
-									className="asset-group"
-									data-testid="asset-group"
-									aria-expanded={!hiddenGroups.includes(sec.name)}
-									title={hiddenGroups.includes(sec.name) ? `Show ${sec.name.toLowerCase()}` : `Hide ${sec.name.toLowerCase()}`}
-									onClick={() => toggleGroup(sec.name!)}
-								>
-									<span className="caret">{hiddenGroups.includes(sec.name) ? "▸" : "▾"}</span>
-									{sec.name}
-									<span className="muted">{sec.items.length}</span>
-								</button>
-							)}
-							{!(sec.name && hiddenGroups.includes(sec.name)) && sec.items.map(item)}
-						</Fragment>
-					))}
+					<div className="asset-tree" role="tree">{tree.map((n) => row(n, 0))}</div>
 				</div>
 			</div>
 			{selected && assets ? (

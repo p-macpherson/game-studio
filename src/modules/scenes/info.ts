@@ -33,7 +33,9 @@ export function prefabIndex(files: { path: string; text: string }[]): Map<string
 		if (isPrefab(f.path)) {
 			const mesh = scene.entities.find((e) => !e.prefab && typeof (e.Mesh_Renderer as { mesh?: unknown } | undefined)?.mesh === "string");
 			const model = (mesh?.Mesh_Renderer as { mesh: string } | undefined)?.mesh;
-			entry(f.path).model = model && `assets/${model}`;
+			// A generated model (models/<name>/…) has a thumbnail; builtin meshes ("cube") don't.
+			const info = entry(f.path);
+			if (model?.startsWith("models/")) info.model = `assets/${model}`;
 		}
 		const counts = new Map<string, number>();
 		for (const e of scene.entities) if (e.prefab) counts.set(`assets/${e.prefab}`, (counts.get(`assets/${e.prefab}`) ?? 0) + 1);

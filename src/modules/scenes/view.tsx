@@ -40,12 +40,6 @@ const RUNTIME_COMPONENTS = ["Scene_Ref", "Net_Entity"];
 const cameras = new Map<string, Orbit>();
 const selections = new Map<string, number | null>();
 
-/** The list's headings: the levels first, then the reusable objects they place. */
-const GROUPS = [
-	{ name: "Scenes", has: (a: AssetSummary) => !isPrefab(a.path) },
-	{ name: "Prefabs", has: (a: AssetSummary) => isPrefab(a.path) },
-];
-
 /** Every prefab's model and where it's placed, in the shown checkout. */
 function usePrefabIndex(checkout?: string): Map<string, PrefabInfo> {
 	const { assetsVersion } = useStudio();
@@ -69,7 +63,7 @@ function PrefabThumb({ model, checkout }: { model?: string; checkout?: string })
 	useEffect(() => setFailed(false), [model, checkout]);
 	if (!model || failed) return null;
 	const thumb = `${model.slice(0, model.lastIndexOf("/"))}/thumbnail.png`;
-	return <img className="prefab-thumb" src={studioFile(checkout, thumb)} alt="" onError={() => setFailed(true)} />;
+	return <img src={studioFile(checkout, thumb)} alt="" onError={() => setFailed(true)} />;
 }
 
 export function ScenesView({ module }: { module: ModuleInfo }) {
@@ -78,16 +72,11 @@ export function ScenesView({ module }: { module: ModuleInfo }) {
 	return (
 		<AssetBrowser
 			module={module}
-			groups={GROUPS}
-			itemPreview={(a, at) => isPrefab(a.path) && <PrefabThumb model={prefabs.get(a.path)?.model} checkout={at} />}
-			itemFooter={(a) => {
-				if (!isPrefab(a.path) || a.change === "deleted") return null;
+			itemPreview={(a, at) => isPrefab(a.path) && prefabs.get(a.path)?.model && <PrefabThumb model={prefabs.get(a.path)?.model} checkout={at} />}
+			itemHint={(a) => {
+				if (!isPrefab(a.path) || a.change === "deleted") return undefined;
 				const used = prefabs.get(a.path)?.usedIn ?? [];
-				return (
-					<span className="muted small" data-testid="prefab-used">
-						{used.length ? `Used ${used.map((u) => `${u.count > 1 ? `${u.count}× ` : ""}in ${u.name}`).join(", ")}` : "Not placed in any scene yet"}
-					</span>
-				);
+				return used.length ? `used ${used.map((u) => `${u.count > 1 ? `${u.count}× ` : ""}in ${u.name}`).join(", ")}` : "not placed yet";
 			}}
 			newLabel="+ New scene"
 			newPreset={{

@@ -118,7 +118,7 @@ try {
 	// Merging the worktree (from the sidebar) makes it a regular doc; the selection goes back to main.
 	await page.getByTestId("worktree-merge").click();
 	await page.getByTestId("worktree-current").filter({ hasText: "main" }).waitFor({ timeout: 30_000 });
-	await docs.filter({ hasText: "Combat" }).filter({ hasText: "Hit things." }).waitFor();
+	await docs.filter({ hasText: "Combat" }).and(page.locator('[title*="Hit things."]')).waitFor(); // the excerpt, as its tooltip
 	if ((await docs.filter({ hasText: "Combat" }).textContent())?.includes("⎇")) throw new Error("merged doc still shown as worktree work");
 
 	// "Discuss / modify" links the session to the doc; its edit shows as a draft of the overview.
@@ -142,7 +142,7 @@ try {
 	await page.getByRole("button", { name: "Design Docs" }).click();
 	await docs.filter({ hasText: "⎇ Removed" }).filter({ hasText: "Combat" }).click();
 	await page.getByTestId("asset-removed").waitFor();
-	await page.getByTestId("nav-changes").locator(".change-deleted").first().waitFor();
+	await page.locator(".sidebar").getByTestId("change-counts").locator(".change-deleted").first().waitFor();
 	await page.getByTestId("filter-changed").check();
 	await step("36-worktree-changes", page);
 	await page.getByTestId("filter-changed").uncheck();
@@ -353,7 +353,7 @@ try {
 	await page.getByTestId("chat").getByText(/^Result: assets\/scenes\/main\.json in the game's engine, views in order: top, game\./).waitFor({ timeout: 60_000 });
 	await step("26-preview-scene", page);
 
-	// The same session makes a prefab and places it twice: the list shows Scenes, then Prefabs with where each is used.
+	// The same session makes a prefab and places it twice: the tree shows scenes/, then prefabs/ with where each is used.
 	const placeCrates = [
 		"import json",
 		'open("assets/prefabs/crate.json", "w").write(json.dumps({"notes": "A crate.", "entities": [{"id": 1, "Name": "Crate", "Transform": {}, "Mesh_Renderer": {"mesh": "cube"}}]}))',
@@ -367,16 +367,16 @@ try {
 	await page.getByTestId("chat").getByText(/^Result:[\s\S]*crate-placed/).waitFor({ timeout: 30_000 });
 	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
 	await nav.getByRole("button", { name: "Scenes" }).click();
-	await page.getByTestId("asset-group").filter({ hasText: "Prefabs" }).waitFor();
-	await page.getByTestId("prefab-used").filter({ hasText: "Used 2× in main" }).waitFor({ timeout: 10_000 });
-	if (!/^[▾▸]Scenes/.test((await page.getByTestId("asset-group").first().textContent()) ?? "")) throw new Error("scenes aren't listed first");
+	await page.getByTestId("tree-folder").filter({ hasText: "prefabs" }).waitFor();
+	await page.getByTestId("asset-item").filter({ hasText: "used 2× in main" }).waitFor({ timeout: 10_000 });
+	if (!/^[▾▸]scenes/.test((await page.getByTestId("tree-folder").first().textContent()) ?? "")) throw new Error("scenes aren't listed first");
 	await nav.getByRole("button", { name: "Scenes" }).locator(".change-added").waitFor({ timeout: 10_000 }); // the new prefab, in the sidebar too
 	await step("37-scene-groups", page);
-	// Headings fold away (remembered); the wheel over the scene zooms it and doesn't scroll the page behind.
+	// Folders fold away (remembered); the wheel over the scene zooms it and doesn't scroll the page behind.
 	const crateItem = page.getByTestId("asset-item").filter({ has: page.locator(".title", { hasText: /^crate$/ }) });
-	await page.getByTestId("asset-group").filter({ hasText: "Prefabs" }).click();
+	await page.getByTestId("tree-folder").filter({ hasText: "prefabs" }).click();
 	await crateItem.waitFor({ state: "detached" });
-	await page.getByTestId("asset-group").filter({ hasText: "Prefabs" }).click();
+	await page.getByTestId("tree-folder").filter({ hasText: "prefabs" }).click();
 	await crateItem.waitFor();
 	const wheelKept = await page.getByTestId("scene-viewport").evaluate((el) => !el.dispatchEvent(new WheelEvent("wheel", { deltaY: 100, bubbles: true, cancelable: true })));
 	if (!wheelKept) throw new Error("the scene's wheel zoom lets the page scroll");

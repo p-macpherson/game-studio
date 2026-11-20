@@ -7,7 +7,7 @@ describe("prefabIndex", () => {
 		const index = prefabIndex([
 			{ path: "assets/prefabs/barrel.json", text: scene([{ id: 1, Transform: {}, Mesh_Renderer: { mesh: "models/barrel/barrel.glb" } }]) },
 			{ path: "assets/prefabs/camp.json", text: scene([{ id: 1, prefab: "prefabs/barrel.json" }]) },
-			{ path: "assets/prefabs/lonely.json", text: scene([{ id: 1, Transform: {} }]) },
+			{ path: "assets/prefabs/lonely.json", text: scene([{ id: 1, Transform: {}, Mesh_Renderer: { mesh: "cube" } }]) },
 			{
 				path: "assets/scenes/clearing.json",
 				text: scene([
@@ -25,6 +25,6 @@ describe("prefabIndex", () => {
 			],
 		});
 		expect(index.get("assets/prefabs/camp.json")).toEqual({ usedIn: [{ name: "clearing", count: 1 }] });
-		expect(index.get("assets/prefabs/lonely.json")?.usedIn).toEqual([]);
+		expect(index.get("assets/prefabs/lonely.json")).toEqual({ usedIn: [] }); // a builtin mesh: no model thumbnail
 	});
 });
