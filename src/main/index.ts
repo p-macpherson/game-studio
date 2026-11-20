@@ -236,6 +236,14 @@ async function main(): Promise<void> {
 			return step ? history.record(worktreeId, cwd, step.label, step.scopes, run) : run();
 		},
 		"worktrees.commits": (id) => sessions.worktreeCommits(id),
+		"worktrees.status": (id) => sessions.worktreeStatus(id),
+		"worktrees.update": async (id) => {
+			const r = await sessions.updateWorktree(id);
+			history.clear(id); // the merge changed files under the manual-edit history
+			return r;
+		},
+		"worktrees.abortUpdate": (id) => sessions.abortWorktreeUpdate(id),
+		"worktrees.resolveConflicts": (id, model) => sessions.resolveWorktreeConflicts(id, model),
 		"history.get": async (worktreeId) => ({ steps: history.steps(worktreeId), unsaved: await sessions.worktreeUnsaved(worktreeId) }),
 		"history.undo": async (worktreeId) => history.undo(worktreeId, checkoutRoot(worktreeId)),
 		"history.redo": async (worktreeId) => history.redo(worktreeId, checkoutRoot(worktreeId)),

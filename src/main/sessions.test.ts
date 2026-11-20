@@ -257,6 +257,34 @@ describe("SessionService", () => {
 		}
 	});
 
+	it("updates a worktree from main: only its own work counts as its changes; a conflict waits for resolution, blocks merging, and can be aborted", async () => {
+		const s = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: "worktree note", worktreeLabel: "Notes" });
+		await settled(s.id);
+		// main moves on: a file the worktree didn't touch.
+		writeFileSync(join(project, "from-main.md"), "main's work\n");
+		sh(project, "add", "from-main.md");
+		sh(project, "commit", "-qm", "Main adds a file");
+		expect(await service.worktreeStatus(s.worktreeId)).toEqual({ behind: 1, conflicts: null });
+		expect(await service.updateWorktree(s.worktreeId)).toEqual({ commits: 1, conflicts: [] });
+		expect(readFileSync(join(s.worktreePath, "from-main.md"), "utf8")).toBe("main's work\n");
+		expect((await service.worktreeChangedFiles(s.worktreeId)).map((f) => f.path)).toEqual(["faux-notes.md"]); // not main's file
+		expect((await service.worktreeStatus(s.worktreeId)).behind).toBe(0);
+
+		// Both change the same file: a conflict.
+		writeFileSync(join(project, "faux-notes.md"), "main's version\n");
+		sh(project, "add", "faux-notes.md");
+		sh(project, "commit", "-qm", "Main writes the notes too");
+		expect(await service.updateWorktree(s.worktreeId)).toEqual({ commits: 1, conflicts: ["faux-notes.md"] });
+		expect(await service.worktreeStatus(s.worktreeId)).toEqual({ behind: 1, conflicts: ["faux-notes.md"] });
+		await expect(service.mergeWorktree(s.worktreeId)).rejects.toThrow(/being updated from main/);
+		const brief = await service.conflictBrief(s.worktreeId);
+		for (const part of ["- faux-notes.md", "Main writes the notes too", "worktree note (general", "session.json"]) expect(brief).toContain(part);
+
+		await service.abortWorktreeUpdate(s.worktreeId);
+		expect(await service.worktreeStatus(s.worktreeId)).toEqual({ behind: 1, conflicts: null });
+		expect(readFileSync(join(s.worktreePath, "faux-notes.md"), "utf8")).toBe("worktree note\n");
+	});
+
 	it("refuses to merge when the main checkout is on another branch", async () => {
 		const s = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: "x" });
 		await settled(s.id);

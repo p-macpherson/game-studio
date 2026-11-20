@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { SessionStatus, SessionSummary, Target } from "../../shared/types";
 import { findAgentType } from "../../shared/agents";
 import { relativeTime } from "../api";
-import { useStudio } from "../store";
+import { isOpenProjectWorktree, useStudio } from "../store";
 import { SessionDetail } from "./SessionDetail";
 
 type StatusFilter = "in_progress" | "idle" | "done";
@@ -36,7 +36,12 @@ export function TargetBadge({ target }: { target: Target }) {
 }
 
 export function Sessions() {
-	const { sessions, agentTypes, selectedSession, selectSession, openNewSession } = useStudio();
+	const { sessions, agentTypes, selectedSession, selectSession, openNewSession, worktree, worktrees } = useStudio();
+	// Which sessions: the selected worktree's; with main selected, those in no open worktree of the game (finished,
+	// merged or discarded work, and engine or studio sessions, which work in their own repos).
+	const current = worktrees.find((w) => w.id === worktree && isOpenProjectWorktree(w));
+	const open = new Set(worktrees.filter(isOpenProjectWorktree).map((w) => w.id));
+	const inScope = (s: SessionSummary) => (current ? s.worktreeId === current.id : !open.has(s.worktreeId));
 	const [statuses, setStatuses] = useState<Set<StatusFilter>>(new Set(["in_progress", "idle"]));
 	const [target, setTarget] = useState<Target | "all">("all");
 	const [search, setSearch] = useState("");
@@ -49,6 +54,7 @@ export function Sessions() {
 	};
 	const typeName = (id: string) => findAgentType(agentTypes, id)?.name ?? id;
 	const matches = (s: SessionSummary) =>
+		inScope(s) &&
 		statuses.has(STATUS_GROUP[s.status]) &&
 		(target === "all" || s.target === target) &&
 		(!search || `${s.title} ${s.agentType}`.toLowerCase().includes(search.toLowerCase()));
@@ -63,7 +69,8 @@ export function Sessions() {
 	const roots = sessions.filter((s) => !(s.parentId && ids.has(s.parentId)) && shown(s));
 	const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 	const toggleNode = (id: string) => setCollapsed((c) => (c.has(id) ? new Set([...c].filter((x) => x !== id)) : new Set([...c, id])));
-	const selected = sessions.find((s) => s.id === selectedSession);
+	// Only a session of the shown worktree (or main's list): another worktree's stays selected for when you go back.
+	const selected = sessions.find((s) => s.id === selectedSession && inScope(s));
 	const running = (s: SessionSummary) => s.status === "in_progress" || s.status === "starting";
 
 	const node = (s: SessionSummary, depth: number) => {
@@ -149,8 +156,20 @@ export function Sessions() {
 						</select>
 					</div>
 				</div>
+				<div className={`scope-banner ${current ? "" : "scope-main"}`} data-testid="sessions-scope">
+					{current ? (
+						<>
+							⎇ <b>{current.label}</b>: its sessions. New sessions join this worktree.
+						</>
+					) : (
+						<>
+							<b>Main</b>: a new game session starts <b>its own worktree</b>, named after its task. Listed here: finished work, and engine or studio
+							sessions. Pick a worktree in the sidebar to see its sessions.
+						</>
+					)}
+				</div>
 				<div className="session-items">
-					{roots.length === 0 && <div className="empty">No sessions match. Start one with “New session”.</div>}
+					{roots.length === 0 && <div className="empty">{current ? "No sessions in this worktree match." : "No sessions here match."} Start one with “New session”.</div>}
 					{roots.map((s) => node(s, 0))}
 				</div>
 			</div>

@@ -127,6 +127,13 @@ export interface StudioApi {
 	"worktrees.revert"(id: string): Promise<void>;
 	/** The commits on a worktree's branch since it was made, newest first. */
 	"worktrees.commits"(id: string): Promise<GitCommit[]>;
+	/** Commits main has that the worktree doesn't, and the conflicts of an update from main in progress. */
+	"worktrees.status"(id: string): Promise<{ behind: number; conflicts: string[] | null }>;
+	/** Merges latest main into the worktree; conflicts leave the update in progress. */
+	"worktrees.update"(id: string): Promise<{ commits: number; conflicts: string[] }>;
+	"worktrees.abortUpdate"(id: string): Promise<void>;
+	/** Starts the Conflict Resolver on an update's conflicts, briefed with the worktree's sessions. */
+	"worktrees.resolveConflicts"(id: string, model?: string): Promise<SessionSummary>;
 	"worktrees.merge"(id: string): Promise<void>;
 	"worktrees.discard"(id: string): Promise<void>;
 	"worktrees.changedFiles"(id: string): Promise<{ path: string; change: "added" | "modified" | "deleted" }[]>;

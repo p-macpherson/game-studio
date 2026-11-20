@@ -102,7 +102,16 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 						</>
 					)}
 					{s.status === "done" && (
-						<button className="primary" disabled={busy} onClick={() => act(() => call("sessions.resume", s.id))}>
+						<button className="primary" disabled={busy} onClick={() =>
+								act(async () => {
+									await call("sessions.resume", s.id);
+									// Its worktree is open again: show it (and the session in it).
+									if (s.target === "project") {
+										await useStudio.getState().refreshWorktrees();
+										useStudio.getState().selectWorktree(s.worktreeId);
+									}
+								})
+							}>
 							Resume
 						</button>
 					)}

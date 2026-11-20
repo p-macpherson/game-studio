@@ -139,14 +139,22 @@ export class WorktreeStore {
 		this.save(w);
 	}
 
-	/** Files changed on the branch since it was made, committed or not. */
+	/**
+	 * Where the branch last matched its base: the merge-base, which moves forward when the worktree is updated from
+	 * main (so main's work never shows as the worktree's changes); the commit it was made from if that fails.
+	 */
+	async base(w: Worktree): Promise<string> {
+		return (await g.git(w.repoPath, ["merge-base", w.record.branch, w.record.baseBranch]).catch(() => w.record.baseCommit)).trim() || w.record.baseCommit;
+	}
+
+	/** Files changed on the branch since it last matched its base, committed or not. */
 	async changedFiles(w: Worktree): Promise<FileChange[]> {
 		if (!this.hasCheckout(w)) return [];
 		const dir = this.path(w);
 		const kinds = { A: "added", D: "deleted" } as const;
 		const files = new Map<string, FileChange["change"]>();
 		// Read-only: no index refresh, so this never holds index.lock while a commit or merge runs there.
-		for (const line of (await g.git(dir, ["--no-optional-locks", "diff", "--name-status", "--no-renames", w.record.baseCommit])).split("\n")) {
+		for (const line of (await g.git(dir, ["--no-optional-locks", "diff", "--name-status", "--no-renames", await this.base(w)])).split("\n")) {
 			const [code, path] = line.split("\t");
 			if (path) files.set(path, kinds[code as "A" | "D"] ?? "modified");
 		}
@@ -156,9 +164,10 @@ export class WorktreeStore {
 
 	/** The branch's changes since it was made, including uncommitted work in the checkout. */
 	async diff(w: Worktree): Promise<string> {
-		if (!this.hasCheckout(w)) return g.git(w.repoPath, ["diff", w.record.baseCommit, w.record.branch]);
+		const base = await this.base(w);
+		if (!this.hasCheckout(w)) return g.git(w.repoPath, ["diff", base, w.record.branch]);
 		const dir = this.path(w);
-		let out = await g.git(dir, ["--no-optional-locks", "diff", w.record.baseCommit]);
+		let out = await g.git(dir, ["--no-optional-locks", "diff", base]);
 		for (const f of (await g.status(dir)).files.filter((f) => f.index === "?")) {
 			out += await g.git(dir, ["diff", "--no-index", "/dev/null", f.path]).catch((err: Error) => {
 				// `git diff --no-index` exits 1 when the files differ, which is always here
@@ -167,6 +176,37 @@ export class WorktreeStore {
 			});
 		}
 		return out;
+	}
+
+	/** How far the base has moved on (commits not yet in the branch), and the conflicts of an update in progress. */
+	async updateStatus(w: Worktree): Promise<{ behind: number; conflicts: string[] | null }> {
+		const behind = Number((await g.git(w.repoPath, ["rev-list", "--count", `${w.record.branch}..${w.record.baseBranch}`]).catch(() => "0")).trim()) || 0;
+		if (!this.hasCheckout(w)) return { behind, conflicts: null };
+		const dir = this.path(w);
+		const merging = await g.git(dir, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]).then(() => true, () => false);
+		if (!merging) return { behind, conflicts: null };
+		const conflicts = (await g.git(dir, ["--no-optional-locks", "diff", "--name-only", "--diff-filter=U"])).split("\n").filter(Boolean);
+		return { behind, conflicts };
+	}
+
+	/** Merges the base (latest main) into the branch, in the checkout; conflicts leave the merge in progress. */
+	async update(w: Worktree): Promise<{ commits: number; conflicts: string[] }> {
+		const { behind } = await this.updateStatus(w);
+		if (!behind) return { commits: 0, conflicts: [] };
+		const dir = this.path(w);
+		try {
+			await g.git(dir, ["merge", "--no-edit", "-q", "-m", `Update “${w.record.label}” from ${w.record.baseBranch}`, w.record.baseBranch]);
+			return { commits: behind, conflicts: [] };
+		} catch (err) {
+			const { conflicts } = await this.updateStatus(w);
+			if (conflicts?.length) return { commits: behind, conflicts };
+			throw new Error(`Updating from ${w.record.baseBranch} failed: ${(err as Error).message}`);
+		}
+	}
+
+	/** Gives up an update in progress: the checkout goes back to how it was before it. */
+	async abortUpdate(w: Worktree): Promise<void> {
+		await g.git(this.path(w), ["merge", "--abort"]);
 	}
 
 	/** Commits what's uncommitted in the checkout, then merges the branch into the base (no fast-forward). */

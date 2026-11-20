@@ -2,6 +2,7 @@
 // scripted faux/echo model. Uses a temp user-data dir, temp worktree root and temp project; the engine repo
 // from default settings is only read (cloned as the project's submodule).
 // Run: npm run build && node e2e/smoke.ts [screenshot-dir]
+import { execSync } from "node:child_process";
 import { readFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -103,6 +104,7 @@ try {
 	await step("08-design-docs", page);
 
 	// "New doc" starts a Game Designer session in a new worktree, which the sidebar selects; its new doc shows there.
+	await selectMain(page); // resuming selected the resumed session's worktree
 	await page.getByRole("button", { name: "+ New doc" }).click();
 	await page.locator(".agent-type.on", { hasText: "Game Designer" }).waitFor();
 	await page.getByTestId("new-session-prompt").fill("write docs/design/Combat.md: # Combat\n\nHit things. See [the overview](Overview.md).");
@@ -183,6 +185,30 @@ try {
 	await page.getByTestId("worktree-menu").waitFor();
 	await step("31-worktree-selector", page);
 	await page.getByTestId("worktree-current").click();
+
+	// Updating from main: main rewrites the overview too, so the update conflicts. The Conflict Resolver starts
+	// (briefed with the worktree's sessions); the Sessions page lists this worktree's sessions only; aborting the
+	// update goes back. With main selected, the page says a new session starts its own worktree.
+	writeFileSync(join(projectPath, "docs/design/Overview.md"), "# E2E Game\n\nMain's own overview.\n");
+	execSync("git add docs/design/Overview.md && git commit -qm 'Main rewrites the overview'", { cwd: projectPath });
+	await page.getByTestId("worktree-behind").filter({ hasText: "main has 1 new commit" }).waitFor({ timeout: 30_000 });
+	await page.getByTestId("worktree-update").click();
+	await page.getByTestId("worktree-conflicts").filter({ hasText: "1 conflict" }).waitFor({ timeout: 30_000 });
+	await page.locator(".session-header", { hasText: "Resolve conflicts with main" }).waitFor({ timeout: 30_000 });
+	await page.getByTestId("sessions-scope").filter({ hasText: "its sessions" }).waitFor();
+	await page.getByTestId("session-item").nth(1).waitFor();
+	if ((await page.getByTestId("session-item").count()) !== 2) throw new Error("the Sessions page should list only this worktree's two sessions");
+	await page.getByTestId("chat").getByText(/Resolve every conflict/).first().waitFor({ timeout: 30_000 });
+	await step("48-update-conflicts", page);
+	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
+	await page.getByTestId("worktree-abort-update").click();
+	await page.getByTestId("worktree-behind").waitFor({ timeout: 30_000 });
+	const overviewWorktree = (await page.getByTestId("worktree-current").textContent()) ?? "";
+	await selectMain(page);
+	await page.getByTestId("sessions-scope").filter({ hasText: "its own worktree" }).waitFor();
+	await step("49-sessions-main", page);
+	await page.getByTestId("worktree-current").click();
+	await page.getByTestId("worktree-option").filter({ hasText: overviewWorktree.replace(/[⎇▾●]/g, "").trim().slice(0, 20) }).click();
 
 	// Game Code lists the template's code.
 	const nav = page.locator("nav.sidebar");

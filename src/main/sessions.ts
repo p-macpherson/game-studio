@@ -244,8 +244,13 @@ export class SessionService {
 	async create(req: NewSessionRequest): Promise<SessionSummary> {
 		const agentType = findAgentType(this.deps.agentTypes(), req.agentType);
 		if (!agentType) throw new Error(`Unknown agent type ${req.agentType}`);
-		// No model given (an API caller rather than the New Session dialog): the type's own default.
-		const model = req.model || agentType.defaultModel;
+		// No model given (an API caller rather than the New Session dialog): like the dialog, the type's own default when
+		// it's available, else the first available model.
+		let model = req.model;
+		if (!model) {
+			const available = (await this.deps.host.call("models").catch(() => [])).map((m) => m.ref);
+			model = agentType.defaultModel && (available.includes(agentType.defaultModel) || !available.length) ? agentType.defaultModel : available[0];
+		}
 		if (!model) throw new Error(`No model given, and ${agentType.name} has no default model`);
 		if (!agentType.targets.includes(req.target)) throw new Error(`${agentType.name} sessions can't target the ${req.target}`);
 		const repoPath = this.repoFor(req.target);
@@ -514,6 +519,75 @@ export class SessionService {
 		return g.log(w.repoPath, 500, `${w.record.baseCommit}..${w.record.branch}`);
 	}
 
+	/** How many commits main has that the worktree doesn't, and the conflicts of an update from main in progress. */
+	worktreeStatus(id: string): Promise<{ behind: number; conflicts: string[] | null }> {
+		return this.worktrees.updateStatus(this.worktrees.get(id));
+	}
+
+	/**
+	 * Brings a worktree up to date with main (a merge into its branch, in its checkout). Its agents must be idle and its
+	 * unsaved edits saved; conflicts leave the merge in progress for a person or the Conflict Resolver to finish.
+	 */
+	async updateWorktree(id: string): Promise<{ commits: number; conflicts: string[] }> {
+		const w = this.worktrees.get(id);
+		this.assertIdleWorktree(id, "updating it from main");
+		if ((await this.worktrees.updateStatus(w)).conflicts) throw new Error(`“${w.record.label}” is already being updated: resolve its conflicts or abort`);
+		const unsaved = await this.worktreeUnsaved(id);
+		if (unsaved.length) throw new Error(`“${w.record.label}” has unsaved changes (${unsaved.length} file${unsaved.length > 1 ? "s" : ""}): save or revert them first`);
+		await this.worktrees.ensureCheckout(w, (dir) => this.initSubmodules(dir));
+		const r = await this.worktrees.update(w);
+		w.record.updatedAt = new Date().toISOString();
+		this.worktrees.save(w);
+		this.deps.emit({ type: "sessions_changed" });
+		return r;
+	}
+
+	async abortWorktreeUpdate(id: string): Promise<void> {
+		const w = this.worktrees.get(id);
+		this.assertIdleWorktree(id, "aborting the update");
+		await this.worktrees.abortUpdate(w);
+		w.record.updatedAt = new Date().toISOString();
+		this.worktrees.save(w);
+		this.deps.emit({ type: "sessions_changed" });
+	}
+
+	/** The Conflict Resolver's brief: the conflicts, both sides' commits, and every session in the worktree (context). */
+	async conflictBrief(id: string): Promise<string> {
+		const w = this.worktrees.get(id);
+		const { conflicts } = await this.worktrees.updateStatus(w);
+		if (!conflicts?.length) throw new Error(`“${w.record.label}” has no update in progress with conflicts`);
+		const dir = this.worktrees.path(w);
+		const commits = async (range: string) => (await g.git(dir, ["log", "--format=- %h %s", "--no-merges", range]).catch(() => "")).trim() || "(none)";
+		const sessions = this.sessionsIn(id).sort((a, b) => a.record.createdAt.localeCompare(b.record.createdAt));
+		const lines = [
+			`Worktree “${w.record.label}” (branch ${w.record.branch}) is being updated from ${w.record.baseBranch}, and these files conflict:`,
+			...conflicts.map((f) => `- ${f}`),
+			"",
+			`What ${w.record.baseBranch} changed since the worktree last matched it:`,
+			await commits("HEAD..MERGE_HEAD"),
+			"",
+			"What the worktree changed (its own commits):",
+			await commits("MERGE_HEAD..HEAD"),
+			"",
+			"The sessions in this worktree, for what was meant (their full transcripts are the .jsonl files beside each session.json):",
+		];
+		for (const e of sessions) {
+			const r = e.record;
+			const report = lastAssistantText(await this.messages(r.id).catch(() => [])).trim();
+			lines.push(`- ${r.title} (${r.agentType}${r.parentId ? ", a sub-agent" : ""}, ${r.status}): ${join(this.sessionDir(e), "session.json")}`);
+			if (report) lines.push(`  Last report: ${report.length > 1200 ? `${report.slice(0, 1200)}…` : report}`);
+		}
+		lines.push("", "Resolve every conflict keeping both sides' intent (read the merge-conflicts skill), check the game builds and its tests pass, then commit the merge.");
+		return lines.join("\n");
+	}
+
+	/** Starts the Conflict Resolver in the worktree, briefed with `conflictBrief`. */
+	async resolveWorktreeConflicts(id: string, model?: string): Promise<SessionSummary> {
+		this.assertIdleWorktree(id, "resolving its conflicts");
+		const prompt = await this.conflictBrief(id);
+		return this.create({ agentType: "conflict-resolver", target: this.worktrees.get(id).record.target, worktreeId: id, title: "Resolve conflicts with main", prompt, ...(model ? { model } : {}) } as NewSessionRequest);
+	}
+
 	/** Uncommitted changes in a worktree's checkout (not the studio's records): what a Save commits, or Revert drops. */
 	async worktreeUnsaved(id: string): Promise<string[]> {
 		const w = this.worktrees.get(id);
@@ -558,6 +632,7 @@ export class SessionService {
 		const sessions = this.sessionsIn(id);
 		const running = sessions.filter((e) => e.record.status === "in_progress" || e.record.status === "starting");
 		if (running.length) throw new Error(`Stop the agent${running.length > 1 ? "s" : ""} first: ${running.map((e) => e.record.title).join(", ")}`);
+		if ((await this.worktrees.updateStatus(w)).conflicts) throw new Error(`“${w.record.label}” is being updated from main: resolve its conflicts (or abort the update) first`);
 		const unsaved = await this.worktreeUnsaved(id);
 		if (unsaved.length) throw new Error(`“${w.record.label}” has unsaved changes (${unsaved.length} file${unsaved.length > 1 ? "s" : ""}): save or revert them first`);
 		await this.worktrees.merge(w, `${w.record.label}\n\nUncommitted work in worktree ${id}, committed by Game Studio when merging it.`);

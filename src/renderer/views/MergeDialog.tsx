@@ -20,13 +20,13 @@ const WAITING = new Set(["idle", "interrupted"]);
 export function MergeDialog({ worktreeId }: { worktreeId: string }) {
 	const { worktrees, sessions, modules, agentTypes, openMerge, showError, refreshWorktrees, refreshHistory, selectWorktree, worktree: selected } = useStudio();
 	const w = worktrees.find((x) => x.id === worktreeId);
-	const [data, setData] = useState<{ files: Change[]; commits: GitCommit[]; steps: HistoryStep[]; unsaved: string[] } | null>(null);
+	const [data, setData] = useState<{ files: Change[]; commits: GitCommit[]; steps: HistoryStep[]; unsaved: string[]; behind: number; conflicts: string[] | null } | null>(null);
 	const [busy, setBusy] = useState(false);
 
 	useEffect(() => {
 		let live = true;
-		Promise.all([call("worktrees.changedFiles", worktreeId), call("worktrees.commits", worktreeId), call("history.get", worktreeId)]).then(
-			([files, commits, h]) => live && setData({ files: files.filter((f) => !f.path.startsWith(".studio/")), commits, ...h }),
+		Promise.all([call("worktrees.changedFiles", worktreeId), call("worktrees.commits", worktreeId), call("history.get", worktreeId), call("worktrees.status", worktreeId)]).then(
+			([files, commits, h, st]) => live && setData({ files: files.filter((f) => !f.path.startsWith(".studio/")), commits, ...h, ...st }),
 			(err) => live && showError(err),
 		);
 		return () => {
@@ -125,6 +125,18 @@ export function MergeDialog({ worktreeId }: { worktreeId: string }) {
 								<SessionRow key={s.id} s={s} typeName={findAgentType(agentTypes, s.agentType)?.name ?? s.agentType} />
 							))}
 						</section>
+						{data.conflicts && (
+							<div className="merge-alert error" data-testid="merge-updating">
+								It's being updated from main and {data.conflicts.length} file{data.conflicts.length === 1 ? "" : "s"} still conflict: resolve them (Resolve in the
+								sidebar starts the Conflict Resolver) or abort the update first.
+							</div>
+						)}
+						{!data.conflicts && data.behind > 0 && (
+							<div className="merge-alert warning" data-testid="merge-behind">
+								main has {data.behind} commit{data.behind === 1 ? "" : "s"} this worktree hasn't seen. If they touch the same files, the merge fails: Update it
+								from main first (sidebar) to sort any conflicts out in the worktree.
+							</div>
+						)}
 						{working.length > 0 && (
 							<div className="merge-alert error" data-testid="merge-blocked">
 								{working.length === 1 ? `“${working[0].title}” is still working` : `${working.length} sessions are still working`}: wait for {working.length === 1 ? "it" : "them"} to
@@ -141,7 +153,7 @@ export function MergeDialog({ worktreeId }: { worktreeId: string }) {
 				)}
 				<div className="row" style={{ justifyContent: "flex-end" }}>
 					<button onClick={close}>Cancel</button>
-					<button className="primary" disabled={!data || busy || working.length > 0} onClick={() => void merge()} data-testid="merge-confirm">
+					<button className="primary" disabled={!data || busy || working.length > 0 || !!data.conflicts} onClick={() => void merge()} data-testid="merge-confirm">
 						{busy ? "Merging…" : unsaved.length ? "Save and merge" : "Merge"}
 					</button>
 				</div>

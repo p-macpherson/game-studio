@@ -12,6 +12,8 @@ export function WorktreePicker() {
 	const { project, worktree, worktrees, sessions, assetsVersion, selectWorktree, refreshWorktrees, showError, history, refreshHistory, undo, redo } = useStudio();
 	const [showSteps, setShowSteps] = useState(false);
 	const [saving, setSaving] = useState<string | null>(null);
+	// How far main has moved on, and an update's conflicts.
+	const [status, setStatus] = useState<{ behind: number; conflicts: string[] | null } | null>(null);
 	const [open, setOpen] = useState(false);
 	const [naming, setNaming] = useState<"new" | "rename" | null>(null);
 	const [label, setLabel] = useState("");
@@ -29,6 +31,7 @@ export function WorktreePicker() {
 		}
 		let live = true;
 		void refreshHistory();
+		call("worktrees.status", current.id).then((s) => live && setStatus(s), () => live && setStatus(null));
 		call("worktrees.changedFiles", current.id).then((f) => {
 			if (!live) return;
 			setChanged(otherFiles(f).map((x) => x.path));
@@ -70,6 +73,30 @@ export function WorktreePicker() {
 		});
 	};
 	const merge = () => current && useStudio.getState().openMerge(current.id);
+	const resolve = () =>
+		current &&
+		void act(async () => {
+			const s = await call("worktrees.resolveConflicts", current.id);
+			useStudio.getState().selectSession(s.id);
+		});
+	const update = () => {
+		if (!current) return;
+		void act(async () => {
+			if (unsaved.length) {
+				if (!window.confirm(`“${current.label}” has unsaved edits. Save them, then update from main?`)) return;
+				await call("worktrees.save", current.id, saveMessage(done.map((s) => s.label), unsaved));
+			}
+			const r = await call("worktrees.update", current.id);
+			if (!r.conflicts.length) return useStudio.getState().notify(`Updated “${current.label}” from main (${r.commits} commit${r.commits === 1 ? "" : "s"})`);
+			const list = r.conflicts.slice(0, 12).map((f) => `- ${f}`).join("\n");
+			if (window.confirm(`${r.conflicts.length} file${r.conflicts.length > 1 ? "s" : ""} conflict with main:\n${list}\n\nStart the Conflict Resolver to merge them? (Cancel leaves the update open: resolve or abort it from the sidebar.)`)) {
+				const s = await call("worktrees.resolveConflicts", current.id);
+				useStudio.getState().selectSession(s.id);
+			}
+		});
+	};
+	const abortUpdate = () =>
+		current && window.confirm(`Abort the update of “${current.label}” from main? Its files go back to before the update.`) && void act(() => call("worktrees.abortUpdate", current.id));
 	const discard = () => {
 		if (!current) return;
 		void act(async () => {
@@ -109,6 +136,29 @@ export function WorktreePicker() {
 					</button>
 					<button className="small icon" disabled={busy || working(current)} onClick={discard} title="Discard this worktree">
 						✕
+					</button>
+				</div>
+			)}
+			{current && status?.conflicts && (
+				<div className="worktree-status conflict row nav-label" data-testid="worktree-conflicts">
+					<span className="grow ellipsis" title={`Updating from main, these files conflict:\n${status.conflicts.join("\n")}`}>
+						⚠ {status.conflicts.length} conflict{status.conflicts.length === 1 ? "" : "s"}
+					</span>
+					<button className="small" disabled={busy || working(current)} onClick={resolve} title="Start the Conflict Resolver, briefed with this worktree's sessions" data-testid="worktree-resolve">
+						Resolve
+					</button>
+					<button className="small icon" disabled={busy || working(current)} onClick={abortUpdate} title="Abort the update" data-testid="worktree-abort-update">
+						✕
+					</button>
+				</div>
+			)}
+			{current && !status?.conflicts && (status?.behind ?? 0) > 0 && (
+				<div className="worktree-status row nav-label" data-testid="worktree-behind">
+					<span className="grow ellipsis muted small">
+						main has {status!.behind} new commit{status!.behind === 1 ? "" : "s"}
+					</span>
+					<button className="small" disabled={busy || working(current)} onClick={update} title={working(current) ? "Wait for the agents to finish" : "Merge latest main into this worktree"} data-testid="worktree-update">
+						Update
 					</button>
 				</div>
 			)}

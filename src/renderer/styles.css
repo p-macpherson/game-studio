@@ -2130,3 +2130,22 @@ textarea {
 	background: var(--accent-2);
 	color: var(--on-accent);
 }
+
+/* Worktree update status (behind main, conflicts) and the Sessions page's scope */
+.worktree-status {
+	gap: 4px;
+	padding: 0 8px 6px 10px;
+	font-size: 12px;
+}
+.worktree-status.conflict {
+	color: var(--yellow);
+}
+.scope-banner {
+	padding: 6px 12px;
+	border-bottom: 1px solid var(--border);
+	font-size: 12px;
+	color: var(--muted);
+}
+.scope-banner.scope-main {
+	background: color-mix(in srgb, var(--accent) 8%, transparent);
+}

@@ -106,7 +106,7 @@ export function NewSessionDialog({ preset }: { preset: NewSessionPreset }) {
 				</label>
 				<div className="row" style={{ justifyContent: "flex-end" }}>
 					<span className="muted grow" style={{ fontSize: 12 }} data-testid="new-session-worktree">
-						{target === "project" && currentWorktree ? `Works in worktree “${currentWorktree.label}”.` : "Works in a new worktree, named after the task."} Ctrl+Enter to start.
+						{target === "project" && currentWorktree ? `Works in worktree “${currentWorktree.label}”.` : target === "project" ? "Main is selected: this starts a new worktree for it, named after the task." : "Works in a new worktree of that repo, named after the task."} Ctrl+Enter to start.
 					</span>
 					<button onClick={() => openNewSession(null)}>Cancel</button>
 					<button className="primary" disabled={busy || !prompt.trim() || !target || !model} onClick={start}>
