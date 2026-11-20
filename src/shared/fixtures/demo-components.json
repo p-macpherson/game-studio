@@ -1,0 +1,467 @@
+[
+	{
+		"name": "Name",
+		"flags": [],
+		"fields": [
+			{
+				"name": "value",
+				"type": "Name"
+			}
+		]
+	},
+	{
+		"name": "Transform",
+		"flags": [],
+		"fields": [
+			{
+				"name": "position",
+				"type": "[3]f32"
+			},
+			{
+				"name": "rotation",
+				"type": "quaternion128"
+			},
+			{
+				"name": "scale",
+				"type": "[3]f32"
+			},
+			{
+				"name": "parent",
+				"type": "Entity"
+			}
+		]
+	},
+	{
+		"name": "Camera",
+		"flags": [],
+		"fields": [
+			{
+				"name": "fov",
+				"type": "f32"
+			},
+			{
+				"name": "near",
+				"type": "f32"
+			},
+			{
+				"name": "far",
+				"type": "f32"
+			},
+			{
+				"name": "projection",
+				"type": "Projection",
+				"values": [
+					"Perspective",
+					"Orthographic"
+				]
+			},
+			{
+				"name": "ortho_size",
+				"type": "f32"
+			},
+			{
+				"name": "priority",
+				"type": "i32"
+			}
+		]
+	},
+	{
+		"name": "Mesh_Renderer",
+		"flags": [],
+		"fields": [
+			{
+				"name": "mesh",
+				"type": "string"
+			},
+			{
+				"name": "material",
+				"type": "Material"
+			},
+			{
+				"name": "no_shadow",
+				"type": "bool"
+			},
+			{
+				"name": "hidden",
+				"type": "bool"
+			}
+		]
+	},
+	{
+		"name": "Light",
+		"flags": [],
+		"fields": [
+			{
+				"name": "kind",
+				"type": "Light_Kind",
+				"values": [
+					"Point",
+					"Directional",
+					"Spot"
+				]
+			},
+			{
+				"name": "color",
+				"type": "[3]f32"
+			},
+			{
+				"name": "intensity",
+				"type": "f32"
+			},
+			{
+				"name": "range",
+				"type": "f32"
+			},
+			{
+				"name": "spot_angle",
+				"type": "f32"
+			},
+			{
+				"name": "shadows",
+				"type": "bool"
+			},
+			{
+				"name": "disabled",
+				"type": "bool"
+			}
+		]
+	},
+	{
+		"name": "Rigid_Body",
+		"flags": [],
+		"fields": [
+			{
+				"name": "kind",
+				"type": "Body_Kind",
+				"values": [
+					"Static",
+					"Dynamic",
+					"Kinematic"
+				]
+			},
+			{
+				"name": "shape",
+				"type": "Shape_Kind",
+				"values": [
+					"Box",
+					"Sphere",
+					"Capsule",
+					"Mesh"
+				]
+			},
+			{
+				"name": "size",
+				"type": "[3]f32"
+			},
+			{
+				"name": "radius",
+				"type": "f32"
+			},
+			{
+				"name": "height",
+				"type": "f32"
+			},
+			{
+				"name": "offset",
+				"type": "[3]f32"
+			},
+			{
+				"name": "density",
+				"type": "f32"
+			},
+			{
+				"name": "friction",
+				"type": "f32"
+			},
+			{
+				"name": "restitution",
+				"type": "f32"
+			},
+			{
+				"name": "linear_damping",
+				"type": "f32"
+			},
+			{
+				"name": "angular_damping",
+				"type": "f32"
+			},
+			{
+				"name": "gravity_scale",
+				"type": "f32"
+			},
+			{
+				"name": "no_gravity",
+				"type": "bool"
+			},
+			{
+				"name": "lock_rotation",
+				"type": "bool"
+			},
+			{
+				"name": "sensor",
+				"type": "bool"
+			},
+			{
+				"name": "bullet",
+				"type": "bool"
+			},
+			{
+				"name": "layer",
+				"type": "u32"
+			},
+			{
+				"name": "mask",
+				"type": "u32"
+			}
+		]
+	},
+	{
+		"name": "Character_Controller",
+		"flags": [],
+		"fields": [
+			{
+				"name": "radius",
+				"type": "f32"
+			},
+			{
+				"name": "height",
+				"type": "f32"
+			},
+			{
+				"name": "velocity",
+				"type": "[3]f32"
+			},
+			{
+				"name": "gravity_scale",
+				"type": "f32"
+			},
+			{
+				"name": "no_gravity",
+				"type": "bool"
+			},
+			{
+				"name": "max_slope",
+				"type": "f32"
+			},
+			{
+				"name": "layer",
+				"type": "u32"
+			},
+			{
+				"name": "mask",
+				"type": "u32"
+			},
+			{
+				"name": "grounded",
+				"type": "bool"
+			},
+			{
+				"name": "ground_normal",
+				"type": "[3]f32"
+			}
+		]
+	},
+	{
+		"name": "Audio_Source",
+		"flags": [],
+		"fields": [
+			{
+				"name": "sound",
+				"type": "string"
+			},
+			{
+				"name": "volume",
+				"type": "f32"
+			},
+			{
+				"name": "pitch",
+				"type": "f32"
+			},
+			{
+				"name": "loop",
+				"type": "bool"
+			},
+			{
+				"name": "autoplay",
+				"type": "bool"
+			},
+			{
+				"name": "non_spatial",
+				"type": "bool"
+			},
+			{
+				"name": "min_distance",
+				"type": "f32"
+			},
+			{
+				"name": "max_distance",
+				"type": "f32"
+			}
+		]
+	},
+	{
+		"name": "Audio_Listener",
+		"flags": [],
+		"fields": []
+	},
+	{
+		"name": "Animator",
+		"flags": [],
+		"fields": [
+			{
+				"name": "clip",
+				"type": "string"
+			},
+			{
+				"name": "speed",
+				"type": "f32"
+			},
+			{
+				"name": "time",
+				"type": "f32"
+			},
+			{
+				"name": "once",
+				"type": "bool"
+			},
+			{
+				"name": "paused",
+				"type": "bool"
+			},
+			{
+				"name": "fade",
+				"type": "f32"
+			},
+			{
+				"name": "finished",
+				"type": "bool"
+			}
+		]
+	},
+	{
+		"name": "Particle_Emitter",
+		"flags": [],
+		"fields": [
+			{
+				"name": "rate",
+				"type": "f32"
+			},
+			{
+				"name": "burst",
+				"type": "i32"
+			},
+			{
+				"name": "lifetime",
+				"type": "f32"
+			},
+			{
+				"name": "speed",
+				"type": "f32"
+			},
+			{
+				"name": "spread",
+				"type": "f32"
+			},
+			{
+				"name": "gravity",
+				"type": "f32"
+			},
+			{
+				"name": "size",
+				"type": "f32"
+			},
+			{
+				"name": "end_size",
+				"type": "f32"
+			},
+			{
+				"name": "color",
+				"type": "[4]f32"
+			},
+			{
+				"name": "end_color",
+				"type": "[4]f32"
+			},
+			{
+				"name": "texture",
+				"type": "string"
+			},
+			{
+				"name": "additive",
+				"type": "bool"
+			},
+			{
+				"name": "disabled",
+				"type": "bool"
+			},
+			{
+				"name": "max",
+				"type": "i32"
+			}
+		]
+	},
+	{
+		"name": "Lifetime",
+		"flags": [],
+		"fields": [
+			{
+				"name": "seconds",
+				"type": "f32"
+			}
+		]
+	},
+	{
+		"name": "Net_Entity",
+		"flags": [],
+		"fields": [
+			{
+				"name": "id",
+				"type": "u32"
+			},
+			{
+				"name": "owner",
+				"type": "Peer_Id"
+			},
+			{
+				"name": "prefab",
+				"type": "string"
+			}
+		]
+	},
+	{
+		"name": "Scene_Ref",
+		"flags": [
+			"No_Save"
+		],
+		"fields": [
+			{
+				"name": "id",
+				"type": "i64"
+			}
+		]
+	},
+	{
+		"name": "Player",
+		"flags": [],
+		"fields": [
+			{
+				"name": "celebrating",
+				"type": "bool"
+			}
+		]
+	},
+	{
+		"name": "Chest",
+		"flags": [],
+		"fields": [
+			{
+				"name": "gold",
+				"type": "int"
+			},
+			{
+				"name": "open",
+				"type": "bool"
+			}
+		]
+	}
+]
