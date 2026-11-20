@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { StudioEvent } from "../shared/ipc";
-import type { AgentTypeInfo, Settings } from "../shared/types";
+import type { AgentTypeInfo, NewSessionRequest, Settings } from "../shared/types";
 import type { HostCore } from "../session-host/host-core";
 import { SessionService } from "./sessions";
 import { inProcessHost, makeRepo, sh, tempDir, waitFor } from "./test-helpers";
@@ -236,6 +236,25 @@ describe("SessionService", () => {
 		expect(sh(s.worktreePath, "log", "-1", "--format=%s").trim()).toBe("Scene main: set Transform");
 		await service.mergeWorktree(s.worktreeId);
 		expect(readFileSync(join(project, "faux-notes.md"), "utf8")).toBe("edited by hand\n");
+	});
+
+	it("runs a session on its agent type's default model when none is given", async () => {
+		const typed = new SessionService({
+			host: await inProcessHost(join(root, "pi2")),
+			settings: () => settings,
+			projectPath: () => project,
+			agentTypes: () => [{ ...general, defaultModel: "faux/echo" }],
+			skillsDir: join(root, "skills"),
+			emit: () => {},
+		});
+		try {
+			const s = await typed.create({ agentType: "general", target: "project", prompt: "a note" } as NewSessionRequest);
+			await waitFor(() => typed.get(s.id).status === "idle");
+			expect(typed.get(s.id).model).toBe("faux/echo");
+			expect(readFileSync(join(s.worktreePath, "faux-notes.md"), "utf8")).toBe("a note\n");
+		} finally {
+			typed.dispose();
+		}
 	});
 
 	it("refuses to merge when the main checkout is on another branch", async () => {

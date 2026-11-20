@@ -244,6 +244,9 @@ export class SessionService {
 	async create(req: NewSessionRequest): Promise<SessionSummary> {
 		const agentType = findAgentType(this.deps.agentTypes(), req.agentType);
 		if (!agentType) throw new Error(`Unknown agent type ${req.agentType}`);
+		// No model given (an API caller rather than the New Session dialog): the type's own default.
+		const model = req.model || agentType.defaultModel;
+		if (!model) throw new Error(`No model given, and ${agentType.name} has no default model`);
 		if (!agentType.targets.includes(req.target)) throw new Error(`${agentType.name} sessions can't target the ${req.target}`);
 		const repoPath = this.repoFor(req.target);
 		const id = newSessionId();
@@ -264,7 +267,7 @@ export class SessionService {
 				status: "starting",
 				worktreeId: worktree.record.id,
 				...(parent ? { parentId: parent.record.id } : {}),
-				model: req.model,
+				model,
 				thinking: req.thinking ?? agentType.thinking,
 				linkedAsset: req.linkedAsset,
 				createdAt: now,
