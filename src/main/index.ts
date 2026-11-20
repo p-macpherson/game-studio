@@ -86,7 +86,6 @@ async function main(): Promise<void> {
 		...genRequests,
 	});
 
-	const assets = new AssetService(() => project?.path ?? null, sessions);
 	const runner = new RunService({ projectPath: () => project?.path ?? null, sessions, emit });
 	/** The main checkout (null or "main"), a worktree (by id), or a session's worktree (by session id). */
 	const checkoutRoot = (checkout: string | null): string => {
@@ -99,6 +98,7 @@ async function main(): Promise<void> {
 		return w.path;
 	};
 	serveStudioFiles(checkoutRoot);
+	const assets = new AssetService(checkoutRoot, sessions);
 	/** A model rendered by the game's engine (for the In engine tab and the agents' preview_model tool). */
 	async function previewModel(checkout: string | null, name: string) {
 		const manifest = pipeline.manifest({ cwd: checkoutRoot(checkout) }, name);
@@ -194,9 +194,9 @@ async function main(): Promise<void> {
 		"agentTypes.list": async () => agentTypes(),
 
 		"modules.list": async () => MODULES.map((m) => m.info),
-		"assets.list": (moduleId) => assets.list(moduleId),
-		"assets.read": async (path, sessionId) => assets.read(path, sessionId),
-		"assets.search": async (moduleId, query) => assets.search(moduleId, query),
+		"assets.list": (moduleId, checkout) => assets.list(moduleId, checkout ?? null),
+		"assets.read": async (path, checkout) => assets.read(path, checkout ?? null),
+		"assets.search": async (moduleId, query, checkout) => assets.search(moduleId, query, checkout ?? null),
 
 		"run.checkouts": async () => runner.checkouts(),
 		"run.current": async () => runner.current(),
@@ -213,13 +213,8 @@ async function main(): Promise<void> {
 		"gen.jobs": async () => gen.list(),
 		"gen.cancel": async (jobId) => gen.cancel(jobId),
 		"gen.install": async () => gen.install(),
-		"workspace.create": (agentType, title, linkedAsset) => {
-			const type = agentTypes().find((t) => t.id === agentType);
-			if (!type) throw new Error(`There's no ${agentType} agent type`);
-			return sessions.create({ agentType: type.id, target: "project", model: type.defaultModel ?? "anthropic/claude-sonnet-5-5", prompt: "", title, linkedAsset });
-		},
-		"workspace.run": (sessionId, method, params) =>
-			genRequests.studioRequest({ sessionId, requestId: `ui-${Date.now()}`, cwd: checkoutRoot(sessionId), method, params, progress: () => {} }),
+		"worktrees.run": (worktreeId, method, params) =>
+			genRequests.studioRequest({ sessionId: worktreeId, requestId: `ui-${Date.now()}`, cwd: checkoutRoot(worktreeId), method, params, progress: () => {} }),
 		"models3d.concepts": async (checkout, name) => pipeline.conceptImages({ cwd: checkoutRoot(checkout) }, name),
 		"models3d.preview": (checkout, name) => previewModel(checkout, name),
 		"sounds.usages": async (checkout, name) => soundUsages(checkoutRoot(checkout), name),

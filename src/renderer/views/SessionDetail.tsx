@@ -10,7 +10,7 @@ import { StatusBadge, TargetBadge } from "./Sessions";
 type Tab = "chat" | "changes" | "raw";
 
 export function SessionDetail({ session: s }: { session: SessionSummary }) {
-	const { transcripts, agentTypes, models, showError, loadTranscript, openPlay } = useStudio();
+	const { transcripts, agentTypes, models, showError, loadTranscript, openPlay, sessions, selectWorktree } = useStudio();
 	const transcript = transcripts[s.id];
 	const [tab, setTab] = useState<Tab>("chat");
 	const [draft, setDraft] = useState("");
@@ -18,6 +18,8 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 	const [diff, setDiff] = useState<string | null>(null);
 	const [raw, setRaw] = useState("");
 	const running = s.status === "in_progress" || s.status === "starting";
+	// Sessions sharing its worktree end with it on Merge or Discard.
+	const shared = sessions.filter((x) => x.worktreeId === s.worktreeId && x.status !== "done").length;
 
 	useEffect(() => {
 		if (!transcript) void loadTranscript(s.id);
@@ -58,7 +60,7 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 						{s.title}
 					</h2>
 					{hasWorktree && s.target !== "studio" && (
-						<button title="Build and run the game with this session's changes" onClick={() => openPlay({ checkout: s.id, tab: "run" })}>
+						<button title="Build and run the game with this session's changes" onClick={() => openPlay({ checkout: s.worktreeId, tab: "run" })}>
 							▶ Play &amp; Test
 						</button>
 					)}
@@ -73,7 +75,7 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 								<button
 									className="primary"
 									disabled={busy}
-									onClick={() => act(() => call("sessions.merge", s.id), `Merge ${s.branch} into ${s.baseBranch}?`)}
+									onClick={() => act(() => call("sessions.merge", s.id), `Merge worktree “${s.worktreeLabel}” into ${s.baseBranch}?${shared > 1 ? ` Its ${shared} sessions end with it.` : ""}`)}
 								>
 									Merge
 								</button>
@@ -84,7 +86,7 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 							<button
 								className="danger"
 								disabled={busy}
-								onClick={() => act(() => call("sessions.discard", s.id), "Discard this session? Its worktree is removed; the branch is kept so it can be resumed.")}
+								onClick={() => act(() => call("sessions.discard", s.id), `Discard worktree “${s.worktreeLabel}”?${shared > 1 ? ` Its ${shared} sessions end with it.` : ""} The checkout is removed; the branch is kept, so it can be resumed.`)}
 							>
 								Discard
 							</button>
@@ -101,7 +103,15 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 					<TargetBadge target={s.target} />
 					<span className="badge">{typeName}</span>
 					{s.reviewRequested && <span className="badge review">Ready for review</span>}
-					<code className="muted">{s.branch}</code>
+					{s.target === "project" && s.worktree === "active" ? (
+						<button className="chip" title={`Show worktree “${s.worktreeLabel}” in the sections (${s.branch})`} onClick={() => selectWorktree(s.worktreeId)} data-testid="session-worktree">
+							⎇ {s.worktreeLabel}
+						</button>
+					) : (
+						<code className="muted" title={s.worktreeLabel}>
+							{s.branch}
+						</code>
+					)}
 					<span className="grow" />
 					<select
 						value={s.model}

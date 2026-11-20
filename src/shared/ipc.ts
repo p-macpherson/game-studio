@@ -55,10 +55,11 @@ export interface StudioApi {
 	"agentTypes.list"(): Promise<AgentTypeInfo[]>;
 
 	"modules.list"(): Promise<ModuleInfo[]>;
-	"assets.list"(moduleId: string): Promise<AssetSummary[]>;
+	/** A module's assets in a checkout: the main one (null) or a worktree (its id). */
+	"assets.list"(moduleId: string, checkout?: string | null): Promise<AssetSummary[]>;
 	/** From the main checkout, or from a session's worktree when `sessionId` is given. */
-	"assets.read"(path: string, sessionId?: string): Promise<string>;
-	"assets.search"(moduleId: string, query: string): Promise<AssetSearchHit[]>;
+	"assets.read"(path: string, checkout?: string | null): Promise<string>;
+	"assets.search"(moduleId: string, query: string, checkout?: string | null): Promise<AssetSearchHit[]>;
 
 	/** Main checkout plus session worktrees the game can be built and run from. */
 	"run.checkouts"(): Promise<CheckoutInfo[]>;
@@ -81,13 +82,8 @@ export interface StudioApi {
 	/** A PNG from the generation outputs or a project checkout, as a data URL (thumbnails, concepts). */
 	"gen.image"(path: string): Promise<string>;
 
-	/**
-	 * A session used as a workspace for a section's buttons (3D Models, Music): created without running the
-	 * agent (no account needed), linked to the asset, and chattable later.
-	 */
-	"workspace.create"(agentType: string, title: string, linkedAsset?: string): Promise<SessionSummary>;
-	/** Runs a studio step in a session's worktree (the same steps agents call as tools: generation, render_song). */
-	"workspace.run"(sessionId: string, method: StudioRequestMethod, params: Record<string, unknown>): Promise<unknown>;
+	/** Runs a studio step (generation, renders, scene edits: the same steps agents call as tools) in a worktree. */
+	"worktrees.run"(worktreeId: string, method: StudioRequestMethod, params: Record<string, unknown>): Promise<unknown>;
 	/** Concept images of a model, from the main checkout (null) or a session's worktree. */
 	"models3d.concepts"(checkout: string | null, name: string): Promise<ConceptImage[]>;
 	/** The model rendered by the game's own engine: front, three-quarter and back views, plus engine errors. */

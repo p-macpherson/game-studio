@@ -1684,3 +1684,52 @@ button.link {
 .variant-layers input[type="number"] {
 	width: 60px;
 }
+
+/* Worktree selector (sidebar) */
+.worktree-picker {
+	position: relative;
+	margin: 2px 0 8px;
+	padding-bottom: 8px;
+	border-bottom: 1px solid var(--border);
+}
+.worktree-current {
+	width: 100%;
+	font-weight: 600;
+}
+.worktree-actions {
+	gap: 4px;
+	align-items: center;
+	padding: 2px 4px 0 10px;
+	min-width: 0;
+}
+.worktree-actions .grow {
+	min-width: 0;
+}
+.worktree-naming input {
+	width: 100%;
+	margin-top: 4px;
+}
+.worktree-menu {
+	position: absolute;
+	z-index: 30;
+	top: 36px;
+	left: 0;
+	right: 0;
+	min-width: 240px;
+	padding: 6px;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.worktree-menu .nav-item {
+	gap: 8px;
+}
+.shell.collapsed .worktree-actions,
+.shell.collapsed .worktree-naming {
+	display: none;
+}
+.shell.collapsed .worktree-menu {
+	left: 100%;
+	top: 0;
+}

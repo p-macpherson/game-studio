@@ -1,8 +1,8 @@
-// Asset discovery for studio modules: files in the project's main checkout, plus drafts that active
-// sessions are changing in their worktrees.
+// Asset discovery for studio modules: the files of one checkout (the main one, or the worktree selected in the
+// studio), and what that worktree changed.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
-import { type AssetDraft, type AssetSearchHit, type AssetSummary, type ModuleInfo, moduleOwns } from "../shared/modules";
+import { type AssetSearchHit, type AssetSummary, type ModuleInfo, moduleOwns } from "../shared/modules";
 import { designDocs, summarizeMarkdown } from "../modules/design-docs/info";
 import { gameCode, summarizeCode } from "../modules/game-code/info";
 import { models3d, summarizeModel } from "../modules/3d-models/info";
@@ -45,7 +45,8 @@ export function safeJoin(root: string, path: string): string {
 
 export class AssetService {
 	constructor(
-		private readonly projectPath: () => string | null,
+		/** The root of a checkout: the main one (null) or a worktree's (by id). */
+		private readonly checkoutRoot: (checkout: string | null) => string,
 		private readonly sessions: SessionService,
 	) {}
 
@@ -55,73 +56,45 @@ export class AssetService {
 		return m;
 	}
 
-	private project(): string {
-		const p = this.projectPath();
-		if (!p) throw new Error("No project is open");
-		return p;
+	private files(m: ModuleBackend, root: string): string[] {
+		return m.info.roots.flatMap((r) => walk(join(root, r), root)).filter((p) => moduleOwns(m.info, p));
 	}
 
-	private mainFiles(m: ModuleBackend): string[] {
-		const project = this.project();
-		return m.info.roots.flatMap((r) => walk(join(project, r), project)).filter((p) => moduleOwns(m.info, p));
-	}
-
-	/** Changes to this module's assets in every active project worktree (shown through its newest session). */
-	private async drafts(m: ModuleBackend): Promise<Map<string, AssetDraft[]>> {
-		const out = new Map<string, AssetDraft[]>();
-		const sessions = this.sessions.list();
-		for (const w of this.sessions.listWorktrees()) {
-			if (w.target !== "project" || w.status !== "active" || w.checkout !== "active") continue;
-			const s = sessions.find((x) => x.id === w.sessionIds[0]);
-			for (const f of await this.sessions.worktreeChangedFiles(w.id)) {
-				if (!moduleOwns(m.info, f.path)) continue;
-				const list = out.get(f.path) ?? [];
-				list.push({ sessionId: s?.id ?? w.id, sessionTitle: w.label, status: s?.status ?? "idle", change: f.change });
-				out.set(f.path, list);
-			}
-		}
-		return out;
-	}
-
-	async list(moduleId: string): Promise<AssetSummary[]> {
+	/** A module's assets as one checkout has them; in a worktree, each says whether the worktree added or changed it. */
+	async list(moduleId: string, checkout: string | null = null): Promise<AssetSummary[]> {
 		const m = this.backend(moduleId);
-		const project = this.project();
-		const drafts = await this.drafts(m);
-		const assets: AssetSummary[] = this.mainFiles(m).map((path) => {
-			const full = join(project, path);
-			return {
-				path,
-				...m.summarize(readFileSync(full, "utf8"), path),
-				inMain: true,
-				updatedAt: statSync(full).mtime.toISOString(),
-				drafts: drafts.get(path) ?? [],
-			};
-		});
-		for (const [path, list] of drafts) {
-			if (assets.some((a) => a.path === path)) continue;
-			const added = list.find((d) => d.change === "added");
-			if (!added) continue;
-			const text = this.read(path, added.sessionId);
-			assets.push({ path, ...m.summarize(text, path), inMain: false, drafts: list });
-		}
-		return assets.sort((a, b) => a.path.localeCompare(b.path));
+		const root = this.checkoutRoot(checkout);
+		const main = this.checkoutRoot(null);
+		const changes = new Map((checkout ? await this.sessions.worktreeChangedFiles(checkout) : []).map((f) => [f.path, f.change]));
+		return this.files(m, root)
+			.map((path) => {
+				const full = join(root, path);
+				const change = changes.get(path);
+				return {
+					path,
+					...m.summarize(readFileSync(full, "utf8"), path),
+					inMain: existsSync(join(main, path)),
+					updatedAt: statSync(full).mtime.toISOString(),
+					...(change === "added" || change === "modified" ? { change } : {}),
+				};
+			})
+			.sort((a, b) => a.path.localeCompare(b.path));
 	}
 
-	/** Reads an asset from the main checkout, or from a session's worktree. */
-	read(path: string, sessionId?: string): string {
+	/** Reads an asset from a checkout (the main one by default). */
+	read(path: string, checkout: string | null = null): string {
 		if (!MODULES.some((m) => moduleOwns(m.info, path))) throw new Error(`${path} isn't a studio asset`);
-		const root = sessionId ? (this.sessions.listWorktrees().find((w) => w.id === sessionId)?.path ?? this.sessions.get(sessionId).worktreePath) : this.project();
-		const full = safeJoin(root, path);
+		const full = safeJoin(this.checkoutRoot(checkout), path);
 		return existsSync(full) ? readFileSync(full, "utf8") : "";
 	}
 
-	search(moduleId: string, query: string): AssetSearchHit[] {
+	search(moduleId: string, query: string, checkout: string | null = null): AssetSearchHit[] {
 		const q = query.trim().toLowerCase();
 		if (!q) return [];
-		const project = this.project();
+		const root = this.checkoutRoot(checkout);
 		const hits: AssetSearchHit[] = [];
-		for (const path of this.mainFiles(this.backend(moduleId))) {
-			readFileSync(join(project, path), "utf8")
+		for (const path of this.files(this.backend(moduleId), root)) {
+			readFileSync(join(root, path), "utf8")
 				.split("\n")
 				.forEach((text, i) => {
 					if (text.toLowerCase().includes(q)) hits.push({ path, line: i + 1, text: text.trim().slice(0, 200) });

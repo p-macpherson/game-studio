@@ -37,6 +37,12 @@ const app = await electron.launch({
 		GAME_STUDIO_SOUNDFONT: process.env.GAME_STUDIO_SOUNDFONT ?? join(homedir(), ".local/share/game-studio/gen/models/soundfonts/GeneralUser-GS.sf2"),
 	},
 });
+/** Selects "main" in the sidebar's worktree selector, so the next session or edit gets a worktree of its own. */
+const selectMain = async (page: Page) => {
+	await page.getByTestId("worktree-current").click();
+	await page.getByTestId("worktree-menu").getByRole("button", { name: /^main/ }).click();
+	await page.getByTestId("worktree-current").filter({ hasText: "main" }).waitFor();
+};
 const step = async (name: string, page: Page) => {
 	await page.screenshot({ path: join(shots, `${name}.png`) });
 	console.log(`✓ ${name}`);
@@ -70,7 +76,7 @@ try {
 	await step("03-changes", page);
 
 	// Merge: done sessions are hidden by default.
-	await page.getByRole("button", { name: "Merge" }).click();
+	await page.locator(".session-header").getByRole("button", { name: "Merge" }).click();
 	await page.locator(".session-items .empty").waitFor();
 	if (readFileSync(join(projectPath, "faux-notes.md"), "utf8") !== "add a note\n") throw new Error("merge did not reach main");
 	await page.getByRole("button", { name: "Done", exact: true }).click();
@@ -95,27 +101,26 @@ try {
 	await page.locator(".markdown h1", { hasText: "E2E Game" }).waitFor();
 	await step("08-design-docs", page);
 
-	// "New doc" starts a Project Scoping session; its new doc shows as an unmerged draft.
+	// "New doc" starts a Project Scoping session in a new worktree, which the sidebar selects; its new doc shows there.
 	await page.getByRole("button", { name: "+ New doc" }).click();
 	await page.locator(".agent-type.on", { hasText: "Project Scoping" }).waitFor();
 	await page.getByTestId("new-session-prompt").fill("write docs/design/Combat.md: # Combat\n\nHit things. See [the overview](Overview.md).");
 	await page.getByRole("button", { name: "Start session" }).click();
 	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
 	await page.getByRole("button", { name: "Design Docs" }).click();
-	await docs.filter({ hasText: "Combat" }).filter({ hasText: "New, not merged yet" }).click();
+	await docs.filter({ hasText: "Combat" }).filter({ hasText: "New in this worktree" }).click();
 	await page.locator(".markdown h1", { hasText: "Combat" }).waitFor();
+	await page.getByTestId("worktree-current").filter({ hasText: "write docs/design/Combat.md" }).waitFor();
+	await page.getByTestId("draft-banner").waitFor();
 	await step("09-draft-doc", page);
 	await page.locator(".markdown a", { hasText: "the overview" }).click();
 	await page.locator(".markdown h1", { hasText: "E2E Game" }).waitFor();
 
-	// Merging the session makes it a regular doc.
-	await docs.filter({ hasText: "Combat" }).click();
-	await page.getByRole("button", { name: "Open session" }).click();
-	await page.getByRole("button", { name: "Merge" }).click();
-	await page.locator(".session-detail .status-done").waitFor();
-	await page.getByRole("button", { name: "Design Docs" }).click();
+	// Merging the worktree (from the sidebar) makes it a regular doc; the selection goes back to main.
+	await page.getByTestId("worktree-merge").click();
+	await page.getByTestId("worktree-current").filter({ hasText: "main" }).waitFor({ timeout: 30_000 });
 	await docs.filter({ hasText: "Combat" }).filter({ hasText: "Hit things." }).waitFor();
-	if ((await docs.filter({ hasText: "Combat" }).textContent())?.includes("not merged")) throw new Error("merged doc still a draft");
+	if ((await docs.filter({ hasText: "Combat" }).textContent())?.includes("in this worktree")) throw new Error("merged doc still shown as worktree work");
 
 	// "Discuss / modify" links the session to the doc; its edit shows as a draft of the overview.
 	await docs.filter({ hasText: "E2E Game" }).click();
@@ -125,11 +130,14 @@ try {
 	await page.getByRole("button", { name: "Start session" }).click();
 	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
 	await page.getByRole("button", { name: "Design Docs" }).click();
-	await docs.filter({ hasText: "E2E Game" }).filter({ hasText: "1 draft in progress" }).click();
-	await page.locator(".version-bar .chip", { hasText: "Draft:" }).click();
+	await docs.filter({ hasText: "E2E Game" }).filter({ hasText: "Changed in this worktree" }).click();
 	await page.locator(".markdown", { hasText: "Now with combat" }).waitFor();
 	await page.getByText("Sessions on this doc").waitFor();
 	await step("10-doc-draft-of-existing", page);
+	await page.getByTestId("worktree-current").click();
+	await page.getByTestId("worktree-menu").waitFor();
+	await step("31-worktree-selector", page);
+	await page.getByTestId("worktree-current").click();
 
 	// Game Code lists the template's code.
 	const nav = page.locator("nav.sidebar");
@@ -159,7 +167,9 @@ try {
 	await page.waitForFunction(() => ((document.querySelector(".shot img") as HTMLImageElement | null)?.naturalWidth ?? 0) > 0);
 	await step("13-tests", page);
 
-	// A session's draft that doesn't compile: build its worktree, follow the error into its draft code.
+	// A session's code that doesn't compile (started from main, so in a new worktree): build its worktree, follow the
+	// error into its code there.
+	await selectMain(page);
 	await nav.getByRole("button", { name: "Game Code" }).click();
 	await page.getByRole("button", { name: "+ New feature" }).click();
 	await page.getByTestId("new-session-prompt").fill("write game/extra.odin: package game\n\nextra :: proc() {\n\tx := nope\n}\n");
@@ -173,10 +183,12 @@ try {
 	await step("14-build-failed", page);
 	await page.locator(".diagnostic", { hasText: "game/extra.odin:4" }).click();
 	await page.locator(".code-line.target", { hasText: "nope" }).waitFor();
-	await page.locator(".version-bar .chip.on", { hasText: "Draft:" }).waitFor();
+	await page.locator(".asset-item.selected", { hasText: "New in this worktree" }).waitFor();
+	await page.getByTestId("worktree-current").filter({ hasText: "write game/extra.odin" }).waitFor();
 	await step("15-error-in-draft", page);
 
-	// Asset generation: an agent's tools make concepts, then a model; the jobs show in Settings.
+	// Asset generation (from main, in a worktree of its own): an agent's tools make concepts, then a model; the jobs show in Settings.
+	await selectMain(page);
 	await nav.getByRole("button", { name: "Sessions" }).click();
 	await page.getByRole("button", { name: "+ New session" }).click();
 	await page.getByTestId("new-session-prompt").fill('tool generate_concept_images {"model": "crate", "prompt": "a wooden crate", "count": 2, "seed": 4}');
@@ -269,8 +281,9 @@ try {
 	await page.locator("[data-testid=render-status][data-state=current]").waitFor({ timeout: 30_000 });
 	await step("23-music-edit", page);
 
-	// Scenes: the template's scene opens live and paused; clicking the cube in the view selects it, an inspector
-	// edit writes the file in a Level Designer workspace, and duplicating adds an entity.
+	// Scenes, from main: the template's scene opens live and paused; clicking the cube in the view selects it, an
+	// inspector edit makes (and selects) a new worktree "Scene: main" with the change, and duplicating adds an entity.
+	await selectMain(page);
 	await nav.getByRole("button", { name: "Scenes" }).click();
 	await page.getByTestId("asset-item").filter({ hasText: "main" }).click();
 	const view = page.locator("[data-testid=scene-viewport] img");
@@ -284,7 +297,7 @@ try {
 	const x = page.locator("[data-testid=component-Transform] .vec input").first();
 	await x.fill("2");
 	await x.press("Enter");
-	await page.locator(".version-bar .chip.on", { hasText: "Draft:" }).waitFor({ timeout: 30_000 });
+	await page.getByTestId("worktree-current").filter({ hasText: "Scene: main" }).waitFor({ timeout: 30_000 });
 	await view.waitFor({ timeout: 60_000 });
 	await page.locator("[data-testid=component-Transform] .vec input").first().and(page.locator("[value='2']")).waitFor({ timeout: 30_000 });
 	await page.getByRole("button", { name: "Duplicate" }).click();

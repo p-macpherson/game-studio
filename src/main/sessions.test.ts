@@ -61,6 +61,7 @@ describe("SessionService", () => {
 		const code = 'const r = await tools.bash({ command: "echo from-a-script" }); await tools.set_session_title({ title: "Scripted" }); return r.output.trim();';
 		await service.send(s.id, `tool codemode ${JSON.stringify({ code })}`);
 		await waitFor(() => service.get(s.id).title === "Scripted", 20_000);
+		expect(service.get(s.id).worktreeLabel).toBe("Scripted"); // its worktree, made for it, follows the title
 		await settled(s.id);
 		expect(JSON.stringify((await service.messages(s.id)).at(-1))).toContain("from-a-script");
 	}, 30_000);

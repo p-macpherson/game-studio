@@ -48,10 +48,10 @@ describe("AssetService", () => {
 			skillsDir: join(root, "skills"),
 			emit: () => {},
 		});
-		assets = new AssetService(() => project, sessions);
+		assets = new AssetService((checkout) => (checkout ? sessions.listWorktrees().find((w) => w.id === checkout)!.path : project), sessions);
 	});
 
-	it("lists design docs from the main checkout plus drafts from session worktrees", async () => {
+	it("lists design docs as a checkout has them: main, or a worktree with what it added or changed", async () => {
 		const s = await sessions.create({
 			agentType: "project-scoping",
 			target: "project",
@@ -61,18 +61,22 @@ describe("AssetService", () => {
 		await waitFor(() => sessions.get(s.id).status === "idle");
 		writeFileSync(join(s.worktreePath, "docs/design/Overview.md"), "# My Game\n\nNow with combat.\n");
 
-		const list = await assets.list("design-docs");
-		expect(list.map((a) => [a.path, a.title, a.inMain])).toEqual([
-			["docs/design/Combat.md", "Combat", false],
-			["docs/design/Overview.md", "My Game", true],
+		// Main doesn't see the worktree's work.
+		const main = await assets.list("design-docs");
+		expect(main.map((a) => [a.path, a.title, a.change])).toEqual([["docs/design/Overview.md", "My Game", undefined]]);
+		expect(main[0].excerpt).toBe("A game about cubes.");
+
+		const list = await assets.list("design-docs", s.worktreeId);
+		expect(list.map((a) => [a.path, a.title, a.inMain, a.change])).toEqual([
+			["docs/design/Combat.md", "Combat", false, "added"],
+			["docs/design/Overview.md", "My Game", true, "modified"],
 		]);
-		expect(list[0].drafts).toEqual([{ sessionId: s.id, sessionTitle: s.title, status: "idle", change: "added" }]);
-		expect(list[1].drafts.map((d) => d.change)).toEqual(["modified"]);
-		expect(list[1].excerpt).toBe("A game about cubes.");
 
 		expect(assets.read("docs/design/Overview.md")).toContain("cubes");
-		expect(assets.read("docs/design/Overview.md", s.id)).toContain("combat");
+		expect(assets.read("docs/design/Overview.md", s.worktreeId)).toContain("combat");
 		expect(assets.search("design-docs", "CUBES")).toEqual([{ path: "docs/design/Overview.md", line: 3, text: "A game about cubes." }]);
+		expect(assets.search("design-docs", "combat", s.worktreeId).map((h) => h.path)).toEqual(["docs/design/Combat.md", "docs/design/Overview.md"]);
+		expect(assets.search("design-docs", "combat")).toEqual([]);
 	});
 
 	it("only reads module assets inside the project", () => {

@@ -6,7 +6,8 @@ import { type NewSessionPreset, useStudio } from "../store";
 const TARGET_LABEL: Record<Target, string> = { project: "Game project", engine: "Engine", studio: "Game Studio" };
 
 export function NewSessionDialog({ preset }: { preset: NewSessionPreset }) {
-	const { agentTypes, models, project, openNewSession, openSettings, selectSession, showError } = useStudio();
+	const { agentTypes, models, project, openNewSession, openSettings, selectSession, showError, worktree, worktrees, selectWorktree } = useStudio();
+	const currentWorktree = worktrees.find((w) => w.id === worktree);
 	const [typeId, setTypeId] = useState(
 		agentTypes.find((t) => t.id === preset.agentType)?.id ?? agentTypes.find((t) => t.id === "general")?.id ?? agentTypes[0]?.id,
 	);
@@ -30,7 +31,10 @@ export function NewSessionDialog({ preset }: { preset: NewSessionPreset }) {
 		if (!type || !target || !model) return;
 		setBusy(true);
 		try {
-			const s = await call("sessions.create", { agentType: type.id, target, model, prompt: prompt.trim(), linkedAsset: preset.linkedAsset });
+			// Game-project sessions work in the selected worktree; with main selected they get a new one, which is selected.
+			const inWorktree = target === "project" && currentWorktree ? { worktreeId: currentWorktree.id } : {};
+			const s = await call("sessions.create", { agentType: type.id, target, model, prompt: prompt.trim(), linkedAsset: preset.linkedAsset, ...inWorktree });
+			if (target === "project") selectWorktree(s.worktreeId);
 			openNewSession(null);
 			selectSession(s.id);
 		} catch (err) {
@@ -100,8 +104,8 @@ export function NewSessionDialog({ preset }: { preset: NewSessionPreset }) {
 					/>
 				</label>
 				<div className="row" style={{ justifyContent: "flex-end" }}>
-					<span className="muted grow" style={{ fontSize: 12 }}>
-						Runs in its own git worktree on a new branch. Ctrl+Enter to start.
+					<span className="muted grow" style={{ fontSize: 12 }} data-testid="new-session-worktree">
+						{target === "project" && currentWorktree ? `Works in worktree “${currentWorktree.label}”.` : "Works in a new worktree, named after the task."} Ctrl+Enter to start.
 					</span>
 					<button onClick={() => openNewSession(null)}>Cancel</button>
 					<button className="primary" disabled={busy || !prompt.trim() || !target || !model} onClick={start}>

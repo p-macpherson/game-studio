@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { StudioEvent } from "../shared/ipc";
 import { type ModuleInfo, moduleOwns } from "../shared/modules";
 import type { CheckoutId, RunInfo, RunMode, TestReport } from "../shared/run";
-import type { AgentTypeInfo, ModelInfo, ProjectInfo, SessionSummary, Settings, Target } from "../shared/types";
+import type { AgentTypeInfo, ModelInfo, ProjectInfo, SessionSummary, Settings, Target, WorktreeSummary } from "../shared/types";
 import { call } from "./api";
 
 export type View = "sessions" | "source-control" | "settings" | "play" | `module:${string}`;
@@ -27,10 +27,10 @@ export interface NewSessionPreset {
 	prompt?: string;
 }
 
-/** An asset a module view should show, optionally as a session's draft. */
+/** An asset a module view should show. `checkout` also selects that worktree (null: main); a session id selects its worktree. */
 export interface AssetFocus {
 	path: string;
-	sessionId?: string;
+	checkout?: string | null;
 	line?: number;
 }
 
@@ -74,6 +74,9 @@ interface State {
 	focus: AssetFocus | null;
 	/** Bumped whenever assets may have changed, so module views refetch. */
 	assetsVersion: number;
+	/** The worktree the sections show and edit (null: main), remembered per project; and every worktree. */
+	worktree: string | null;
+	worktrees: WorktreeSummary[];
 
 	/** Play & Test: which checkout to build/run/test, the current run, its console and latest frame. */
 	playCheckout: CheckoutId;
@@ -88,6 +91,8 @@ interface State {
 	refresh(): Promise<void>;
 	refreshSessions(): Promise<void>;
 	refreshModels(): Promise<void>;
+	refreshWorktrees(): Promise<void>;
+	selectWorktree(id: string | null): void;
 	setView(view: View): void;
 	selectSession(id: string | null): void;
 	loadTranscript(id: string): Promise<void>;
@@ -102,6 +107,9 @@ interface State {
 }
 
 const emptyTranscript = (): Transcript => ({ messages: [], runningTools: {}, raw: [] });
+
+/** A worktree of the game project that's still being worked on: one the selector offers. */
+export const isOpenProjectWorktree = (w: WorktreeSummary) => w.target === "project" && w.status === "active" && w.checkout === "active";
 const RAW_LIMIT = 500;
 
 export const useStudio = create<State>((set, get) => ({
@@ -118,6 +126,8 @@ export const useStudio = create<State>((set, get) => ({
 	modules: [],
 	focus: null,
 	assetsVersion: 0,
+	worktree: null,
+	worktrees: [],
 	playCheckout: null,
 	playTab: "run",
 	settingsTab: "general",
@@ -136,7 +146,27 @@ export const useStudio = create<State>((set, get) => ({
 			call("run.current"),
 		]);
 		set((s) => ({ project, settings, agentTypes, modules, run, assetsVersion: s.assetsVersion + 1 }));
-		await Promise.all([get().refreshSessions(), get().refreshModels()]);
+		await Promise.all([get().refreshSessions(), get().refreshModels(), get().refreshWorktrees()]);
+		// The worktree last selected in this project, if it's still open.
+		const saved = project ? localStorage.getItem(`worktree:${project.path}`) : null;
+		get().selectWorktree(saved && get().worktrees.some((w) => w.id === saved && isOpenProjectWorktree(w)) ? saved : null);
+	},
+	async refreshWorktrees() {
+		const worktrees = await call("worktrees.list");
+		set({ worktrees });
+		// A selected worktree that was merged or discarded leaves the selection at main.
+		const selected = get().worktree;
+		if (selected && !worktrees.some((w) => w.id === selected && isOpenProjectWorktree(w))) get().selectWorktree(null);
+	},
+	selectWorktree(id) {
+		const project = get().project;
+		if (project) {
+			if (id) localStorage.setItem(`worktree:${project.path}`, id);
+			else localStorage.removeItem(`worktree:${project.path}`);
+		}
+		if (id === get().worktree) return;
+		// Play & Test follows the selection.
+		set((s) => ({ worktree: id, playCheckout: id, assetsVersion: s.assetsVersion + 1 }));
 	},
 	async refreshSessions() {
 		set({ sessions: await call("sessions.list") });
@@ -161,8 +191,14 @@ export const useStudio = create<State>((set, get) => ({
 	openNewSession: (preset) => set({ newSession: preset }),
 	openSettings: (tab) => set({ view: "settings", settingsTab: tab }),
 	showAsset(focus) {
+		if (focus.checkout !== undefined) {
+			// A session id stands for its worktree (a project session's; others don't change the sections).
+			const session = focus.checkout ? get().sessions.find((s) => s.id === focus.checkout) : undefined;
+			const id = session ? (session.target === "project" ? session.worktreeId : get().worktree) : focus.checkout;
+			get().selectWorktree(id);
+		}
 		const module = get().modules.find((m) => moduleOwns(m, focus.path));
-		if (module) set({ view: `module:${module.id}`, focus });
+		if (module) set({ view: `module:${module.id}`, focus: { path: focus.path, line: focus.line } });
 	},
 	openPlay(opts = {}) {
 		set((s) => ({ view: "play", playCheckout: opts.checkout !== undefined ? opts.checkout : s.playCheckout, playTab: opts.tab ?? s.playTab }));
@@ -207,6 +243,7 @@ export const useStudio = create<State>((set, get) => ({
 				break;
 			case "sessions_changed":
 				void get().refreshSessions();
+				void get().refreshWorktrees();
 				break;
 			case "project_changed":
 				void get().refresh();
@@ -215,7 +252,7 @@ export const useStudio = create<State>((set, get) => ({
 				set((s) => ({ assetsVersion: s.assetsVersion + 1 }));
 				break;
 			case "focus_asset":
-				get().showAsset({ path: event.path, sessionId: event.sessionId, line: event.line });
+				get().showAsset({ path: event.path, checkout: event.sessionId ?? null, line: event.line });
 				break;
 			case "session_event":
 				set((s) => {

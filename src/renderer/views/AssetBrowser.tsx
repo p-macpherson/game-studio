@@ -1,8 +1,9 @@
-// The common shape of a module section: a searchable asset list (main checkout plus drafts from session
-// worktrees), and a viewer with a Merged/Draft version bar, actions and the sessions linked to the asset.
-// Each module supplies how an asset's content is drawn.
+// The common shape of a module section: a searchable asset list and a viewer, both showing the checkout
+// selected in the sidebar (main, or a worktree: its changes shown, other worktrees' hidden), with actions, a
+// banner over what the worktree changed, and the sessions linked to the asset. Each module draws an asset's content.
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { type AssetDraft, type AssetSearchHit, type AssetSummary, type ModuleInfo, moduleOwns } from "../../shared/modules";
+import { type AssetSearchHit, type AssetSummary, type ModuleInfo, moduleOwns } from "../../shared/modules";
+import type { WorktreeSummary } from "../../shared/types";
 import { call, relativeTime } from "../api";
 import { type NewSessionPreset, useStudio } from "../store";
 import { StatusBadge } from "./Sessions";
@@ -10,9 +11,8 @@ import { StatusBadge } from "./Sessions";
 export interface AssetContentProps {
 	asset: AssetSummary;
 	text: string;
-	/** Set when showing a session's draft rather than the merged version. */
-	sessionId?: string;
-	draft?: AssetDraft;
+	/** The worktree shown (its id); none for the main checkout. */
+	checkout?: string;
 	assets: AssetSummary[];
 	/** Line to scroll to and highlight (e.g. from a compiler error). */
 	line?: number;
@@ -24,8 +24,8 @@ export interface AssetBrowserProps {
 	/** What "New" does: open the New Session dialog with this preset, or run `onNew` instead. */
 	newPreset?: NewSessionPreset;
 	onNew?(): void;
-	/** Drawn at the top of each list item (e.g. a thumbnail); `sessionId` is the draft shown for it, if any. */
-	itemPreview?(asset: AssetSummary, sessionId?: string): ReactNode;
+	/** Drawn at the top of each list item (e.g. a thumbnail), from the shown checkout. */
+	itemPreview?(asset: AssetSummary, checkout?: string): ReactNode;
 	modifyLabel: string;
 	modifyPlaceholder: string;
 	emptyText: string;
@@ -33,7 +33,7 @@ export interface AssetBrowserProps {
 	pickDefault?(assets: AssetSummary[]): AssetSummary;
 	content(props: AssetContentProps): ReactNode;
 	/** Extra header buttons for the selected asset. */
-	actions?(asset: AssetSummary, sessionId?: string): ReactNode;
+	actions?(asset: AssetSummary, checkout?: string): ReactNode;
 }
 
 export function Highlight({ text, query }: { text: string; query: string }) {
@@ -49,36 +49,35 @@ export function Highlight({ text, query }: { text: string; query: string }) {
 }
 
 /**
- * Shown over a draft: which session it's in, and Merge (brings the session's changes into the game) or Discard.
- * Merging merges the whole session, so other files it changed are listed first.
+ * Shown over an asset the selected worktree added or changed: it isn't in the game until the worktree is merged.
+ * Merging (or discarding) takes the whole worktree, so the other files it changed are listed first.
  */
-function DraftBanner({ module, asset, draft }: { module: ModuleInfo; asset: AssetSummary; draft: AssetDraft }) {
-	const { sessions, showAsset, showError } = useStudio();
+function WorktreeBanner({ module, asset, worktree }: { module: ModuleInfo; asset: AssetSummary; worktree: WorktreeSummary }) {
+	const { sessions, showError } = useStudio();
 	const [others, setOthers] = useState<string[]>([]);
 	const [busy, setBusy] = useState(false);
-	const session = sessions.find((s) => s.id === draft.sessionId);
-	const working = session?.status === "in_progress";
+	const working = sessions.filter((s) => s.worktreeId === worktree.id && (s.status === "in_progress" || s.status === "starting"));
 	// An asset that is a folder's manifest (e.g. assets/sounds/x/sound.json) owns the whole folder.
 	const own = module.extensions.some((e) => e.startsWith("/")) ? `${asset.path.slice(0, asset.path.lastIndexOf("/"))}/` : asset.path;
 	useEffect(() => {
 		let live = true;
-		call("sessions.changedFiles", draft.sessionId).then(
+		call("worktrees.changedFiles", worktree.id).then(
 			(files) => live && setOthers(files.map((f) => f.path).filter((p) => !p.startsWith(own) && p !== own && !p.startsWith(".studio/"))),
 			() => {},
 		);
 		return () => {
 			live = false;
 		};
-	}, [draft.sessionId, own, session?.updatedAt]);
-	const act = async (method: "sessions.merge" | "sessions.discard") => {
-		const what = method === "sessions.merge" ? "Merge" : "Discard";
-		const also = others.length ? `\n\nThis ${method === "sessions.merge" ? "also brings in" : "also throws away"} ${others.length} other changed file${others.length > 1 ? "s" : ""}:\n${others.slice(0, 12).join("\n")}` : "";
-		if (!window.confirm(`${what} session “${draft.sessionTitle}”?${also}`)) return;
+	}, [worktree.id, worktree.updatedAt, own]);
+	const act = async (method: "worktrees.merge" | "worktrees.discard") => {
+		const merge = method === "worktrees.merge";
+		const also = others.length ? `\n\nThis ${merge ? "also brings in" : "also throws away"} ${others.length} other changed file${others.length > 1 ? "s" : ""}:\n${others.slice(0, 12).join("\n")}` : "";
+		if (!window.confirm(`${merge ? "Merge" : "Discard"} worktree “${worktree.label}”${merge ? " into the game" : ""}?${also}`)) return;
 		setBusy(true);
 		try {
-			await call(method, draft.sessionId);
+			await call(method, worktree.id);
 			useStudio.setState((s) => ({ assetsVersion: s.assetsVersion + 1 }));
-			showAsset({ path: asset.path });
+			await useStudio.getState().refreshWorktrees();
 		} catch (err) {
 			showError(err);
 		} finally {
@@ -88,19 +87,19 @@ function DraftBanner({ module, asset, draft }: { module: ModuleInfo; asset: Asse
 	return (
 		<div className="draft-banner row" data-testid="draft-banner">
 			<span className="grow">
-				{draft.change === "added" ? "New" : draft.change === "deleted" ? "Deleted" : "Changed"} in session “{draft.sessionTitle}”, not in the game yet.
+				{asset.change === "added" ? "New" : "Changed"} in worktree “{worktree.label}”, not in the game yet.
 				{others.length > 0 && (
 					<span className="muted" title={others.join("\n")}>
 						{" "}
-						The session also changed {others.length} other file{others.length > 1 ? "s" : ""}.
+						The worktree also changed {others.length} other file{others.length > 1 ? "s" : ""}.
 					</span>
 				)}
 			</span>
-			{working && <span className="muted small">The agent is still working…</span>}
-			<button disabled={busy || working} onClick={() => void act("sessions.discard")} data-testid="draft-discard">
+			{working.length > 0 && <span className="muted small">{working.length > 1 ? `${working.length} agents are` : "An agent is"} still working…</span>}
+			<button disabled={busy || working.length > 0} onClick={() => void act("worktrees.discard")} data-testid="draft-discard">
 				Discard
 			</button>
-			<button className="primary" disabled={busy || working} onClick={() => void act("sessions.merge")} data-testid="draft-merge">
+			<button className="primary" disabled={busy || working.length > 0} onClick={() => void act("worktrees.merge")} data-testid="draft-merge">
 				{busy ? "Working…" : "Merge into the game"}
 			</button>
 		</div>
@@ -109,58 +108,51 @@ function DraftBanner({ module, asset, draft }: { module: ModuleInfo; asset: Asse
 
 export function AssetBrowser(props: AssetBrowserProps) {
 	const { module } = props;
-	const { focus, showAsset, assetsVersion, sessions, openNewSession, selectSession, showError, project } = useStudio();
+	const { focus, showAsset, assetsVersion, sessions, openNewSession, selectSession, showError, project, worktree, worktrees } = useStudio();
 	const [assets, setAssets] = useState<AssetSummary[] | null>(null);
 	const [query, setQuery] = useState("");
 	const [hits, setHits] = useState<AssetSearchHit[]>([]);
 	// The text of one checkout's version of one asset: content views never see the previous asset's text.
 	const [loaded, setLoaded] = useState<{ key: string; text: string }>({ key: "", text: "" });
+	const checkout = worktree ?? undefined;
+	const selectedWorktree = worktrees.find((w) => w.id === worktree);
 
 	useEffect(() => {
 		// Only the latest request counts: one started during a merge can finish after the one that followed it.
 		let live = true;
-		call("assets.list", module.id).then((a) => live && setAssets(a), (err) => live && showError(err));
+		call("assets.list", module.id, worktree).then((a) => live && setAssets(a), (err) => live && showError(err));
 		return () => {
 			live = false;
 		};
-	}, [module.id, assetsVersion, project?.path, showError]);
+	}, [module.id, assetsVersion, project?.path, worktree, showError]);
 
 	useEffect(() => {
 		const q = query.trim();
 		if (!q) return setHits([]);
-		const t = setTimeout(() => call("assets.search", module.id, q).then(setHits, showError), 150);
+		const t = setTimeout(() => call("assets.search", module.id, q, worktree).then(setHits, showError), 150);
 		return () => clearTimeout(t);
-	}, [query, module.id, assetsVersion, showError]);
+	}, [query, module.id, assetsVersion, worktree, showError]);
 
 	const selected = assets?.find((a) => a.path === focus?.path);
 	const { pickDefault } = props;
 	useEffect(() => {
 		// A focused asset of ours that isn't listed yet was just created: the list catches up on its next refresh.
 		const waitingFor = focus && moduleOwns(module, focus.path);
-		if (assets && assets.length > 0 && !selected && !waitingFor) {
-			const first = pickDefault?.(assets) ?? assets[0];
-			showAsset({ path: first.path, sessionId: first.inMain ? undefined : first.drafts[0]?.sessionId });
-		}
+		if (assets && assets.length > 0 && !selected && !waitingFor) showAsset({ path: (pickDefault?.(assets) ?? assets[0]).path });
 	}, [assets, selected, showAsset, pickDefault, focus, module]);
 
-	const sessionId = selected && (focus?.sessionId ?? (selected.inMain ? undefined : selected.drafts[0]?.sessionId));
 	useEffect(() => {
 		if (!selected) return;
 		let live = true;
-		const key = `${selected.path}:${sessionId ?? ""}`;
-		call("assets.read", selected.path, sessionId).then(
+		const key = `${selected.path}:${worktree ?? ""}`;
+		call("assets.read", selected.path, worktree).then(
 			(text) => live && setLoaded({ key, text }),
-			(err) => {
-				if (!live) return;
-				// A draft that can't be read is gone (its session was just merged or discarded): show the merged version.
-				if (sessionId) showAsset({ path: selected.path });
-				else showError(err);
-			},
+			(err) => live && showError(err),
 		);
 		return () => {
 			live = false;
 		};
-	}, [selected?.path, sessionId, assetsVersion, showError, showAsset]);
+	}, [selected?.path, worktree, assetsVersion, showError]);
 
 	const visible = useMemo(() => {
 		const q = query.trim().toLowerCase();
@@ -170,7 +162,6 @@ export function AssetBrowser(props: AssetBrowserProps) {
 	}, [assets, hits, query]);
 
 	const linkedSessions = selected ? sessions.filter((s) => s.linkedAsset === selected.path) : [];
-	const draft = selected?.drafts.find((d) => d.sessionId === sessionId);
 	const subtitle = (path: string) => (module.roots.length === 1 ? path.slice(module.roots[0].length + 1) : path);
 
 	const modify = (path: string) =>
@@ -195,9 +186,9 @@ export function AssetBrowser(props: AssetBrowserProps) {
 							key={a.path}
 							data-testid="asset-item"
 							className={`session-item asset-item ${a.path === selected?.path ? "selected" : ""}`}
-							onClick={() => showAsset({ path: a.path, sessionId: a.inMain ? undefined : a.drafts[0]?.sessionId })}
+							onClick={() => showAsset({ path: a.path })}
 						>
-							{props.itemPreview?.(a, a.inMain ? undefined : a.drafts[0]?.sessionId)}
+							{props.itemPreview?.(a, checkout)}
 							<div className="row">
 								<span className="title grow ellipsis">{a.title}</span>
 								{a.updatedAt && (
@@ -210,11 +201,9 @@ export function AssetBrowser(props: AssetBrowserProps) {
 								{subtitle(a.path)}
 							</span>
 							{a.excerpt && <span className="excerpt">{a.excerpt}</span>}
-							{a.drafts.length > 0 && (
+							{a.change && (
 								<div className="row" style={{ flexWrap: "wrap" }}>
-									<span className="badge draft">
-										{a.inMain ? `${a.drafts.length} draft${a.drafts.length > 1 ? "s" : ""} in progress` : "New, not merged yet"}
-									</span>
+									<span className="badge draft">{a.change === "added" ? "New in this worktree" : "Changed in this worktree"}</span>
 								</div>
 							)}
 							{hits
@@ -237,53 +226,30 @@ export function AssetBrowser(props: AssetBrowserProps) {
 								<h2 className="ellipsis">{selected.title}</h2>
 								<code className="muted ellipsis">{selected.path}</code>
 							</div>
-							{props.actions?.(selected, sessionId)}
-							{draft && <button onClick={() => selectSession(draft.sessionId)}>Open session</button>}
+							{props.actions?.(selected, checkout)}
 							<button className="primary" onClick={() => modify(selected.path)}>
 								{props.modifyLabel}
 							</button>
 						</div>
-						{draft && <DraftBanner module={module} asset={selected} draft={draft} />}
-						{selected.drafts.length > 0 && (
-							<div className="version-bar">
-								<span className="muted">Showing:</span>
-								{selected.inMain && (
-									<button className={`chip ${!sessionId ? "on" : ""}`} onClick={() => showAsset({ path: selected.path })}>
-										Merged
-									</button>
-								)}
-								{selected.drafts.map((d) => (
-									<button
-										key={d.sessionId}
-										className={`chip ${sessionId === d.sessionId ? "on" : ""}`}
-										title={`${d.change} in session “${d.sessionTitle}”`}
-										onClick={() => showAsset({ path: selected.path, sessionId: d.sessionId })}
-									>
-										Draft: {d.sessionTitle}
-									</button>
-								))}
-							</div>
-						)}
+						{selected.change && selectedWorktree && <WorktreeBanner module={module} asset={selected} worktree={selectedWorktree} />}
 					</div>
 					<div className="tab-body">
-						{draft?.change === "deleted" ? (
-							<div className="empty">Deleted in session “{draft.sessionTitle}”.</div>
-						) : (
-							props.content({
-									asset: selected,
-									text: loaded.key === `${selected.path}:${sessionId ?? ""}` ? loaded.text : "",
-									sessionId,
-									draft,
-									assets,
-									line: focus?.line,
-								})
-						)}
+						{props.content({
+							asset: selected,
+							text: loaded.key === `${selected.path}:${worktree ?? ""}` ? loaded.text : "",
+							checkout,
+							assets,
+							line: focus?.line,
+						})}
 						{linkedSessions.length > 0 && (
 							<div className="doc-view col" style={{ paddingTop: 0 }}>
 								<h3>Sessions on this {module.noun}</h3>
 								{linkedSessions.map((s) => (
 									<div key={s.id} className="list-row file-row" onClick={() => selectSession(s.id)}>
 										<span className="grow ellipsis">{s.title}</span>
+										<span className="muted small ellipsis" style={{ maxWidth: 200 }}>
+											⎇ {s.worktreeLabel}
+										</span>
 										<StatusBadge s={s} />
 										<span className="muted" style={{ fontSize: 11 }}>
 											{relativeTime(s.updatedAt)}

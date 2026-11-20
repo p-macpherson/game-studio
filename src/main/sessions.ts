@@ -590,7 +590,12 @@ export class SessionService {
 				this.fail(e, event.error);
 				break;
 			case "studio_tool":
-				if (event.tool === "set_session_title") r.title = event.params.title;
+				if (event.tool === "set_session_title") {
+					// A worktree made for this session follows its title, unless someone renamed it.
+					const w = this.worktrees.find(r.worktreeId);
+					if (w && w.record.id === r.id && w.record.label === r.title) this.worktrees.rename(w, event.params.title);
+					r.title = event.params.title;
+				}
 				else if (event.tool === "request_review") r.reviewRequested = true;
 				else if (event.tool === "open_in_studio") {
 					// A session started to create something adopts the first asset it shows as its own.

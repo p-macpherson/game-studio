@@ -9,7 +9,7 @@ import { composeVariants, type Layer, parseSound, type Sound, type TakeRecord, t
 import { call, sha1, studioFile } from "../../renderer/api";
 import { useStudio } from "../../renderer/store";
 import { AssetBrowser, type AssetContentProps } from "../../renderer/views/AssetBrowser";
-import { workspaceFor } from "../../renderer/workspace";
+import { runInWorktree } from "../../renderer/workspace";
 import { soundName } from "./info";
 
 const bumpAssets = () => useStudio.setState((s) => ({ assetsVersion: s.assetsVersion + 1 }));
@@ -29,7 +29,7 @@ export function SoundsView({ module }: { module: ModuleInfo }) {
 			modifyLabel="Ask the sound designer"
 			modifyPlaceholder="What should change? The Sound Designer edits sound.json: new takes, which takes make the variants, layers, processing."
 			emptyText="No sound effects yet. Start one with “New sound”: the Sound Designer generates takes and makes the variants the game plays."
-			content={(props) => <SoundDetail key={`${props.asset.path}:${props.sessionId ?? ""}`} {...props} />}
+			content={(props) => <SoundDetail key={`${props.asset.path}:${props.checkout ?? ""}`} {...props} />}
 		/>
 	);
 }
@@ -158,7 +158,7 @@ interface Take {
 	off: boolean;
 }
 
-function SoundDetail({ asset, text, sessionId }: AssetContentProps) {
+function SoundDetail({ asset, text, checkout }: AssetContentProps) {
 	const { showAsset, showError } = useStudio();
 	const name = soundName(asset.path);
 	const dir = `assets/sounds/${name}`;
@@ -170,13 +170,13 @@ function SoundDetail({ asset, text, sessionId }: AssetContentProps) {
 	const [busy, setBusy] = useState<string | null>(null);
 	const [selected, setSelected] = useState<string[]>([]);
 	const player = usePlayer();
-	const file = (path: string) => studioFile(sessionId, `${dir}/${path}`, `${version}`);
+	const file = (path: string) => studioFile(checkout, `${dir}/${path}`, `${version}`);
 
 	useEffect(() => {
 		let live = true;
 		(async () => {
-			const r = await fetch(studioFile(sessionId, `${dir}/render.json`, `${Date.now()}`)).catch(() => null);
-			const t = await fetch(studioFile(sessionId, `${dir}/takes/takes.json`, `${Date.now()}`)).catch(() => null);
+			const r = await fetch(studioFile(checkout, `${dir}/render.json`, `${Date.now()}`)).catch(() => null);
+			const t = await fetch(studioFile(checkout, `${dir}/takes/takes.json`, `${Date.now()}`)).catch(() => null);
 			if (!live) return;
 			setRecords(t?.ok ? await t.json() : {});
 			if (!r?.ok) return setRender({ kind: "none" });
@@ -184,22 +184,20 @@ function SoundDetail({ asset, text, sessionId }: AssetContentProps) {
 			setRender({ kind: info.sound === (await sha1(text)) ? "current" : "stale", files: info.files });
 		})();
 		// Where it's used is a nicety: a draft whose session just ended can't be searched any more.
-		call("sounds.usages", sessionId ?? null, name).then(
+		call("sounds.usages", checkout ?? null, name).then(
 			(u) => live && setUsages(u),
 			() => live && setUsages([]),
 		);
 		return () => {
 			live = false;
 		};
-	}, [dir, name, sessionId, text, version, showError]);
+	}, [dir, name, checkout, text, version, showError]);
 
 	/** Runs a step in this draft's session, or the sound's open workspace, or a new one. */
 	const run = async (label: string, method: StudioRequestMethod, params: Record<string, unknown>) => {
 		setBusy(label);
 		try {
-			const target = await workspaceFor(asset, sessionId, "sound-designer", `Sound: ${name}`);
-			await call("workspace.run", target.id, method, { name, ...params });
-			if (target.id !== sessionId) showAsset({ path: asset.path, sessionId: target.id });
+			await runInWorktree(`Sound: ${name}`, method, { name, ...params });
 			bumpAssets();
 			setVersion((v) => v + 1);
 		} catch (err) {
@@ -352,7 +350,7 @@ function SoundDetail({ asset, text, sessionId }: AssetContentProps) {
 				<h3>Used in</h3>
 				{usages?.length ? (
 					usages.map((u, i) => (
-						<button key={i} className="usage" onClick={() => showAsset({ path: u.path, sessionId, line: u.line })}>
+						<button key={i} className="usage" onClick={() => showAsset({ path: u.path, checkout, line: u.line })}>
 							<span className="muted">
 								{u.path}:{u.line}
 							</span>{" "}

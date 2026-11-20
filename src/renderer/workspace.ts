@@ -1,15 +1,23 @@
-// Sections' buttons (3D Models, Music) run studio steps in a session's worktree, never in the main checkout.
-import type { AssetSummary } from "../shared/modules";
+// Sections' buttons (3D Models, Music, Sound Effects, Scenes) run studio steps in a worktree, never in main.
+import type { StudioRequestMethod } from "../shared/host";
 import { call } from "./api";
+import { useStudio } from "./store";
 
 /**
- * The session a section's action runs in: the draft being shown; else a session that already has a draft of
- * this asset (so acting on the merged version again doesn't start another workspace); else a new workspace
- * session of `agentType`, created without running the agent.
+ * The worktree a section's edit goes into: the selected one; with main selected, a new worktree labelled `label`
+ * (renamable), which becomes the selection.
  */
-export async function workspaceFor(asset: AssetSummary, shownSession: string | undefined, agentType: string, title: string): Promise<{ id: string; created: boolean }> {
-	if (shownSession) return { id: shownSession, created: false };
-	const open = asset.drafts.find((d) => d.status !== "done");
-	if (open) return { id: open.sessionId, created: false };
-	return { id: (await call("workspace.create", agentType, title, asset.path)).id, created: true };
+export async function editCheckout(label: string): Promise<string> {
+	const { worktree } = useStudio.getState();
+	if (worktree) return worktree;
+	const w = await call("worktrees.create", label);
+	await useStudio.getState().refreshWorktrees();
+	useStudio.getState().selectWorktree(w.id);
+	return w.id;
+}
+
+/** Runs a studio step in the worktree a section edits (see `editCheckout`); returns the step's result and where it ran. */
+export async function runInWorktree(label: string, method: StudioRequestMethod, params: Record<string, unknown>): Promise<{ result: unknown; checkout: string }> {
+	const checkout = await editCheckout(label);
+	return { result: await call("worktrees.run", checkout, method, params), checkout };
 }

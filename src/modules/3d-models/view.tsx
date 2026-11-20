@@ -8,7 +8,7 @@ import type { AssetSummary, ModuleInfo } from "../../shared/modules";
 import { call, onEvent, studioFile } from "../../renderer/api";
 import { useStudio } from "../../renderer/store";
 import { AssetBrowser, type AssetContentProps } from "../../renderer/views/AssetBrowser";
-import { workspaceFor } from "../../renderer/workspace";
+import { editCheckout, runInWorktree } from "../../renderer/workspace";
 import { modelName } from "./info";
 import { ModelViewer, type ViewerOptions } from "./ModelViewer";
 
@@ -31,16 +31,16 @@ const toName = (text: string) =>
 		.join("-");
 
 /** Generation jobs a session started, kept live from `gen_job` events. */
-function useSessionJobs(sessionId: string | undefined): GenJob[] {
+function useSessionJobs(checkout: string | undefined): GenJob[] {
 	const [jobs, setJobs] = useState<GenJob[]>([]);
 	useEffect(() => {
-		if (!sessionId) return setJobs([]);
-		call("gen.jobs").then((all) => setJobs(all.filter((j) => j.sessionId === sessionId)), () => {});
+		if (!checkout) return setJobs([]);
+		call("gen.jobs").then((all) => setJobs(all.filter((j) => j.sessionId === checkout)), () => {});
 		return onEvent((e) => {
-			if (e.type !== "gen_job" || e.job.sessionId !== sessionId) return;
+			if (e.type !== "gen_job" || e.job.sessionId !== checkout) return;
 			setJobs((list) => (list.some((j) => j.id === e.job.id) ? list.map((j) => (j.id === e.job.id ? e.job : j)) : [...list, e.job]));
 		});
-	}, [sessionId]);
+	}, [checkout]);
 	return jobs;
 }
 
@@ -74,44 +74,44 @@ export function ModelsView({ module }: { module: ModuleInfo }) {
 				modifyLabel="Ask the modeller"
 				modifyPlaceholder="What should change? The 3D Modeller agent can regenerate, re-texture, rig, or edit precisely in Blender."
 				emptyText="No models yet. Start one with “New model”."
-				itemPreview={(asset, sessionId) => <Thumbnail asset={asset} sessionId={sessionId} />}
-				content={(props) => <ModelDetail key={`${props.asset.path}:${props.sessionId ?? ""}`} {...props} />}
+				itemPreview={(asset, checkout) => <Thumbnail asset={asset} checkout={checkout} />}
+				content={(props) => <ModelDetail key={`${props.asset.path}:${props.checkout ?? ""}`} {...props} />}
 			/>
 			{creating && <NewModelDialog onClose={() => setCreating(false)} />}
 		</>
 	);
 }
 
-function Thumbnail({ asset, sessionId }: { asset: AssetSummary; sessionId?: string }) {
+function Thumbnail({ asset, checkout }: { asset: AssetSummary; checkout?: string }) {
 	const [failed, setFailed] = useState(false);
 	const dir = asset.path.slice(0, asset.path.lastIndexOf("/"));
 	// Drafts have no mtime; the summary changes when a model (and so a thumbnail) appears or is regenerated.
 	const version = `${asset.updatedAt ?? ""}:${asset.excerpt}`;
-	useEffect(() => setFailed(false), [version, sessionId]);
+	useEffect(() => setFailed(false), [version, checkout]);
 	// No model yet (so no thumbnail): show the newest concept instead.
 	const [concept, setConcept] = useState<string | null>();
 	useEffect(() => {
 		if (!failed) return;
 		let live = true;
-		call("models3d.concepts", sessionId ?? null, modelName(asset.path)).then(
+		call("models3d.concepts", checkout ?? null, modelName(asset.path)).then(
 			(images) => live && setConcept(images[0]?.path ?? null),
 			() => live && setConcept(null),
 		);
 		return () => {
 			live = false;
 		};
-	}, [failed, version, sessionId, asset.path]);
+	}, [failed, version, checkout, asset.path]);
 	if (failed && concept)
 		return (
 			<div className="model-thumb concept" data-testid="concept-thumb">
-				<img src={studioFile(sessionId, concept)} alt="" />
+				<img src={studioFile(checkout, concept)} alt="" />
 				<span>concept</span>
 			</div>
 		);
 	return failed ? (
 		<div className="model-thumb empty">{concept === null ? "no concepts yet" : ""}</div>
 	) : (
-		<img className="model-thumb" src={studioFile(sessionId, `${dir}/thumbnail.png`, version)} alt="" onError={() => setFailed(true)} />
+		<img className="model-thumb" src={studioFile(checkout, `${dir}/thumbnail.png`, version)} alt="" onError={() => setFailed(true)} />
 	);
 }
 
@@ -120,21 +120,21 @@ function NewModelDialog({ onClose }: { onClose(): void }) {
 	const [description, setDescription] = useState("");
 	const [name, setName] = useState("");
 	const [count, setCount] = useState(4);
-	const [sessionId, setSessionId] = useState<string>();
-	const jobs = useSessionJobs(sessionId);
+	const [checkout, setCheckout] = useState<string>();
+	const jobs = useSessionJobs(checkout);
 	const finalName = name || toName(description);
 
 	const create = async () => {
 		try {
-			const session = await call("workspace.create", "3d-modeller", `Model: ${finalName}`, `assets/models/${finalName}/model.json`);
-			setSessionId(session.id);
-			await call("workspace.run", session.id, "generate_concepts", { model: finalName, prompt: description.trim(), count });
+			const id = await editCheckout(`Model: ${finalName}`);
+			setCheckout(id);
+			await call("worktrees.run", id, "generate_concepts", { model: finalName, prompt: description.trim(), count });
 			bumpAssets();
-			showAsset({ path: `assets/models/${finalName}/model.json`, sessionId: session.id });
+			showAsset({ path: `assets/models/${finalName}/model.json` });
 			onClose();
 		} catch (err) {
 			showError(err);
-			setSessionId(undefined);
+			setCheckout(undefined);
 		}
 	};
 
@@ -175,11 +175,11 @@ function NewModelDialog({ onClose }: { onClose(): void }) {
 				<JobProgress jobs={jobs} />
 				<div className="row">
 					<span className="grow" />
-					<button onClick={onClose} disabled={!!sessionId}>
+					<button onClick={onClose} disabled={!!checkout}>
 						Cancel
 					</button>
-					<button className="primary" disabled={!description.trim() || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(finalName) || !!sessionId} onClick={create}>
-						{sessionId ? "Generating…" : "Generate concepts"}
+					<button className="primary" disabled={!description.trim() || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(finalName) || !!checkout} onClick={create}>
+						{checkout ? "Generating…" : "Generate concepts"}
 					</button>
 				</div>
 			</div>
@@ -189,7 +189,7 @@ function NewModelDialog({ onClose }: { onClose(): void }) {
 
 type Tab = "model" | "concepts" | "engine";
 
-function ModelDetail({ asset, text, sessionId }: AssetContentProps) {
+function ModelDetail({ asset, text, checkout }: AssetContentProps) {
 	const { showAsset, showError } = useStudio();
 	// The name comes from the path: right after switching models, `text` can still be the previous model's
 	// manifest until the new one loads, so a manifest for another model is ignored.
@@ -202,15 +202,13 @@ function ModelDetail({ asset, text, sessionId }: AssetContentProps) {
 	const [chosenTab, setTab] = useState<Tab | null>(null);
 	const tab: Tab = chosenTab ?? (hasModel ? "model" : "concepts");
 	const [running, setRunning] = useState(false);
-	const jobs = useSessionJobs(sessionId);
+	const jobs = useSessionJobs(checkout);
 
 	/** Runs a generation step in this draft's session, or in a new workspace session for a merged model. */
 	const run = async (method: StudioRequestMethod, params: Record<string, unknown>, then?: Tab) => {
 		setRunning(true);
 		try {
-			const target = await workspaceFor(asset, sessionId, "3d-modeller", `Model: ${name}`);
-			if (target.id !== sessionId) showAsset({ path: asset.path, sessionId: target.id });
-			await call("workspace.run", target.id, method, { model: name, ...params });
+			await runInWorktree(`Model: ${name}`, method, { model: name, ...params });
 			bumpAssets();
 			if (then) setTab(then);
 		} catch (err) {
@@ -232,14 +230,14 @@ function ModelDetail({ asset, text, sessionId }: AssetContentProps) {
 			<JobProgress jobs={jobs} />
 			{tab === "model" &&
 				(hasModel ? (
-					<ModelTab manifest={manifest!} dir={dir} sessionId={sessionId} busy={running} run={run} />
+					<ModelTab manifest={manifest!} dir={dir} checkout={checkout} busy={running} run={run} />
 				) : (
 					<div className="empty">
 						No 3D model yet. Pick a concept and generate one on the <a onClick={() => setTab("concepts")}>Concepts</a> tab.
 					</div>
 				))}
-			{tab === "concepts" && <ConceptsTab manifest={manifest} name={name} dir={dir} sessionId={sessionId} busy={running} run={run} />}
-			{tab === "engine" && (hasModel ? <EngineTab name={name} sessionId={sessionId} /> : <div className="empty">No 3D model yet.</div>)}
+			{tab === "concepts" && <ConceptsTab manifest={manifest} name={name} dir={dir} checkout={checkout} busy={running} run={run} />}
+			{tab === "engine" && (hasModel ? <EngineTab name={name} checkout={checkout} /> : <div className="empty">No 3D model yet.</div>)}
 		</div>
 	);
 }
@@ -247,17 +245,17 @@ function ModelDetail({ asset, text, sessionId }: AssetContentProps) {
 interface TabProps {
 	manifest: ModelManifest;
 	dir: string;
-	sessionId?: string;
+	checkout?: string;
 	busy: boolean;
 	run(method: StudioRequestMethod, params: Record<string, unknown>, then?: Tab): Promise<void>;
 }
 
-function ModelTab({ manifest, dir, sessionId, busy, run }: TabProps) {
+function ModelTab({ manifest, dir, checkout, busy, run }: TabProps) {
 	const [options, setOptions] = useState<ViewerOptions>({ wireframe: false, skeleton: false, scaleReference: true, clip: null });
 	const [clips, setClips] = useState<string[]>([]);
 	const [loadError, setLoadError] = useState<string>();
 	const version = manifest.steps.at(-1)?.at;
-	const url = studioFile(sessionId, `${dir}/${manifest.name}.glb`, version);
+	const url = studioFile(checkout, `${dir}/${manifest.name}.glb`, version);
 	const onLoaded = useCallback((info: { clips: string[]; error?: string }) => {
 		setClips(info.clips);
 		setLoadError(info.error);
@@ -389,7 +387,7 @@ function RigActions({ manifest, busy, run }: Pick<TabProps, "manifest" | "busy" 
 	);
 }
 
-function ConceptsTab({ manifest, name, dir, sessionId, busy, run }: Omit<TabProps, "manifest"> & { manifest: ModelManifest | null; name: string }) {
+function ConceptsTab({ manifest, name, dir, checkout, busy, run }: Omit<TabProps, "manifest"> & { manifest: ModelManifest | null; name: string }) {
 	const { assetsVersion, showError } = useStudio();
 	const [concepts, setConcepts] = useState<ConceptImage[]>([]);
 	const [selected, setSelected] = useState<string | null>(null);
@@ -408,8 +406,8 @@ function ConceptsTab({ manifest, name, dir, sessionId, busy, run }: Omit<TabProp
 	const [rig, setRig] = useState(manifest?.rigged ?? false);
 
 	useEffect(() => {
-		call("models3d.concepts", sessionId ?? null, name).then(setConcepts, showError);
-	}, [name, sessionId, assetsVersion, showError]);
+		call("models3d.concepts", checkout ?? null, name).then(setConcepts, showError);
+	}, [name, checkout, assetsVersion, showError]);
 	const current = manifest?.concept ? `${dir}/${manifest.concept}` : null;
 	const chosen = selected ?? current ?? concepts[0]?.path ?? null;
 	const records = useMemo(() => new Map(concepts.map((c) => [c.path, c.record])), [concepts]);
@@ -457,7 +455,7 @@ function ConceptsTab({ manifest, name, dir, sessionId, busy, run }: Omit<TabProp
 						onClick={() => setSelected(c.path)}
 						title={c.record ? `${c.record.prompt}\nseed ${c.record.seed}${c.record.references ? ` · from ${c.record.references.join(", ")}` : ""}` : c.path}
 					>
-						<img src={studioFile(sessionId, c.path)} alt="" />
+						<img src={studioFile(checkout, c.path)} alt="" />
 						<figcaption>
 							{c.path === current && <span className="badge draft">used for the model</span>}
 							<span className="muted ellipsis">{c.record?.references ? "edit · " : ""}{c.path.split("/").pop()}</span>
@@ -494,14 +492,14 @@ function ConceptsTab({ manifest, name, dir, sessionId, busy, run }: Omit<TabProp
 	);
 }
 
-function EngineTab({ name, sessionId }: { name: string; sessionId?: string }) {
+function EngineTab({ name, checkout }: { name: string; checkout?: string }) {
 	const { showError } = useStudio();
 	const [busy, setBusy] = useState(false);
 	const [result, setResult] = useState<{ images: string[]; errors: string[] } | null>(null);
 	const render = async () => {
 		setBusy(true);
 		try {
-			setResult(await call("models3d.preview", sessionId ?? null, name));
+			setResult(await call("models3d.preview", checkout ?? null, name));
 		} catch (err) {
 			showError(err);
 		} finally {

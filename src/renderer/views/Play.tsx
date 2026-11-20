@@ -51,22 +51,28 @@ function pretty(value: unknown): string {
 	return JSON.stringify(value, null, 2).replace(/\[\s+([^[\]{}]*?)\s+\]/g, (_, inner: string) => `[${inner.split(/,\s+/).join(", ")}]`);
 }
 
-/** "Fix it": hands a problem to the session whose checkout it came from, or starts a gameplay session. */
+/** "Fix it": hands a problem to the newest session in the worktree it came from, or starts a gameplay session. */
 function useFix() {
-	const { sessions, openNewSession, selectSession, showError } = useStudio();
+	const { sessions, worktrees, openNewSession, selectSession, selectWorktree, showError } = useStudio();
+	const sessionIn = (checkout: CheckoutId) =>
+		checkout ? sessions.filter((s) => s.worktreeId === checkout && s.status !== "done").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] : undefined;
 	return {
-		label: (sessionId: CheckoutId) => (sessionId && sessions.some((s) => s.id === sessionId) ? "Send to session" : "Fix with an agent"),
-		async fix(sessionId: CheckoutId, problem: string) {
-			if (sessionId) {
+		label: (checkout: CheckoutId) => (sessionIn(checkout) ? "Send to session" : "Fix with an agent"),
+		async fix(checkout: CheckoutId, problem: string) {
+			const s = sessionIn(checkout);
+			if (s) {
 				try {
-					await call("sessions.send", sessionId, problem);
-					selectSession(sessionId);
+					await call("sessions.send", s.id, problem);
+					selectSession(s.id);
 				} catch (err) {
 					showError(err);
 				}
-			} else {
-				openNewSession({ agentType: "gameplay-engineer", target: "project", context: "Fix a problem in the main checkout", prompt: problem });
+				return;
 			}
+			// A new session works in the worktree the problem came from (or a new one, from main).
+			const w = worktrees.find((x) => x.id === checkout && x.target === "project");
+			selectWorktree(w ? w.id : null);
+			openNewSession({ agentType: "gameplay-engineer", target: "project", context: w ? `Fix a problem in worktree “${w.label}”` : "Fix a problem in the main checkout", prompt: problem });
 		},
 	};
 }
@@ -79,14 +85,14 @@ function describeBuildFailure(diagnostics: Diagnostic[], output: string): string
 }
 
 function Diagnostics({ list, sessionId }: { list: Diagnostic[]; sessionId: CheckoutId }) {
-	const { showAsset, sessions } = useStudio();
-	// Drafts live in project sessions' worktrees; engine-session files aren't studio assets.
-	const draftOf = sessions.find((s) => s.id === sessionId && s.target === "project")?.id;
+	const { showAsset, worktrees } = useStudio();
+	// Project worktrees hold the game's files; an engine worktree's files aren't studio assets.
+	const draftOf = worktrees.find((w) => w.id === sessionId && w.target === "project")?.id;
 	if (!list.length) return null;
 	return (
 		<div className="diagnostics">
 			{list.map((d, i) => (
-				<div key={i} className={`diagnostic ${d.severity}`} onClick={() => showAsset({ path: d.file, sessionId: draftOf, line: d.line })}>
+				<div key={i} className={`diagnostic ${d.severity}`} onClick={() => showAsset({ path: d.file, checkout: draftOf ?? null, line: d.line })}>
 					<code>
 						{d.file}:{d.line}:{d.column}
 					</code>{" "}

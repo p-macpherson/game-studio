@@ -29,7 +29,7 @@ export function GameCodeView({ module }: { module: ModuleInfo }) {
 					</button>
 				) : (
 					<button
-						title={sessionId ? "Build and run this session's worktree" : "Build and run the main checkout"}
+						title={sessionId ? "Build and run this worktree" : "Build and run the main checkout"}
 						onClick={() => {
 							openPlay({ checkout, tab: "run" });
 							void startRun("hidden");

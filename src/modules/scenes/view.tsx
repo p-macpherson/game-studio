@@ -24,7 +24,7 @@ import {
 import { call } from "../../renderer/api";
 import { useStudio } from "../../renderer/store";
 import { AssetBrowser, type AssetContentProps } from "../../renderer/views/AssetBrowser";
-import { workspaceFor } from "../../renderer/workspace";
+import { runInWorktree } from "../../renderer/workspace";
 import { enginePath, isPrefab } from "./info";
 import { defaultOrbit, FOV, type Orbit, orbitDrag, orbitPosition, pan, project, type Vec3 } from "./orbit";
 
@@ -52,7 +52,7 @@ export function ScenesView({ module }: { module: ModuleInfo }) {
 			modifyLabel="Ask the level designer"
 			modifyPlaceholder="What should change? The Level Designer places, moves and dresses things, and checks its work with preview_scene."
 			emptyText="No scenes yet. Start one with “New scene”."
-			content={(props) => <SceneDetail key={`${props.asset.path}:${props.sessionId ?? ""}`} {...props} />}
+			content={(props) => <SceneDetail key={`${props.asset.path}:${props.checkout ?? ""}`} {...props} />}
 		/>
 	);
 }
@@ -74,13 +74,13 @@ function worldPosition(e: SceneEntity, prefabRoot?: SceneEntity): Vec3 | null {
 }
 
 
-function SceneDetail({ asset, text, sessionId, assets }: AssetContentProps) {
+function SceneDetail({ asset, text, checkout: shownCheckout, assets }: AssetContentProps) {
 	const { run, frame, showAsset, showError, assetsVersion } = useStudio();
 	const parsed = useMemo(() => (text ? parseScene(text) : null), [text]);
 	const scene = parsed?.scene;
 	const prefabFile = isPrefab(asset.path);
 	const scenePath = enginePath(asset.path);
-	const checkout = sessionId ?? null;
+	const checkout = shownCheckout ?? null;
 	const ours = !!run && run.scene === scenePath && run.sessionId === checkout;
 	const live = ours && run.state === "running";
 	const otherGame = !!run && !ours && !run.scene && ["building", "starting", "running"].includes(run.state);
@@ -124,7 +124,7 @@ function SceneDetail({ asset, text, sessionId, assets }: AssetContentProps) {
 				.split("\n")
 				.filter(Boolean)
 				.map(async (p) => {
-					const t = await call("assets.read", `assets/${p}`, sessionId).catch(() => "");
+					const t = await call("assets.read", `assets/${p}`, checkout).catch(() => "");
 					return [p, parseScene(t).scene?.entities[0]] as const;
 				}),
 		).then((list) => alive && setPrefabRoots(Object.fromEntries(list.filter(([, e]) => e)) as Record<string, SceneEntity>));
@@ -132,7 +132,7 @@ function SceneDetail({ asset, text, sessionId, assets }: AssetContentProps) {
 		return () => {
 			alive = false;
 		};
-	}, [prefabPaths, sessionId, assetsVersion]);
+	}, [prefabPaths, checkout, assetsVersion]);
 
 	const refreshIds = async () => {
 		const rows = (await call("run.call", "entities", { limit: 100000 })) as { id: number; scene_id?: number }[];
@@ -229,16 +229,16 @@ function SceneDetail({ asset, text, sessionId, assets }: AssetContentProps) {
 		setBusy(true);
 		try {
 			const name = (asset.path.split("/").pop() ?? "").replace(/\.json$/, "");
-			const target = await workspaceFor(asset, sessionId, "level-designer", `Scene: ${name}`);
-			const result = (await call("workspace.run", target.id, "edit_scene", { path: asset.path, edits })) as { created: number[]; deleted: number[] };
+			const ran = await runInWorktree(`Scene: ${name}`, "edit_scene", { path: asset.path, edits });
+			const result = ran.result as { created: number[]; deleted: number[] };
 			if (selectCreated && result.created.length) select(result.created[result.created.length - 1]);
 			else if (selected !== null && result.deleted.includes(selected)) select(null);
-			if (target.id === sessionId) {
+			// An edit in the shown worktree is mirrored into the live view; one that made a new worktree (main was
+			// shown) switched the selection, and the view reopens there.
+			if (ran.checkout === shownCheckout) {
 				const local = applyEdits(scene, edits);
 				expected.current = formatScene(local.scene);
 				if (live) await mirror(local.scene, edits, result).catch(showError);
-			} else {
-				showAsset({ path: asset.path, sessionId: target.id });
 			}
 			bumpAssets();
 		} catch (err) {
@@ -395,7 +395,7 @@ function SceneDetail({ asset, text, sessionId, assets }: AssetContentProps) {
 						schemas={schemas}
 						busy={busy}
 						onEdit={(edits, selectCreated) => void edit(edits, selectCreated)}
-						onOpenPrefab={(p) => showAsset({ path: `assets/${p}`, sessionId })}
+						onOpenPrefab={(p) => showAsset({ path: `assets/${p}` })}
 					/>
 				) : (
 					<EnvironmentPanel scene={scene} onEdit={(value) => void edit([{ op: "environment", value }])} />

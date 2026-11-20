@@ -1,5 +1,4 @@
 /** The module contract: one studio section per part of the game. See the vault note "Modules". */
-import type { SessionStatus } from "./types";
 
 export interface ModuleInfo {
 	id: string;
@@ -19,22 +18,15 @@ export function moduleOwns(info: ModuleInfo, path: string): boolean {
 	return info.roots.some((r) => path.startsWith(`${r}/`)) && info.extensions.some((e) => path.toLowerCase().endsWith(e));
 }
 
-/** A session that has changed this asset in its worktree, not yet merged. */
-export interface AssetDraft {
-	sessionId: string;
-	sessionTitle: string;
-	status: SessionStatus;
-	change: "added" | "modified" | "deleted";
-}
-
 export interface AssetSummary {
 	path: string;
 	title: string;
 	excerpt: string;
-	/** Exists in the project's main checkout (otherwise it's only a draft). */
+	/** Exists in the project's main checkout. */
 	inMain: boolean;
 	updatedAt?: string;
-	drafts: AssetDraft[];
+	/** In a worktree: it added or changed this asset (not in the game until the worktree is merged). */
+	change?: "added" | "modified";
 }
 
 export interface AssetSearchHit {

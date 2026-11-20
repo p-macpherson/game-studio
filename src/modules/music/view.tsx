@@ -8,7 +8,7 @@ import { drumName, GM_PROGRAMS, gmProgram, parseSong, pitchName, type Song, type
 import { call, sha1, studioFile } from "../../renderer/api";
 import { useStudio } from "../../renderer/store";
 import { AssetBrowser, type AssetContentProps } from "../../renderer/views/AssetBrowser";
-import { workspaceFor } from "../../renderer/workspace";
+import { runInWorktree } from "../../renderer/workspace";
 import { formatTime, pieceName } from "./info";
 
 const COLOURS = ["#e8a33d", "#5aa9e6", "#7bc47f", "#d8737f", "#b48ee8", "#4fc1b4", "#e6d45a", "#e58f5a"];
@@ -26,14 +26,14 @@ export function MusicView({ module }: { module: ModuleInfo }) {
 			modifyLabel="Ask the composer"
 			modifyPlaceholder="What should change? The Music Composer edits the score: sections, melody, harmony, instruments, tempo, length."
 			emptyText="No music yet. Start a piece with “New piece”: the Music Composer writes a score and renders it."
-			content={(props) => <PieceDetail key={`${props.asset.path}:${props.sessionId ?? ""}`} {...props} />}
+			content={(props) => <PieceDetail key={`${props.asset.path}:${props.checkout ?? ""}`} {...props} />}
 		/>
 	);
 }
 
 type RenderState = { kind: "loading" } | { kind: "none" } | { kind: "stale" } | { kind: "current"; seconds: number };
 
-function PieceDetail({ asset, text, sessionId }: AssetContentProps) {
+function PieceDetail({ asset, text, checkout }: AssetContentProps) {
 	const { showAsset, showError } = useStudio();
 	const name = pieceName(asset.path);
 	const dir = `assets/music/${name}`;
@@ -60,7 +60,7 @@ function PieceDetail({ asset, text, sessionId }: AssetContentProps) {
 	useEffect(() => {
 		let live = true;
 		(async () => {
-			const r = await fetch(studioFile(sessionId, `${dir}/render.json`, `${Date.now()}`)).catch(() => null);
+			const r = await fetch(studioFile(checkout, `${dir}/render.json`, `${Date.now()}`)).catch(() => null);
 			if (!live) return;
 			if (!r?.ok) return setRender({ kind: "none" });
 			const info = (await r.json()) as { song: string; seconds: number };
@@ -69,15 +69,13 @@ function PieceDetail({ asset, text, sessionId }: AssetContentProps) {
 		return () => {
 			live = false;
 		};
-	}, [dir, sessionId, text, version]);
+	}, [dir, checkout, text, version]);
 
 	/** Runs a step in this draft's session, or the piece's open workspace, or a new one. */
 	const run = async (method: StudioRequestMethod, params: Record<string, unknown>) => {
 		setBusy(true);
 		try {
-			const target = await workspaceFor(asset, sessionId, "music-composer", `Music: ${name}`);
-			await call("workspace.run", target.id, method, { name, ...params });
-			if (target.id !== sessionId) showAsset({ path: asset.path, sessionId: target.id });
+			await runInWorktree(`Music: ${name}`, method, { name, ...params });
 			bumpAssets();
 			setVersion((v) => v + 1);
 		} catch (err) {
@@ -118,7 +116,7 @@ function PieceDetail({ asset, text, sessionId }: AssetContentProps) {
 			)}
 			{render.kind !== "none" && render.kind !== "loading" && (
 				<Player
-					src={studioFile(sessionId, `${dir}/${name}.ogg`, `${version}:${render.kind}`)}
+					src={studioFile(checkout, `${dir}/${name}.ogg`, `${version}:${render.kind}`)}
 					loop={song?.loop !== false}
 					timeline={timeline}
 					onSection={setSection}

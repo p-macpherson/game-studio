@@ -10,6 +10,7 @@ import { ProjectMenu, ProjectPicker } from "./views/Projects";
 import { Sessions } from "./views/Sessions";
 import { SettingsView } from "./views/Settings";
 import { SourceControl } from "./views/SourceControl";
+import { WorktreePicker } from "./views/Worktrees";
 
 const NAV: { view: View; label: string; icon: string }[] = [
 	{ view: "sessions", label: "Sessions", icon: "💬" },
@@ -42,6 +43,7 @@ function App() {
 		<div className={`shell ${collapsed ? "collapsed" : ""}`}>
 			<nav className="sidebar">
 				{!collapsed && <ProjectMenu />}
+				<WorktreePicker />
 				{NAV.map((n) => (
 					<button key={n.view} className={`nav-item ${view === n.view ? "active" : ""}`} title={n.label} aria-label={n.label} onClick={() => setView(n.view)}>
 						<span className="nav-icon">{n.icon}</span>

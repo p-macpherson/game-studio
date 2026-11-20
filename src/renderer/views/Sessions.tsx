@@ -100,6 +100,11 @@ export function Sessions() {
 							<div className="row">
 								<StatusBadge s={s} />
 								<TargetBadge target={s.target} />
+								{s.target === "project" && (
+									<span className="muted ellipsis small" title={`Worktree: ${s.worktreeLabel}`}>
+										⎇ {s.worktreeLabel}
+									</span>
+								)}
 								<span className="muted ellipsis" style={{ fontSize: 12 }}>
 									{typeName(s.agentType)}
 								</span>
