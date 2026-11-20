@@ -308,7 +308,7 @@ export function studioTools(ctx: StudioToolContext) {
 				source: Type.Optional(Type.String({ description: "The chosen candidate, e.g. 'candidates/grass-1001-quilt.png' (default: the current one)" })),
 				tile: Type.Optional(Type.Number({ description: "Metres per repeat in the world, e.g. 2 for grass, 1 for planks, 3 for a stone wall" })),
 				normal_strength: Type.Optional(Type.Number()),
-				roughness: Type.Optional(Type.Tuple([Type.Number(), Type.Number()])),
+				roughness: Type.Optional(Type.Array(Type.Number({ minimum: 0, maximum: 1 }), { minItems: 2, maxItems: 2, description: "[min, max], e.g. [0.55, 0.95]" })),
 				notes: Type.Optional(Type.String({ description: "What it's for" })),
 			}),
 			async execute(_id, params, signal, onUpdate) {
