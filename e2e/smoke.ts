@@ -111,7 +111,6 @@ try {
 	await docs.filter({ hasText: "Combat" }).filter({ hasText: "⎇ New" }).click();
 	await page.locator(".markdown h1", { hasText: "Combat" }).waitFor();
 	await page.getByTestId("worktree-current").filter({ hasText: "write docs/design/Combat.md" }).waitFor();
-	await page.getByTestId("draft-banner").waitFor();
 	await step("09-draft-doc", page);
 	await page.locator(".markdown a", { hasText: "the overview" }).click();
 	await page.locator(".markdown h1", { hasText: "E2E Game" }).waitFor();
@@ -407,7 +406,6 @@ try {
 	await page.locator("[data-testid=sound-detail] [data-testid=render-status][data-state=current]").waitFor({ timeout: 30_000 });
 	await page.getByTestId("take").nth(3).waitFor();
 	await page.getByTestId("variant-row").first().waitFor();
-	await page.getByTestId("draft-banner").waitFor();
 	await step("28-sounds", page);
 	// Tick two unused takes and make them the variants (one take each).
 	await page.locator("[data-testid=take][data-used=false]").nth(0).getByTestId("take-select").check();
@@ -416,10 +414,9 @@ try {
 	await page.getByTestId("variant-row").nth(1).waitFor({ timeout: 30_000 });
 	await page.locator("[data-testid=sound-detail] [data-testid=render-status][data-state=current]").waitFor({ timeout: 30_000 });
 	await step("29-sound-variants", page);
-	// The section only says it isn't in the game yet; merging is the worktree's, from the sidebar.
-	if ((await page.getByTestId("draft-banner").getByRole("button").count()) !== 0) throw new Error("the draft banner still has buttons");
+	// Merging is the worktree's, from the sidebar; the sound then shows as in the game (no ⎇ label).
 	await page.getByTestId("worktree-merge").click();
-	await page.getByTestId("draft-banner").waitFor({ state: "detached", timeout: 30_000 });
+	await page.getByTestId("asset-item").filter({ hasText: "e2e-chime" }).getByTestId("change-label").waitFor({ state: "detached", timeout: 30_000 });
 	await page.getByTestId("variant-row").nth(1).waitFor();
 	await step("30-sound-merged", page);
 

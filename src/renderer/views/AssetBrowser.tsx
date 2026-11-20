@@ -79,37 +79,6 @@ export function Highlight({ text, query }: { text: string; query: string }) {
  * Shown over an asset the selected worktree added or changed: it isn't in the game until the worktree is merged.
  * Merging (or discarding) takes the whole worktree, so the other files it changed are listed first.
  */
-/** Over an asset the selected worktree changed: it isn't in the game until the worktree is merged, from the sidebar. */
-function WorktreeBanner({ module, asset, worktree }: { module: ModuleInfo; asset: AssetSummary; worktree: WorktreeSummary }) {
-	const [others, setOthers] = useState<string[]>([]);
-	// An asset that is a folder's manifest (e.g. assets/sounds/x/sound.json) owns the whole folder.
-	const own = module.extensions.some((e) => e.startsWith("/")) ? `${asset.path.slice(0, asset.path.lastIndexOf("/"))}/` : asset.path;
-	useEffect(() => {
-		let live = true;
-		call("worktrees.changedFiles", worktree.id).then(
-			(files) => live && setOthers(files.map((f) => f.path).filter((p) => !p.startsWith(own) && p !== own && !p.startsWith(".studio/"))),
-			() => {},
-		);
-		return () => {
-			live = false;
-		};
-	}, [worktree.id, worktree.updatedAt, own]);
-	return (
-		<div className="draft-banner row" data-testid="draft-banner">
-			<span className="grow">
-				{asset.change === "added" ? "New" : asset.change === "deleted" ? "Removed" : "Changed"} in worktree “{worktree.label}”, not in the game until the worktree is merged
-				(from the worktree selector in the sidebar).
-				{others.length > 0 && (
-					<span className="muted" title={others.join("\n")}>
-						{" "}
-						The worktree also changed {others.length} other file{others.length > 1 ? "s" : ""}.
-					</span>
-				)}
-			</span>
-		</div>
-	);
-}
-
 export function AssetBrowser(props: AssetBrowserProps) {
 	const { module } = props;
 	const { focus, showAsset, assetsVersion, sessions, openNewSession, selectSession, showError, project, worktree, worktrees } = useStudio();
@@ -280,7 +249,6 @@ export function AssetBrowser(props: AssetBrowserProps) {
 								{props.modifyLabel}
 							</button>
 						</div>
-						{selected.change && selectedWorktree && <WorktreeBanner module={module} asset={selected} worktree={selectedWorktree} />}
 					</div>
 					<div className="tab-body">
 						{selected.change === "deleted" ? (
