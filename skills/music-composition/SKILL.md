@@ -97,6 +97,9 @@ Names are forgiving about case, punctuation and partial words ("string ensemble"
 - **Ranges that sound good**: bass C2-C3, chords and pads C3-C5, melody C4-C6, flute and piccolo above C5.
   Keep simultaneous chord notes in different tracks out of each other's way.
 - **Velocity matters**: `!` on downbeats and phrase peaks, `?` for ghost notes on hi-hats and inner voices.
-- **Check your work with `render_song`**: you can't listen, so compare its summary (bars per section, note
-  counts, ranges) with your intent, then tell the user to listen in the Music section.
+- **Check your work with `render_song`**: you can't listen, so compare its summary (bars per section, length in
+  seconds, note counts, ranges) with your intent, then tell the user to listen in the Music section.
+- **Render after the edit has finished**, never in the same batch of tool calls as the edit: tools in one batch
+  can run at the same time, and the render may read the old score. If the summary's sections or length don't
+  match your change, render again.
 - Edit one section at a time; keep section and track names stable so the user's view stays familiar.

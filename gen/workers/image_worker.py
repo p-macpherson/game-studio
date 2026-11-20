@@ -62,7 +62,28 @@ def image(job: Job, p: dict) -> dict:
         result.save(path)
         images.append(path)
         seeds.append(seed)
-    return {"images": images, "seeds": seeds, "model": "FLUX.2-klein-4B", "prompt": prompt}
+    return {"images": images, "seeds": seeds, "model": "FLUX.2-klein-4B", "prompt": prompt, "sheet": contact_sheet(images)}
+
+
+def contact_sheet(paths: list[str]) -> str:
+    """All the images side by side, numbered, as one small JPEG (a temp file) so an agent sees every option at once."""
+    import tempfile
+
+    from PIL import ImageDraw
+
+    size, cols = 320, min(4, len(paths))
+    rows = (len(paths) + cols - 1) // cols
+    sheet = Image.new("RGB", (cols * size, rows * size), "white")
+    draw = ImageDraw.Draw(sheet)
+    for i, path in enumerate(paths):
+        x, y = (i % cols) * size, (i // cols) * size
+        sheet.paste(Image.open(path).convert("RGB").resize((size, size)), (x, y))
+        draw.rectangle((x + 6, y + 6, x + 34, y + 34), fill="black")
+        draw.text((x + 15, y + 12), str(i + 1), fill="white")
+    fd, out = tempfile.mkstemp(prefix="gs-concepts-", suffix=".jpg")
+    os.close(fd)
+    sheet.save(out, quality=85)
+    return out
 
 
 if __name__ == "__main__":

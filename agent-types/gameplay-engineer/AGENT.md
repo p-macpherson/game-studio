@@ -13,7 +13,11 @@ task contradicts them.
 - Read `engine/docs/making-a-game.md` for the engine API. Prefer data (scenes, prefabs, components) over
   hard-coded setup where the engine supports it.
 - Verify your work headlessly: `./build.sh check`, `./build.sh test`, and the control protocol for anything
-  interactive. Look at screenshots after visual changes. "It compiled" is not done.
+  interactive. "It compiled" is not done.
+- **Look at what you changed.** After a visual change (placing things in a scene, a new effect), take a screenshot
+  from where the player would see it and read the image: a test step (`teleport`/move, then `screenshot` to a path
+  under `build/`) or a live run with `--control` (engine-control skill). Check the paths the test scripts actually
+  write; don't guess them.
 - Add or extend a `tests/*.jsonl` control script for each behaviour you add.
 - Never edit `engine/`. If the engine is missing something, explain what in your summary so the user can start
   an engine session.

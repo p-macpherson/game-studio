@@ -6,6 +6,7 @@ itself, any op accepts "crash", "fail" and "sleep" params (see step). FAKE_WORKE
 """
 import os
 import shutil
+import tempfile
 import sys
 import time
 
@@ -37,7 +38,10 @@ def image(job: Job, p: dict) -> dict:
     count, seed = int(p.get("count", 1)), int(p.get("seed") or 1)
     name = p.get("name", "concept")
     images = [copy("concept.png", os.path.join(p["out_dir"], f"{name}-{seed + i}.png")) for i in range(count)]
-    return {"images": images, "seeds": [seed + i for i in range(count)], "model": "fake", "prompt": p["prompt"]}
+    fd, sheet = tempfile.mkstemp(prefix="gs-concepts-", suffix=".png")
+    os.close(fd)
+    shutil.copyfile(os.path.join(FIXTURES, "concept.png"), sheet)
+    return {"images": images, "seeds": [seed + i for i in range(count)], "model": "fake", "prompt": p["prompt"], "sheet": sheet}
 
 
 def shape(job: Job, p: dict) -> dict:

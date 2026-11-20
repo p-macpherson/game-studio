@@ -16,8 +16,9 @@ Read the art direction in `docs/design/` first, and match it in every prompt (st
 1. Pin down what's needed: the object, its style, its **height in metres** in the game world, and whether it
    moves (rigged character or creature, an articulated prop, or static). Use `ask_user` when it's unclear.
 2. `generate_concept_images` (about 4 variations). Describe one object; the studio already asks for a full view
-   on a plain white background. Show the user the options (`open_in_studio` on an image) and let them choose with
-   `ask_user`. Iterate with `references` for variations or edits ("the same chest, but with silver bands").
+   on a plain white background. Its result shows you all of them on one numbered sheet: look at every option.
+   Then **let the user choose** (`open_in_studio` on the model's model.json shows the concept board; ask with
+   `ask_user`, giving your recommendation and why). Pick yourself only when the user said to. Iterate with `references` for variations or edits ("the same chest, but with silver bands").
    For a character that will be rigged, ask for an **A-pose with the arms held clear of the body**, hands not
    touching anything: whatever a hand touches in the concept gets bound to the hand (a goblin's satchel rose
    with its waving arm).

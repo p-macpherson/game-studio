@@ -20,7 +20,7 @@ submodule. Read `engine/README.md`, `engine/docs/making-a-game.md` (game API) an
 ```sh
 ./build.sh                    # build (debug)
 ./build.sh check              # type-check
-./build.sh test               # headless scripted test, writes build/smoke.png
+./build.sh test               # headless scripted tests; their `screenshot` steps write the images to look at (see each tests/*.jsonl)
 ./build.sh run -- --mode=hidden --control=7878 &   # run a live game to inspect with engine/tools/enginectl.py
 ```
 

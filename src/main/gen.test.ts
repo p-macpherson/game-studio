@@ -101,6 +101,9 @@ describe("generation tools", () => {
 			const reply = JSON.stringify((await sessions.messages(s.id)).at(-1));
 			expect(reply).toContain("Result:");
 			expect(reply).toContain("assets/models/crate/concepts/crate-2.png");
+			// The agent sees every concept at once: a contact sheet comes back as an image in the tool result.
+			const result = (await sessions.messages(s.id)).find((m) => (m as { role?: string }).role === "toolResult");
+			expect(JSON.stringify(result)).toMatch(/"type":"image","mimeType":"image\/png"/);
 		} finally {
 			sessions.dispose();
 		}

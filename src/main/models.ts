@@ -5,7 +5,7 @@
 //   concepts/*.png    concept images
 //   source/           intermediates: shape.glb, textured.glb, rigged.glb, plus any edits
 // Every step reads and writes inside one checkout (the main checkout or a session's worktree).
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 import type { ConceptImage, ConceptRecord, GenJob, GenJobKind, ModelManifest } from "../shared/gen";
 import { safeJoin } from "./assets";
@@ -100,7 +100,7 @@ export class ModelPipeline {
 	async concepts(
 		ctx: PipelineContext,
 		p: { model: string; prompt: string; count?: number; references?: string[]; seed?: number },
-	): Promise<{ images: string[]; seeds: number[] }> {
+	): Promise<{ images: string[]; seeds: number[]; sheet?: string }> {
 		const out = join(this.dir(ctx, p.model), "concepts");
 		const count = Math.min(Math.max(Math.round(p.count ?? 4), 1), 8);
 		const references = (p.references ?? []).map((r) => this.input(ctx, r));
@@ -130,7 +130,13 @@ export class ModelPipeline {
 		if (!this.manifest(ctx, p.model)) {
 			this.writeManifest(ctx, { name: p.model, description: p.prompt, textured: false, rigged: false, steps: [] });
 		}
-		return { images: images.map((f) => this.rel(ctx, f)), seeds };
+		// The worker's contact sheet (all images, numbered) comes back as a data URL for the agent to look at.
+		let sheet: string | undefined;
+		if (typeof r.sheet === "string" && existsSync(r.sheet)) {
+			sheet = `data:image/${r.sheet.endsWith(".png") ? "png" : "jpeg"};base64,${readFileSync(r.sheet).toString("base64")}`;
+			rmSync(r.sheet, { force: true });
+		}
+		return { images: images.map((f) => this.rel(ctx, f)), seeds, sheet };
 	}
 
 	/** A model's concept images, newest first, with how each was made. */

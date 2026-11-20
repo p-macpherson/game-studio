@@ -48,7 +48,14 @@ export function studioTools(ctx: StudioToolContext) {
 				references: Type.Optional(Type.Array(Type.String(), { description: "Repo-relative reference images" })),
 				seed: Type.Optional(Type.Number()),
 			}),
-			execute: generation("generate_concepts"),
+			async execute(_id, params, signal, onUpdate) {
+				const { sheet, ...r } = (await ctx.request("generate_concepts", params, signal, (text) => onUpdate?.({ content: [{ type: "text", text }], details: {} }))) as {
+					sheet?: string;
+				};
+				const [, mimeType, data] = /^data:([^;]+);base64,(.*)$/.exec(sheet ?? "") ?? [];
+				const text = `${JSON.stringify(r, null, 2)}${data ? "\nAll of them, numbered in the order above:" : ""}`;
+				return { content: [{ type: "text" as const, text }, ...(data ? [{ type: "image" as const, mimeType, data }] : [])], details: {} };
+			},
 		}),
 		defineTool({
 			name: "generate_model",
