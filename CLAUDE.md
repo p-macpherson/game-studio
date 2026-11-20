@@ -37,8 +37,10 @@ Install dependencies with `npm install --ignore-scripts` (Pi's recommendation). 
 - Pi credentials and model config live in `<userData>/pi/` (`auth.json`, `models.json`) and never touch a global
   Pi install. `GAME_STUDIO_USER_DATA` overrides userData, so a second instance (tests, studio-engineer
   sessions) can run alongside.
-- Every session works in its own git worktree, and its record and Pi transcript are committed in the target
-  repo's `.studio/sessions/<id>/`. See the vault note `Sessions & Worktrees.md`.
+- Sessions work in labelled git worktrees (several sessions can share one; sub-agents use their parent's), merged
+  or discarded as a whole. Session records and Pi transcripts are committed in the target repo's
+  `.studio/sessions/<id>/`, worktree records in `.studio/worktrees/`. See the vault notes `Sessions & Worktrees.md`
+  and `M8 Workflow & Sessions.md`.
 - Every Pi session has the `codemode` tool (scripts that call the other tools, studio tools included). The SDK
   doesn't load the CLI's built-in extensions, so `host-core.ts` adds `createCodemodeExtension()` and activates
   it with `defaultTools: ["+codemode"]`. "Open in terminal" passes `--tools +codemode` to the CLI.
@@ -48,7 +50,7 @@ Install dependencies with `npm install --ignore-scripts` (Pi's recommendation). 
 | Path | What |
 |---|---|
 | `src/shared/{types,ipc,host}.ts` | Domain types, the renderer↔main API (`StudioApi`, `StudioEvent`), and the main↔session host protocol |
-| `src/main/sessions.ts` | Session orchestrator: records, worktrees, lifecycle (merge/discard/mark done/resume), host events |
+| `src/main/sessions.ts`, `src/main/worktrees.ts` | Session orchestrator: records, lifecycle (mark done/resume), host events; sessions work in **worktrees** (`WorktreeStore`: labelled records in `.studio/worktrees/<id>.json`, checkouts, diff, merge/discard as a whole), shared by a session's children. Old per-session records migrate on load |
 | `src/session-host/host-core.ts` | Pi sessions, accounts and models; `studio-tools.ts` holds the agent's tools for talking to the studio |
 | `src/main/project.ts` + `templates/game/` | New-project scaffold (engine added as the `engine/` submodule) |
 | `agent-types/<id>/AGENT.md`, `skills/<name>/SKILL.md` | Built-in agent types (frontmatter + prompt) and Pi skills |

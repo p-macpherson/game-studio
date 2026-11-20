@@ -4,7 +4,8 @@ import { call, relativeTime } from "../api";
 import { useStudio } from "../store";
 import { Diff } from "./Diff";
 
-const SESSIONS_PREFIX = ".studio/sessions/";
+/** The studio's own records (sessions and worktrees), listed apart from the user's changes. */
+const isRecord = (path: string) => path.startsWith(".studio/sessions/") || path.startsWith(".studio/worktrees/");
 
 function FileRow({ f, staged, selected, onSelect, onToggle, onDiscard }: {
 	f: GitFileStatus;
@@ -80,8 +81,8 @@ export function SourceControl() {
 
 	const files = status?.files ?? [];
 	const staged = files.filter((f) => f.index !== "." && f.index !== "?");
-	const unstaged = files.filter((f) => (f.worktree !== "." || f.index === "?") && !f.path.startsWith(SESSIONS_PREFIX));
-	const sessionFiles = files.filter((f) => (f.worktree !== "." || f.index === "?") && f.path.startsWith(SESSIONS_PREFIX));
+	const unstaged = files.filter((f) => (f.worktree !== "." || f.index === "?") && !isRecord(f.path));
+	const sessionFiles = files.filter((f) => (f.worktree !== "." || f.index === "?") && isRecord(f.path));
 	const targets: Target[] = project ? ["project", "engine", "studio"] : ["engine", "studio"];
 
 	const section = (title: string, list: GitFileStatus[], isStaged: boolean, discard: boolean) =>
@@ -152,7 +153,7 @@ export function SourceControl() {
 					<div className="col">
 						{section("Staged", staged, true, false)}
 						{section("Changes", unstaged, false, true)}
-						{section("Studio sessions", sessionFiles, false, false)}
+						{section("Studio records", sessionFiles, false, false)}
 						{files.length === 0 && <div className="muted">Working tree clean.</div>}
 						{engine && (
 							<div className="card">

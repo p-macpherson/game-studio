@@ -5,9 +5,10 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSyn
 import { basename, join } from "node:path";
 import type { HostEvent, PromptMode, StudioRequestMethod } from "../shared/host";
 import type { StudioEvent } from "../shared/ipc";
-import type { AgentTypeInfo, NewSessionRequest, PendingQuestion, SessionRecord, SessionSummary, Settings, Target } from "../shared/types";
+import type { AgentTypeInfo, NewSessionRequest, PendingQuestion, SessionRecord, SessionSummary, Settings, Target, WorktreeRecord, WorktreeSummary } from "../shared/types";
 import * as g from "./git";
 import type { HostLink } from "./host-link";
+import { type FileChange, type Worktree, WORKTREES_DIR, WorktreeStore } from "./worktrees";
 
 export const SESSIONS_DIR = ".studio/sessions";
 
@@ -39,6 +40,9 @@ interface Entry {
 	repoPath: string;
 }
 
+/** A session record from before worktrees (it had its own branch and checkout). */
+type LegacySession = Omit<SessionRecord, "worktreeId"> & { branch?: string; baseBranch?: string; baseCommit: string; worktree?: "active" | "removed" };
+
 export function newSessionId(now = new Date()): string {
 	const p = (n: number) => String(n).padStart(2, "0");
 	const stamp = `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
@@ -51,8 +55,10 @@ export class SessionService {
 	private readonly lastActivity = new Map<string, number>();
 	private readonly questions = new Map<string, PendingQuestion>();
 	private readonly idleTimer?: NodeJS.Timeout;
+	readonly worktrees: WorktreeStore;
 
 	constructor(private readonly deps: SessionServiceDeps) {
+		this.worktrees = new WorktreeStore({ settings: deps.settings, changed: () => deps.emit({ type: "sessions_changed" }) });
 		deps.host.onEvent((e) => this.onHostEvent(e));
 		deps.host.onRestart(() => this.onHostRestart());
 		if (deps.idleTimeoutMs) this.idleTimer = setInterval(() => this.disposeIdle(), Math.min(deps.idleTimeoutMs, 60_000));
@@ -89,8 +95,12 @@ export class SessionService {
 		return join(e.repoPath, SESSIONS_DIR, e.record.id);
 	}
 
+	private worktreeOf(e: Entry): Worktree {
+		return this.worktrees.get(e.record.worktreeId);
+	}
+
 	worktreePath(e: Entry): string {
-		return join(this.deps.settings().worktreeRoot, basename(e.repoPath), e.record.id);
+		return this.worktrees.path(this.worktreeOf(e));
 	}
 
 	private save(e: Entry): void {
@@ -103,14 +113,21 @@ export class SessionService {
 	/** (Re)reads every record from the project, engine and studio repos. Sessions left running become interrupted. */
 	load(): void {
 		const seen = new Set<string>();
-		for (const { target, path } of this.repos()) {
+		const repos = this.repos();
+		this.worktrees.load(repos);
+		for (const { target, path } of repos) {
 			const dir = join(path, SESSIONS_DIR);
 			if (!existsSync(dir)) continue;
+			const migrated: string[] = [];
 			for (const id of readdirSync(dir)) {
 				const file = join(dir, id, "session.json");
 				if (!existsSync(file)) continue;
 				const known = this.entries.get(id);
-				const record: SessionRecord = known && known.repoPath === path ? known.record : { ...JSON.parse(readFileSync(file, "utf8")), target };
+				let record: SessionRecord = known && known.repoPath === path ? known.record : { ...JSON.parse(readFileSync(file, "utf8")), target };
+				if (!record.worktreeId) {
+					record = this.migrate(record as unknown as LegacySession, path);
+					if (record.status === "done") migrated.push(join(SESSIONS_DIR, id));
+				}
 				const entry = { record, repoPath: path };
 				this.entries.set(id, entry);
 				seen.add(id);
@@ -119,9 +136,38 @@ export class SessionService {
 					this.save(entry);
 				}
 			}
+			// Commit the new worktree records with the records of finished sessions (which were committed already);
+			// active sessions' records are committed when they end, as before.
+			if (migrated.length) {
+				void g.commitPaths(path, [WORKTREES_DIR, ...migrated], "studio: worktree records (one per existing session)").catch((err) => console.error("could not commit migrated records:", err));
+			}
 		}
 		for (const id of this.entries.keys()) if (!seen.has(id)) this.entries.delete(id);
 		this.deps.emit({ type: "sessions_changed" });
+	}
+
+	/** A record from before worktrees: the session had its own branch and checkout. It becomes a worktree with its id. */
+	private migrate(old: LegacySession, repoPath: string): SessionRecord {
+		const { branch, baseBranch, baseCommit, worktree, ...rest } = old;
+		if (!this.worktrees.find(old.id)) {
+			const record: WorktreeRecord = {
+				id: old.id,
+				label: old.title,
+				target: old.target,
+				branch: branch ?? `studio/${old.id}`,
+				baseBranch: baseBranch ?? "main",
+				baseCommit,
+				status: old.outcome === "merged" ? "merged" : old.outcome === "discarded" ? "discarded" : "active",
+				checkout: worktree === "active" ? "active" : "removed",
+				createdAt: old.createdAt,
+				updatedAt: old.updatedAt,
+			};
+			this.worktrees.adopt(record, repoPath);
+		}
+		const record: SessionRecord = { ...rest, worktreeId: old.id };
+		const dir = join(repoPath, SESSIONS_DIR, old.id);
+		writeFileSync(join(dir, "session.json"), `${JSON.stringify(record, null, "\t")}\n`);
+		return record;
 	}
 
 	private entry(id: string): Entry {
@@ -132,13 +178,20 @@ export class SessionService {
 
 	list(): SessionSummary[] {
 		return [...this.entries.values()]
-			.map((e) => ({
-				...e.record,
-				repoPath: e.repoPath,
-				worktreePath: this.worktreePath(e),
-				live: this.live.has(e.record.id),
-				pendingQuestion: this.questions.get(e.record.id),
-			}))
+			.map((e) => {
+				const w = this.worktrees.find(e.record.worktreeId);
+				return {
+					...e.record,
+					repoPath: e.repoPath,
+					worktreePath: w ? this.worktrees.path(w) : "",
+					worktreeLabel: w?.record.label ?? "",
+					branch: w?.record.branch ?? "",
+					baseBranch: w?.record.baseBranch ?? "",
+					worktree: w && this.worktrees.hasCheckout(w) ? ("active" as const) : ("removed" as const),
+					live: this.live.has(e.record.id),
+					pendingQuestion: this.questions.get(e.record.id),
+				};
+			})
 			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 	}
 
@@ -155,26 +208,29 @@ export class SessionService {
 		if (!agentType) throw new Error(`Unknown agent type ${req.agentType}`);
 		if (!agentType.targets.includes(req.target)) throw new Error(`${agentType.name} sessions can't target the ${req.target}`);
 		const repoPath = this.repoFor(req.target);
-		if (!(await g.hasCommits(repoPath))) throw new Error(`${repoPath} has no commits yet`);
 		const id = newSessionId();
 		const now = new Date().toISOString();
+		const title = req.title ?? (req.prompt.split("\n")[0].slice(0, 60) || agentType.name);
+		const parent = req.parentId ? this.entry(req.parentId) : undefined;
+		// The given worktree, else the parent's (if it's in the same repo), else a new one.
+		let worktree = req.worktreeId ? this.worktrees.get(req.worktreeId) : parent && parent.repoPath === repoPath ? this.worktreeOf(parent) : undefined;
+		if (worktree && worktree.repoPath !== repoPath) throw new Error(`Worktree "${worktree.record.label}" isn't in the ${req.target} repo`);
+		worktree ??= await this.worktrees.create(repoPath, req.target, id, req.worktreeLabel ?? title);
 		const entry: Entry = {
 			repoPath,
 			record: {
 				id,
-				title: req.title ?? (req.prompt.split("\n")[0].slice(0, 60) || agentType.name),
+				title,
 				agentType: agentType.id,
 				target: req.target,
 				status: "starting",
-				branch: `studio/${id}`,
-				baseBranch: await g.currentBranch(repoPath),
-				baseCommit: await g.revParse(repoPath, "HEAD"),
+				worktreeId: worktree.record.id,
+				...(parent ? { parentId: parent.record.id } : {}),
 				model: req.model,
 				thinking: req.thinking ?? agentType.thinking,
 				linkedAsset: req.linkedAsset,
 				createdAt: now,
 				updatedAt: now,
-				worktree: "removed",
 				outcome: null,
 				reviewRequested: false,
 			},
@@ -200,9 +256,10 @@ export class SessionService {
 
 	private preamble(e: Entry, agentType: AgentTypeInfo): string {
 		const r = e.record;
+		const w = this.worktreeOf(e).record;
 		const lines = [
 			`You are working inside Game Studio, an agent-driven game development IDE, as a "${agentType.name}" session.`,
-			`Target repository: the ${r.target} (${basename(e.repoPath)}). Your working directory is a git worktree on branch \`${r.branch}\`, created from \`${r.baseBranch}\`.`,
+			`Target repository: the ${r.target} (${basename(e.repoPath)}). Your working directory is the git worktree "${w.label}" on branch \`${w.branch}\`, created from \`${w.baseBranch}\`. Other sessions may work in it too.`,
 			"",
 			"- Commit your work on this branch as you go, with clear messages. Never switch branches, rebase, push, or touch the base branch: the user reviews and merges your branch from Game Studio.",
 			"- Don't edit anything under `.studio/`; it belongs to Game Studio.",
@@ -303,36 +360,68 @@ export class SessionService {
 		return existsSync(file) ? readFileSync(file, "utf8") : "";
 	}
 
-	/** Changes on the session branch since it was created, including uncommitted work in the worktree. */
+	/** Changes in the session's worktree since it was made, including uncommitted work. */
 	async diff(id: string): Promise<string> {
-		const e = this.entry(id);
-		const wt = this.worktreePath(e);
-		if (!this.hasWorktree(e)) return g.git(e.repoPath, ["diff", e.record.baseCommit, e.record.branch]);
-		let out = await g.git(wt, ["diff", e.record.baseCommit]);
-		const st = await g.status(wt);
-		for (const f of st.files.filter((f) => f.index === "?")) {
-			out += await g.git(wt, ["diff", "--no-index", "/dev/null", f.path]).catch((err: Error) => {
-				// `git diff --no-index` exits 1 when the files differ, which is always here
-				const m = /git diff: ([\s\S]*)/.exec(err.message);
-				return m ? `${m[1]}\n` : "";
-			});
-		}
-		return out;
+		return this.worktrees.diff(this.worktreeOf(this.entry(id)));
 	}
 
-	/** Files the session has changed relative to its branch point, committed or not. */
-	async changedFiles(id: string): Promise<{ path: string; change: "added" | "modified" | "deleted" }[]> {
-		const e = this.entry(id);
-		if (!this.hasWorktree(e)) return [];
-		const wt = this.worktreePath(e);
-		const kinds = { A: "added", D: "deleted" } as const;
-		const files = new Map<string, "added" | "modified" | "deleted">();
-		for (const line of (await g.git(wt, ["--no-optional-locks", "diff", "--name-status", "--no-renames", e.record.baseCommit])).split("\n")) {
-			const [code, path] = line.split("\t");
-			if (path) files.set(path, kinds[code as "A" | "D"] ?? "modified");
-		}
-		for (const f of (await g.status(wt)).files) if (f.index === "?") files.set(f.path, "added");
-		return [...files].map(([path, change]) => ({ path, change }));
+	/** Files the session's worktree has changed, committed or not. */
+	async changedFiles(id: string): Promise<FileChange[]> {
+		return this.worktrees.changedFiles(this.worktreeOf(this.entry(id)));
+	}
+
+	// ── worktrees ────────────────────────────────────────────────────────────────────────────────────
+
+	listWorktrees(): WorktreeSummary[] {
+		const sessions = this.list();
+		return this.worktrees
+			.all()
+			.map((w) => ({ ...w.record, repoPath: w.repoPath, path: this.worktrees.path(w), sessionIds: sessions.filter((s) => s.worktreeId === w.record.id).map((s) => s.id) }))
+			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+	}
+
+	/** A new, empty worktree of a repo (for work started from the studio's sections). */
+	async createWorktree(target: Target, label: string): Promise<WorktreeSummary> {
+		const w = await this.worktrees.create(this.repoFor(target), target, newSessionId(), label);
+		await this.worktrees.ensureCheckout(w, (dir) => this.initSubmodules(dir));
+		return this.listWorktrees().find((x) => x.id === w.record.id)!;
+	}
+
+	renameWorktree(id: string, label: string): void {
+		this.worktrees.rename(this.worktrees.get(id), label);
+	}
+
+	worktreeChangedFiles(id: string): Promise<FileChange[]> {
+		return this.worktrees.changedFiles(this.worktrees.get(id));
+	}
+
+	worktreeDiff(id: string): Promise<string> {
+		return this.worktrees.diff(this.worktrees.get(id));
+	}
+
+	private sessionsIn(worktreeId: string): Entry[] {
+		return [...this.entries.values()].filter((e) => e.record.worktreeId === worktreeId);
+	}
+
+	/** Merges a worktree's branch into its base; every session in it ends as merged. */
+	async mergeWorktree(id: string): Promise<void> {
+		const w = this.worktrees.get(id);
+		const sessions = this.sessionsIn(id);
+		const running = sessions.filter((e) => e.record.status === "in_progress" || e.record.status === "starting");
+		if (running.length) throw new Error(`Stop the agent${running.length > 1 ? "s" : ""} first: ${running.map((e) => e.record.title).join(", ")}`);
+		await this.worktrees.merge(w, `${w.record.label}\n\nUncommitted work in worktree ${id}, committed by Game Studio when merging it.`);
+		for (const e of sessions) this.end(e, "merged");
+		await this.commitRecords(w, sessions, "merged");
+	}
+
+	/** Removes a worktree's checkout (its branch stays); every session in it ends as discarded. */
+	async discardWorktree(id: string): Promise<void> {
+		const w = this.worktrees.get(id);
+		const sessions = this.sessionsIn(id);
+		for (const e of sessions) if (e.record.status === "in_progress") await this.abort(e.record.id);
+		await this.worktrees.discard(w);
+		for (const e of sessions) this.end(e, "discarded");
+		await this.commitRecords(w, sessions, "discarded");
 	}
 
 	// ── lifecycle ────────────────────────────────────────────────────────────────────────────────────
@@ -348,29 +437,12 @@ export class SessionService {
 	}
 
 	private hasWorktree(e: Entry): boolean {
-		return existsSync(join(this.worktreePath(e), ".git"));
+		return this.worktrees.hasCheckout(this.worktreeOf(e));
 	}
 
-	/** Creates the session's worktree if it's missing; a merged branch is first fast-forwarded to the base. */
+	/** Makes the session's worktree checkout if it's missing (reopening a merged or discarded worktree). */
 	async ensureWorktree(e: Entry): Promise<void> {
-		if (this.hasWorktree(e)) return;
-		const r = e.record;
-		const wt = this.worktreePath(e);
-		await g.git(e.repoPath, ["worktree", "prune"]);
-		rmSync(wt, { recursive: true, force: true });
-		mkdirSync(join(wt, ".."), { recursive: true });
-		if (await g.branchExists(e.repoPath, r.branch)) {
-			if (r.outcome === "merged" && (await g.isAncestor(e.repoPath, r.branch, r.baseBranch))) {
-				await g.git(e.repoPath, ["branch", "-f", r.branch, r.baseBranch]);
-				r.baseCommit = await g.revParse(e.repoPath, r.baseBranch);
-			}
-			await g.worktreeAdd(e.repoPath, wt, r.branch);
-		} else {
-			await g.worktreeAdd(e.repoPath, wt, r.branch, r.baseCommit);
-		}
-		await this.initSubmodules(wt);
-		r.worktree = "active";
-		this.save(e);
+		await this.worktrees.ensureCheckout(this.worktreeOf(e), (dir) => this.initSubmodules(dir));
 	}
 
 	/** Populates the engine submodule from the local engine repo (no network) and shares its built libraries. */
@@ -385,26 +457,14 @@ export class SessionService {
 		await linkEngineLibs(join(wt, "engine"), engineRepo);
 	}
 
+	/** Merges the session's worktree (with every other session in it). */
 	async merge(id: string): Promise<void> {
-		const e = this.entry(id);
-		const r = e.record;
-		this.assertNotRunning(e);
-		if (this.hasWorktree(e)) await g.commitAll(this.worktreePath(e), `${r.title}\n\nThe session's uncommitted work, committed by Game Studio when merging session ${r.id}.`);
-		const current = await g.currentBranch(e.repoPath);
-		if (current !== r.baseBranch) throw new Error(`${basename(e.repoPath)} is on ${current}; switch it to ${r.baseBranch} to merge`);
-		try {
-			await g.git(e.repoPath, ["merge", "--no-ff", "-q", "-m", `Merge "${r.title}" (session ${r.id})`, r.branch]);
-		} catch (err) {
-			await g.git(e.repoPath, ["merge", "--abort"]).catch(() => {});
-			throw new Error(`Merge failed, nothing was changed: ${(err as Error).message}`);
-		}
-		await this.finish(e, "merged");
+		await this.mergeWorktree(this.entry(id).record.worktreeId);
 	}
 
+	/** Discards the session's worktree (with every other session in it). */
 	async discard(id: string): Promise<void> {
-		const e = this.entry(id);
-		if (e.record.status === "in_progress") await this.abort(id);
-		await this.finish(e, "discarded");
+		await this.discardWorktree(this.entry(id).record.worktreeId);
 	}
 
 	async markDone(id: string): Promise<void> {
@@ -417,16 +477,13 @@ export class SessionService {
 		await this.commitRecord(e);
 	}
 
-	private async finish(e: Entry, outcome: "merged" | "discarded"): Promise<void> {
+	private end(e: Entry, outcome: "merged" | "discarded"): void {
 		this.close(e.record.id);
 		this.questions.delete(e.record.id);
-		if (this.hasWorktree(e)) await g.worktreeRemove(e.repoPath, this.worktreePath(e));
-		e.record.worktree = "removed";
 		e.record.status = "done";
 		e.record.outcome = outcome;
 		e.record.reviewRequested = false;
 		this.save(e);
-		await this.commitRecord(e);
 	}
 
 	async resume(id: string): Promise<void> {
@@ -445,6 +502,15 @@ export class SessionService {
 			await g.commitPaths(e.repoPath, [join(SESSIONS_DIR, r.id)], `studio: session ${r.id} ${r.outcome ?? "done"}: ${r.title}`);
 		} catch (err) {
 			console.error(`could not commit session record ${r.id}:`, err);
+		}
+	}
+
+	private async commitRecords(w: Worktree, sessions: Entry[], outcome: "merged" | "discarded"): Promise<void> {
+		const paths = [join(WORKTREES_DIR, `${w.record.id}.json`), ...sessions.map((e) => join(SESSIONS_DIR, e.record.id))];
+		try {
+			await g.commitPaths(w.repoPath, paths, `studio: worktree ${w.record.id} ${outcome}: ${w.record.label}`);
+		} catch (err) {
+			console.error(`could not commit the records of worktree ${w.record.id}:`, err);
 		}
 	}
 

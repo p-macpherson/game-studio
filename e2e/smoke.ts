@@ -345,7 +345,7 @@ try {
 
 	// Source control and accounts render.
 	await page.getByRole("button", { name: "Source Control" }).click();
-	await page.locator(".list-row", { hasText: "studio: session" }).first().waitFor();
+	await page.locator(".list-row", { hasText: "studio: worktree" }).first().waitFor();
 	await page.locator("code", { hasText: "⎇ main" }).waitFor();
 	await step("06-source-control", page);
 	await nav.getByRole("button", { name: "Settings" }).click();

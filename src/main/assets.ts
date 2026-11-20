@@ -66,15 +66,17 @@ export class AssetService {
 		return m.info.roots.flatMap((r) => walk(join(project, r), project)).filter((p) => moduleOwns(m.info, p));
 	}
 
-	/** Changes to this module's assets in every unfinished project session with a worktree. */
+	/** Changes to this module's assets in every active project worktree (shown through its newest session). */
 	private async drafts(m: ModuleBackend): Promise<Map<string, AssetDraft[]>> {
 		const out = new Map<string, AssetDraft[]>();
-		for (const s of this.sessions.list()) {
-			if (s.target !== "project" || s.status === "done" || s.worktree !== "active") continue;
-			for (const f of await this.sessions.changedFiles(s.id)) {
+		const sessions = this.sessions.list();
+		for (const w of this.sessions.listWorktrees()) {
+			if (w.target !== "project" || w.status !== "active" || w.checkout !== "active") continue;
+			const s = sessions.find((x) => x.id === w.sessionIds[0]);
+			for (const f of await this.sessions.worktreeChangedFiles(w.id)) {
 				if (!moduleOwns(m.info, f.path)) continue;
 				const list = out.get(f.path) ?? [];
-				list.push({ sessionId: s.id, sessionTitle: s.title, status: s.status, change: f.change });
+				list.push({ sessionId: s?.id ?? w.id, sessionTitle: w.label, status: s?.status ?? "idle", change: f.change });
 				out.set(f.path, list);
 			}
 		}
@@ -108,7 +110,7 @@ export class AssetService {
 	/** Reads an asset from the main checkout, or from a session's worktree. */
 	read(path: string, sessionId?: string): string {
 		if (!MODULES.some((m) => moduleOwns(m.info, path))) throw new Error(`${path} isn't a studio asset`);
-		const root = sessionId ? this.sessions.get(sessionId).worktreePath : this.project();
+		const root = sessionId ? (this.sessions.listWorktrees().find((w) => w.id === sessionId)?.path ?? this.sessions.get(sessionId).worktreePath) : this.project();
 		const full = safeJoin(root, path);
 		return existsSync(full) ? readFileSync(full, "utf8") : "";
 	}

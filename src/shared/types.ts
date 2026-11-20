@@ -7,6 +7,33 @@ export const TARGETS: readonly Target[] = ["project", "engine", "studio"];
 export type SessionStatus = "starting" | "in_progress" | "idle" | "interrupted" | "done";
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
+/**
+ * A labelled piece of work: a git worktree on its own branch that sessions and section edits happen in, merged
+ * as a whole. Persisted as `<repo>/.studio/worktrees/<id>.json` and committed with the repo.
+ */
+export interface WorktreeRecord {
+	id: string;
+	/** What the work is, for people: "Dungeon level 5 re-texturing". */
+	label: string;
+	target: Target;
+	/** `studio/<id>`, branched from `baseBranch` at `baseCommit`. */
+	branch: string;
+	baseBranch: string;
+	baseCommit: string;
+	status: "active" | "merged" | "discarded";
+	/** Whether the checkout exists on disk. */
+	checkout: "active" | "removed";
+	createdAt: string;
+	updatedAt: string;
+}
+
+export interface WorktreeSummary extends WorktreeRecord {
+	repoPath: string;
+	path: string;
+	/** Its sessions, newest first. */
+	sessionIds: string[];
+}
+
 /** Persisted as `<repo>/.studio/sessions/<id>/session.json` and committed with the repo. */
 export interface SessionRecord {
 	id: string;
@@ -14,17 +41,16 @@ export interface SessionRecord {
 	agentType: string;
 	target: Target;
 	status: SessionStatus;
-	/** `studio/<id>`, branched from `baseBranch` at `baseCommit`. */
-	branch: string;
-	baseBranch: string;
-	baseCommit: string;
+	/** The worktree it works in (shared with its sub-agents and maybe other sessions). */
+	worktreeId: string;
+	/** The session that delegated this one; none for a session a person started. */
+	parentId?: string;
 	/** `provider/modelId`. */
 	model: string;
 	thinking?: ThinkingLevel;
 	linkedAsset?: string;
 	createdAt: string;
 	updatedAt: string;
-	worktree: "active" | "removed";
 	outcome: "merged" | "discarded" | null;
 	reviewRequested: boolean;
 	/** Pi's JSONL transcript, relative to the session folder. Pi picks the name on first save. */
@@ -35,7 +61,13 @@ export interface SessionRecord {
 
 export interface SessionSummary extends SessionRecord {
 	repoPath: string;
+	/** From its worktree. */
 	worktreePath: string;
+	worktreeLabel: string;
+	branch: string;
+	baseBranch: string;
+	/** Whether its worktree's checkout exists. */
+	worktree: "active" | "removed";
 	/** A Pi session is loaded in the session host. */
 	live: boolean;
 	/** A question the agent asked through `ask_user`, still waiting for an answer. */
@@ -58,12 +90,16 @@ export interface NewSessionRequest {
 	title?: string;
 	thinking?: ThinkingLevel;
 	linkedAsset?: string;
+	/** Work in this (active) worktree; by default the parent's, else a new one labelled `worktreeLabel` or the title. */
+	worktreeId?: string;
+	worktreeLabel?: string;
+	parentId?: string;
 }
 
 export interface Settings {
 	engineRepo: string;
 	studioRepo: string;
-	/** Session worktrees go in `<worktreeRoot>/<repo name>/<session id>`. */
+	/** Worktrees go in `<worktreeRoot>/<repo name>/<worktree id>`. */
 	worktreeRoot: string;
 	recentProjects: string[];
 	lastProject?: string;

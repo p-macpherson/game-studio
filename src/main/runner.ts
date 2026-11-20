@@ -89,21 +89,24 @@ export class RunService {
 
 	constructor(private readonly deps: RunServiceDeps) {}
 
-	/** The main checkout plus every session worktree the game can be run from. */
+	/** The main checkout plus every worktree the game can be run from (the id is the worktree's). */
 	checkouts(): CheckoutInfo[] {
 		const project = this.project();
 		const out: CheckoutInfo[] = [{ sessionId: null, label: "Main checkout", cwd: project }];
-		for (const s of this.deps.sessions.list()) {
-			if (s.worktree !== "active") continue;
-			if (s.target === "project") out.push({ sessionId: s.id, label: `Session: ${s.title}`, cwd: s.worktreePath });
-			if (s.target === "engine") out.push({ sessionId: s.id, label: `Engine session: ${s.title}`, cwd: project, engineDir: s.worktreePath });
+		for (const w of this.deps.sessions.listWorktrees()) {
+			if (w.checkout !== "active" || w.status !== "active") continue;
+			if (w.target === "project") out.push({ sessionId: w.id, label: `Worktree: ${w.label}`, cwd: w.path });
+			if (w.target === "engine") out.push({ sessionId: w.id, label: `Engine worktree: ${w.label}`, cwd: project, engineDir: w.path });
 		}
 		return out;
 	}
 
-	checkout(sessionId: CheckoutId): CheckoutInfo {
-		const c = this.checkouts().find((x) => x.sessionId === sessionId);
-		if (!c) throw new Error("That session has no worktree to run. Resume it first.");
+	/** A checkout by worktree id, or by the id of a session working in it. */
+	checkout(id: CheckoutId): CheckoutInfo {
+		const list = this.checkouts();
+		const worktreeId = id && !list.some((x) => x.sessionId === id) ? this.deps.sessions.list().find((s) => s.id === id)?.worktreeId : id;
+		const c = list.find((x) => x.sessionId === (worktreeId ?? null));
+		if (!c) throw new Error("That worktree isn't checked out. Reopen it first.");
 		return c;
 	}
 

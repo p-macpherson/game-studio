@@ -88,15 +88,15 @@ async function main(): Promise<void> {
 
 	const assets = new AssetService(() => project?.path ?? null, sessions);
 	const runner = new RunService({ projectPath: () => project?.path ?? null, sessions, emit });
-	/** The main checkout (null or "main") or a session's worktree. */
+	/** The main checkout (null or "main"), a worktree (by id), or a session's worktree (by session id). */
 	const checkoutRoot = (checkout: string | null): string => {
 		if (!checkout || checkout === "main") {
 			if (!project) throw new Error("No project is open");
 			return project.path;
 		}
-		const s = sessions.get(checkout);
-		if (s.worktree !== "active") throw new Error(`Session "${s.title}" has no worktree; resume it first`);
-		return s.worktreePath;
+		const w = sessions.listWorktrees().find((x) => x.id === checkout) ?? sessions.listWorktrees().find((x) => x.id === sessions.get(checkout).worktreeId);
+		if (!w || w.checkout !== "active") throw new Error(`Worktree "${w?.label ?? checkout}" isn't checked out; reopen it first`);
+		return w.path;
 	};
 	serveStudioFiles(checkoutRoot);
 	/** A model rendered by the game's engine (for the In engine tab and the agents' preview_model tool). */
@@ -242,6 +242,12 @@ async function main(): Promise<void> {
 		"sessions.answer": (id, questionId, answer) => sessions.answer(id, questionId, answer),
 		"sessions.diff": (id) => sessions.diff(id),
 		"sessions.changedFiles": (id) => sessions.changedFiles(id),
+		"worktrees.list": async () => sessions.listWorktrees(),
+		"worktrees.create": (label) => sessions.createWorktree("project", label),
+		"worktrees.rename": async (id, label) => sessions.renameWorktree(id, label),
+		"worktrees.merge": (id) => sessions.mergeWorktree(id),
+		"worktrees.discard": (id) => sessions.discardWorktree(id),
+		"worktrees.changedFiles": (id) => sessions.worktreeChangedFiles(id),
 		"sessions.raw": async (id) => sessions.raw(id),
 		"sessions.merge": (id) => sessions.merge(id),
 		"sessions.discard": (id) => sessions.discard(id),

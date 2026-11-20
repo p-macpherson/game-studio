@@ -87,7 +87,7 @@ describe("SessionService", () => {
 		expect(merged).toMatchObject({ status: "done", outcome: "merged", worktree: "removed" });
 		expect(readFileSync(join(project, "faux-notes.md"), "utf8")).toBe("add a note\n");
 		expect(existsSync(s.worktreePath)).toBe(false);
-		expect(sh(project, "log", "-1", "--format=%s")).toMatch(/^studio: session .* merged/);
+		expect(sh(project, "log", "-1", "--format=%s")).toMatch(/^studio: worktree .* merged/);
 		expect(sh(project, "status", "--porcelain")).toBe("");
 
 		// Resume recreates the worktree on the up-to-date branch and the conversation continues.
@@ -131,6 +131,54 @@ describe("SessionService", () => {
 		);
 		service.load();
 		expect(service.get(id).status).toBe("interrupted");
+	});
+
+	it("runs several sessions in one worktree, a child in its parent's by default, and merges them together", async () => {
+		const parent = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: "first note", worktreeLabel: "Notes pass" });
+		await settled(parent.id);
+		const child = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: "second note", parentId: parent.id });
+		expect(child).toMatchObject({ parentId: parent.id, worktreeId: parent.worktreeId, worktreeLabel: "Notes pass", worktreePath: parent.worktreePath });
+		await settled(child.id);
+		expect(readFileSync(join(parent.worktreePath, "faux-notes.md"), "utf8")).toBe("first note\nsecond note\n");
+
+		service.renameWorktree(parent.worktreeId, "Two notes");
+		expect(service.listWorktrees().find((w) => w.id === parent.worktreeId)).toMatchObject({ label: "Two notes", status: "active", sessionIds: [child.id, parent.id] });
+		await service.mergeWorktree(parent.worktreeId);
+		for (const id of [parent.id, child.id]) expect(service.get(id)).toMatchObject({ status: "done", outcome: "merged", worktree: "removed" });
+		expect(readFileSync(join(project, "faux-notes.md"), "utf8")).toBe("first note\nsecond note\n");
+		expect(sh(project, "log", "-1", "--format=%s").trim()).toBe(`studio: worktree ${parent.worktreeId} merged: Two notes`);
+		expect(sh(project, "status", "--porcelain")).toBe("");
+	});
+
+	it("turns each session from before worktrees into a worktree with the same id, branch and checkout", async () => {
+		const legacy = (id: string, extra: Record<string, unknown>) => {
+			const dir = join(project, ".studio/sessions", id);
+			mkdirSync(dir, { recursive: true });
+			const base = sh(project, "rev-parse", "HEAD").trim();
+			const record = { id, title: `Old ${id.slice(-4)}`, agentType: "general", target: "project", branch: `studio/${id}`, baseBranch: "main", baseCommit: base, model: "faux/echo", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", reviewRequested: false, ...extra };
+			writeFileSync(join(dir, "session.json"), JSON.stringify(record));
+		};
+		// A finished, merged session (its record committed), and an idle one with its checkout still there.
+		legacy("20260101-000000-aaaa", { status: "done", worktree: "removed", outcome: "merged" });
+		sh(project, "add", "-A");
+		sh(project, "commit", "-qm", "old records");
+		const open = "20260101-000000-bbbb";
+		legacy(open, { status: "idle", worktree: "active", outcome: null });
+		const checkout = join(settings.worktreeRoot, "game", open);
+		sh(project, "worktree", "add", "-q", "-b", `studio/${open}`, checkout);
+
+		service.load();
+		expect(service.get(open)).toMatchObject({ worktreeId: open, worktreeLabel: "Old bbbb", branch: `studio/${open}`, worktreePath: checkout, worktree: "active" });
+		expect(service.get("20260101-000000-aaaa")).toMatchObject({ worktreeId: "20260101-000000-aaaa", worktree: "removed" });
+		expect(service.listWorktrees().find((w) => w.id === "20260101-000000-aaaa")?.status).toBe("merged");
+		expect(JSON.parse(readFileSync(join(project, ".studio/sessions", open, "session.json"), "utf8")).branch).toBeUndefined();
+		// The new records are committed with the finished session's (already committed) record.
+		await waitFor(() => sh(project, "log", "-1", "--format=%s").startsWith("studio: worktree records"));
+		expect(sh(project, "show", "--name-only", "--format=", "HEAD").trim().split("\n").sort()).toEqual([
+			".studio/sessions/20260101-000000-aaaa/session.json",
+			".studio/worktrees/20260101-000000-aaaa.json",
+			`.studio/worktrees/${open}.json`,
+		]);
 	});
 
 	it("refuses to merge when the main checkout is on another branch", async () => {

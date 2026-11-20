@@ -16,6 +16,7 @@ import type {
 	SessionSummary,
 	Settings,
 	Target,
+	WorktreeSummary,
 } from "./types";
 
 export interface StudioApi {
@@ -102,6 +103,15 @@ export interface StudioApi {
 	"sessions.setModel"(id: string, model: string): Promise<void>;
 	"sessions.answer"(id: string, questionId: string, answer: string): Promise<void>;
 	"sessions.diff"(id: string): Promise<string>;
+	/** Worktrees of every repo (merged and discarded ones too), newest first. */
+	"worktrees.list"(): Promise<WorktreeSummary[]>;
+	/** A new, empty worktree of the game project. */
+	"worktrees.create"(label: string): Promise<WorktreeSummary>;
+	"worktrees.rename"(id: string, label: string): Promise<void>;
+	/** Merges a worktree into its base; every session in it ends as merged. */
+	"worktrees.merge"(id: string): Promise<void>;
+	"worktrees.discard"(id: string): Promise<void>;
+	"worktrees.changedFiles"(id: string): Promise<{ path: string; change: "added" | "modified" | "deleted" }[]>;
 	/** The files a session changed against its base (for warnings like "merging also brings …"). */
 	"sessions.changedFiles"(id: string): Promise<{ path: string; change: "added" | "modified" | "deleted" }[]>;
 	"sessions.raw"(id: string): Promise<string>;
