@@ -21,11 +21,11 @@ import {
 	subtree,
 	validateScene,
 } from "../../shared/scene";
-import { call } from "../../renderer/api";
+import { call, studioFile } from "../../renderer/api";
 import { useStudio } from "../../renderer/store";
 import { AssetBrowser, type AssetContentProps } from "../../renderer/views/AssetBrowser";
 import { runInWorktree } from "../../renderer/workspace";
-import { enginePath, isPrefab } from "./info";
+import { enginePath, isPrefab, type PrefabInfo, prefabIndex } from "./info";
 import { defaultOrbit, FOV, type Orbit, orbitDrag, orbitPosition, pan, project, type Vec3 } from "./orbit";
 
 const bumpAssets = () => useStudio.setState((s) => ({ assetsVersion: s.assetsVersion + 1 }));
@@ -40,10 +40,55 @@ const RUNTIME_COMPONENTS = ["Scene_Ref", "Net_Entity"];
 const cameras = new Map<string, Orbit>();
 const selections = new Map<string, number | null>();
 
+/** The list's headings: the levels first, then the reusable objects they place. */
+const GROUPS = [
+	{ name: "Scenes", has: (a: AssetSummary) => !isPrefab(a.path) },
+	{ name: "Prefabs", has: (a: AssetSummary) => isPrefab(a.path) },
+];
+
+/** Every prefab's model and where it's placed, in the shown checkout. */
+function usePrefabIndex(checkout?: string): Map<string, PrefabInfo> {
+	const { assetsVersion } = useStudio();
+	const [index, setIndex] = useState<Map<string, PrefabInfo>>(new Map());
+	useEffect(() => {
+		let live = true;
+		(async () => {
+			const files = (await call("assets.list", "scenes", checkout)).filter((a) => a.change !== "deleted");
+			const texts = await Promise.all(files.map((f) => call("assets.read", f.path, checkout).catch(() => "")));
+			if (live) setIndex(prefabIndex(files.map((f, i) => ({ path: f.path, text: texts[i] }))));
+		})().catch(() => {});
+		return () => {
+			live = false;
+		};
+	}, [checkout, assetsVersion]);
+	return index;
+}
+
+function PrefabThumb({ model, checkout }: { model?: string; checkout?: string }) {
+	const [failed, setFailed] = useState(false);
+	useEffect(() => setFailed(false), [model, checkout]);
+	if (!model || failed) return null;
+	const thumb = `${model.slice(0, model.lastIndexOf("/"))}/thumbnail.png`;
+	return <img className="prefab-thumb" src={studioFile(checkout, thumb)} alt="" onError={() => setFailed(true)} />;
+}
+
 export function ScenesView({ module }: { module: ModuleInfo }) {
+	const checkout = useStudio((s) => s.worktree) ?? undefined;
+	const prefabs = usePrefabIndex(checkout);
 	return (
 		<AssetBrowser
 			module={module}
+			groups={GROUPS}
+			itemPreview={(a, at) => isPrefab(a.path) && <PrefabThumb model={prefabs.get(a.path)?.model} checkout={at} />}
+			itemFooter={(a) => {
+				if (!isPrefab(a.path) || a.change === "deleted") return null;
+				const used = prefabs.get(a.path)?.usedIn ?? [];
+				return (
+					<span className="muted small" data-testid="prefab-used">
+						{used.length ? `Used ${used.map((u) => `${u.count > 1 ? `${u.count}× ` : ""}in ${u.name}`).join(", ")}` : "Not placed in any scene yet"}
+					</span>
+				);
+			}}
 			newLabel="+ New scene"
 			newPreset={{
 				agentType: "level-designer",

@@ -354,6 +354,26 @@ try {
 	await page.getByTestId("chat").getByText(/^Result: assets\/scenes\/main\.json in the game's engine, views in order: top, game\./).waitFor({ timeout: 60_000 });
 	await step("26-preview-scene", page);
 
+	// The same session makes a prefab and places it twice: the list shows Scenes, then Prefabs with where each is used.
+	const placeCrates = [
+		"import json",
+		'open("assets/prefabs/crate.json", "w").write(json.dumps({"notes": "A crate.", "entities": [{"id": 1, "Name": "Crate", "Transform": {}, "Mesh_Renderer": {"mesh": "cube"}}]}))',
+		'p = "assets/scenes/main.json"; s = json.load(open(p)); n = max(e["id"] for e in s["entities"])',
+		's["entities"] += [{"id": n + k, "prefab": "prefabs/crate.json", "Transform": {"position": [-2, 0, 2 * k - 3]}} for k in (1, 2)]',
+		'json.dump(s, open(p, "w"), indent=1)',
+	].join("; ");
+	const placeCmd = `mkdir -p assets/prefabs && python3 -c '${placeCrates}' && git add assets && git commit -qm 'Crate prefab' && echo crate-placed`;
+	await page.getByTestId("composer").fill(`tool bash ${JSON.stringify({ command: placeCmd })}`);
+	await page.getByTestId("composer").press("Enter");
+	await page.getByTestId("chat").getByText(/^Result:[\s\S]*crate-placed/).waitFor({ timeout: 30_000 });
+	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
+	await nav.getByRole("button", { name: "Scenes" }).click();
+	await page.getByTestId("asset-group").filter({ hasText: "Prefabs" }).waitFor();
+	await page.getByTestId("prefab-used").filter({ hasText: "Used 2× in main" }).waitFor({ timeout: 10_000 });
+	if ((await page.getByTestId("asset-group").first().textContent())?.startsWith("Scenes") !== true) throw new Error("scenes aren't listed first");
+	await nav.getByRole("button", { name: "Scenes" }).locator(".change-added").waitFor({ timeout: 10_000 }); // the new prefab, in the sidebar too
+	await step("37-scene-groups", page);
+
 	// The menu collapses to an icon rail; its buttons keep their names (as tooltips).
 	await page.getByTestId("sidebar-toggle").click();
 	await nav.getByRole("button", { name: "Scenes" }).click();

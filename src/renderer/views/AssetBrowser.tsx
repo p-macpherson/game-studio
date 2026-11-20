@@ -1,7 +1,7 @@
 // The common shape of a module section: a searchable asset list and a viewer, both showing the checkout
 // selected in the sidebar (main, or a worktree: its changes shown, other worktrees' hidden), with actions, a
 // banner over what the worktree changed, and the sessions linked to the asset. Each module draws an asset's content.
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useMemo, useState } from "react";
 import { type AssetSearchHit, type AssetSummary, type ModuleInfo, moduleOwns } from "../../shared/modules";
 import type { WorktreeSummary } from "../../shared/types";
 import { call, relativeTime } from "../api";
@@ -34,6 +34,22 @@ export interface AssetBrowserProps {
 	content(props: AssetContentProps): ReactNode;
 	/** Extra header buttons for the selected asset. */
 	actions?(asset: AssetSummary, checkout?: string): ReactNode;
+	/** Drawn at the bottom of each list item (e.g. where it's used). */
+	itemFooter?(asset: AssetSummary, checkout?: string): ReactNode;
+	/** Lists the assets under headings, in this order (e.g. Scenes, then Prefabs). */
+	groups?: { name: string; has(asset: AssetSummary): boolean }[];
+}
+
+type Groups = NonNullable<AssetBrowserProps["groups"]>;
+const groupName = (a: AssetSummary, groups: Groups) => groups.find((g) => g.has(a))?.name ?? "Other";
+/** The assets in their groups' order (stable within a group); unchanged without groups. */
+function inGroups(assets: AssetSummary[], groups?: Groups): AssetSummary[] {
+	if (!groups) return assets;
+	const rank = (a: AssetSummary) => {
+		const i = groups.findIndex((g) => g.has(a));
+		return i < 0 ? groups.length : i;
+	};
+	return assets.map((a, i) => ({ a, i })).sort((x, y) => rank(x.a) - rank(y.a) || x.i - y.i).map((x) => x.a);
 }
 
 const CHANGE_LABEL = { added: "New", modified: "Modified", deleted: "Removed" } as const;
@@ -134,11 +150,11 @@ export function AssetBrowser(props: AssetBrowserProps) {
 	useEffect(() => {
 		// Only the latest request counts: one started during a merge can finish after the one that followed it.
 		let live = true;
-		call("assets.list", module.id, worktree).then((a) => live && setAssets(a), (err) => live && showError(err));
+		call("assets.list", module.id, worktree).then((a) => live && setAssets(inGroups(a, props.groups)), (err) => live && showError(err));
 		return () => {
 			live = false;
 		};
-	}, [module.id, assetsVersion, project?.path, worktree, showError]);
+	}, [module.id, assetsVersion, project?.path, worktree, showError, props.groups]);
 
 	useEffect(() => {
 		const q = query.trim();
@@ -207,9 +223,15 @@ export function AssetBrowser(props: AssetBrowserProps) {
 				<div className="session-items">
 					{assets?.length === 0 && <div className="empty">{props.emptyText}</div>}
 					{!!assets?.length && visible.length === 0 && <div className="empty">Nothing matches.</div>}
-					{visible.map((a) => (
+					{visible.map((a, i) => (
+						<Fragment key={a.path}>
+						{props.groups && groupName(a, props.groups) !== (i > 0 ? groupName(visible[i - 1], props.groups) : undefined) && (
+							<h3 className="asset-group" data-testid="asset-group">
+								{groupName(a, props.groups)}
+								<span className="muted">{visible.filter((v) => groupName(v, props.groups!) === groupName(a, props.groups!)).length}</span>
+							</h3>
+						)}
 						<div
-							key={a.path}
 							data-testid="asset-item"
 							className={`session-item asset-item ${a.path === selected?.path ? "selected" : ""}`}
 							onClick={() => showAsset({ path: a.path })}
@@ -236,7 +258,9 @@ export function AssetBrowser(props: AssetBrowserProps) {
 										{h.line}: <Highlight text={h.text} query={query.trim()} />
 									</div>
 								))}
+							{props.itemFooter?.(a, checkout)}
 						</div>
+						</Fragment>
 					))}
 				</div>
 			</div>

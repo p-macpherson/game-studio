@@ -1801,3 +1801,25 @@ button.link {
 	border-radius: 50%;
 	background: currentColor;
 }
+
+/* Lists under headings (e.g. Scenes, then Prefabs) */
+.asset-group {
+	display: flex;
+	gap: 6px;
+	margin: 0;
+	padding: 10px 12px 4px;
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	color: var(--muted);
+	border-bottom: 1px solid var(--border);
+}
+.prefab-thumb {
+	float: right;
+	width: 56px;
+	height: 56px;
+	margin-left: 8px;
+	object-fit: contain;
+	background: #121317;
+	border-radius: 6px;
+}
