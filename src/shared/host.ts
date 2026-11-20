@@ -18,6 +18,8 @@ export interface SessionOpenSpec {
 	thinking?: ThinkingLevel;
 	appendSystemPrompt: string[];
 	skillPaths: string[];
+	/** Agent types this session may hand tasks to; with any, it gets the `delegate` tool. */
+	delegatesTo?: { id: string; name: string; description: string }[];
 }
 
 export type PromptMode = "steer" | "followUp";
@@ -61,7 +63,8 @@ export type StudioRequestMethod =
 	| "preview_scene"
 	| "generate_sound"
 	| "render_sound"
-	| "edit_sound";
+	| "edit_sound"
+	| "delegate";
 
 export type HostEvent =
 	/** A raw Pi AgentSessionEvent, JSON-sanitised. */

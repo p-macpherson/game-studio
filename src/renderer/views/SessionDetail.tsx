@@ -8,9 +8,10 @@ import { Diff } from "./Diff";
 import { StatusBadge, TargetBadge } from "./Sessions";
 
 type Tab = "chat" | "changes" | "raw";
+const STATUS_SHORT: Record<SessionSummary["status"], string> = { starting: "starting", in_progress: "working", idle: "idle", interrupted: "interrupted", done: "done" };
 
 export function SessionDetail({ session: s }: { session: SessionSummary }) {
-	const { transcripts, agentTypes, models, showError, loadTranscript, openPlay, sessions, selectWorktree } = useStudio();
+	const { transcripts, agentTypes, models, showError, loadTranscript, openPlay, sessions, selectWorktree, selectSession } = useStudio();
 	const transcript = transcripts[s.id];
 	const [tab, setTab] = useState<Tab>("chat");
 	const [draft, setDraft] = useState("");
@@ -18,6 +19,8 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 	const [diff, setDiff] = useState<string | null>(null);
 	const [raw, setRaw] = useState("");
 	const running = s.status === "in_progress" || s.status === "starting";
+	const parent = sessions.find((x) => x.id === s.parentId);
+	const subAgents = sessions.filter((x) => x.parentId === s.id).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 	// Sessions sharing its worktree end with it on Merge or Discard.
 	const shared = sessions.filter((x) => x.worktreeId === s.worktreeId && x.status !== "done").length;
 
@@ -128,6 +131,20 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 					</select>
 				</div>
 				{s.error && <div className="msg error">{s.error}</div>}
+				{(parent || subAgents.length > 0) && (
+					<div className="row session-family" data-testid="session-family">
+						{parent && (
+							<button className="chip" onClick={() => selectSession(parent.id)} title="The session that delegated this one">
+								↑ Sub-agent of “{parent.title}”
+							</button>
+						)}
+						{subAgents.map((c) => (
+							<button key={c.id} className="chip" onClick={() => selectSession(c.id)} title={`Sub-agent: ${c.title}`}>
+								↳ {c.title} <span className="muted">· {STATUS_SHORT[c.status]}</span>
+							</button>
+						))}
+					</div>
+				)}
 			</div>
 			<div className="tabs">
 				{(["chat", "changes", "raw"] as const).map((t) => (

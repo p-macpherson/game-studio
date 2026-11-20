@@ -19,7 +19,37 @@ export function parseAgentType(text: string, fallbackId: string, source: AgentTy
 		skills: Array.isArray(meta.skills) ? meta.skills.map(String) : [],
 		prompt: body,
 		source,
+		delegatesTo: Array.isArray(meta.delegatesTo) ? meta.delegatesTo.map(String) : [],
 	};
+}
+
+/**
+ * Keeps the delegation graph acyclic and its edges pointing at real types: an edge to an unknown type, or one that
+ * would close a cycle (found depth-first, in name order), is dropped and noted in the type's `problems`.
+ */
+export function checkDelegation(types: AgentTypeInfo[]): AgentTypeInfo[] {
+	const byId = new Map(types.map((t) => [t.id, { ...t, delegatesTo: [...(t.delegatesTo ?? [])], problems: [...(t.problems ?? [])] }]));
+	for (const t of byId.values()) {
+		for (const to of t.delegatesTo.filter((x) => !byId.has(x))) t.problems.push(`Can't delegate to "${to}": no such agent type`);
+		t.delegatesTo = t.delegatesTo.filter((x) => byId.has(x) && x !== t.id);
+	}
+	const state = new Map<string, "visiting" | "done">();
+	const visit = (id: string) => {
+		state.set(id, "visiting");
+		const t = byId.get(id)!;
+		for (const to of [...t.delegatesTo]) {
+			if (state.get(to) === "visiting") {
+				t.delegatesTo = t.delegatesTo.filter((x) => x !== to);
+				t.problems.push(`Delegating to "${to}" would make a cycle (${byId.get(to)!.name} already leads back here), so it's ignored`);
+			} else if (!state.has(to)) visit(to);
+		}
+		state.set(id, "done");
+	};
+	for (const id of [...byId.keys()].sort()) if (!state.has(id)) visit(id);
+	return types.map((t) => {
+		const c = byId.get(t.id)!;
+		return { ...t, delegatesTo: c.delegatesTo, ...(c.problems.length ? { problems: c.problems } : {}) };
+	});
 }
 
 function loadDir(dir: string, source: AgentTypeInfo["source"]): AgentTypeInfo[] {
@@ -34,5 +64,5 @@ export function loadAgentTypes(builtinDir: string, projectPath?: string): AgentT
 	const byId = new Map<string, AgentTypeInfo>();
 	for (const t of loadDir(builtinDir, "builtin")) byId.set(t.id, t);
 	if (projectPath) for (const t of loadDir(join(projectPath, ".studio/agent-types"), "project")) byId.set(t.id, t);
-	return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+	return checkDelegation([...byId.values()]).sort((a, b) => a.name.localeCompare(b.name));
 }

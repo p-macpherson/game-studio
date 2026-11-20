@@ -40,6 +40,18 @@ interface Entry {
 	repoPath: string;
 }
 
+const isRunning = (status: SessionRecord["status"]) => status === "in_progress" || status === "starting";
+
+/** The text of the last assistant message in a transcript (a sub-agent's report). */
+function lastAssistantText(messages: unknown[]): string {
+	for (const m of [...(messages as { role?: string; content?: unknown }[])].reverse()) {
+		if (m.role !== "assistant") continue;
+		const text = typeof m.content === "string" ? m.content : Array.isArray(m.content) ? m.content.filter((c) => c?.type === "text").map((c) => c.text).join("\n") : "";
+		if (text.trim()) return text.trim();
+	}
+	return "";
+}
+
 /** A session record from before worktrees (it had its own branch and checkout). */
 type LegacySession = Omit<SessionRecord, "worktreeId"> & { branch?: string; baseBranch?: string; baseCommit: string; worktree?: "active" | "removed" };
 
@@ -56,6 +68,10 @@ export class SessionService {
 	private readonly questions = new Map<string, PendingQuestion>();
 	private readonly idleTimer?: NodeJS.Timeout;
 	readonly worktrees: WorktreeStore;
+	/** A parent's pending `delegate` call → the child session doing it. */
+	private readonly delegations = new Map<string, string>();
+	/** Called when a session stops running (settles, fails or ends). */
+	private readonly settleWaiters = new Map<string, (() => void)[]>();
 
 	constructor(private readonly deps: SessionServiceDeps) {
 		this.worktrees = new WorktreeStore({ settings: deps.settings, changed: () => deps.emit({ type: "sessions_changed" }) });
@@ -108,6 +124,24 @@ export class SessionService {
 		mkdirSync(this.sessionDir(e), { recursive: true });
 		writeFileSync(join(this.sessionDir(e), "session.json"), `${JSON.stringify(e.record, null, "\t")}\n`);
 		this.deps.emit({ type: "sessions_changed" });
+		if (!isRunning(e.record.status)) {
+			const waiters = this.settleWaiters.get(e.record.id);
+			this.settleWaiters.delete(e.record.id);
+			for (const w of waiters ?? []) w();
+		}
+	}
+
+	/** Resolves once the session isn't running (it settled, failed or ended). */
+	private whenSettled(id: string): Promise<void> {
+		if (!isRunning(this.entry(id).record.status)) return Promise.resolve();
+		return new Promise((resolve) => this.settleWaiters.set(id, [...(this.settleWaiters.get(id) ?? []), resolve]));
+	}
+
+	/** The agent types of a session and of every session above it. */
+	private chainTypes(e: Entry): Set<string> {
+		const types = new Set<string>();
+		for (let x: Entry | undefined = e; x; x = x.record.parentId ? this.entries.get(x.record.parentId) : undefined) types.add(x.record.agentType);
+		return types;
 	}
 
 	/** (Re)reads every record from the project, engine and studio repos. Sessions left running become interrupted. */
@@ -267,6 +301,12 @@ export class SessionService {
 			"- When your work is committed and ready, call `request_review` with a summary.",
 			"- Use `ask_user` when you need a decision from the user.",
 		];
+		const parent = r.parentId ? this.entries.get(r.parentId) : undefined;
+		if (parent) {
+			const parentType = this.deps.agentTypes().find((t) => t.id === parent.record.agentType)?.name ?? parent.record.agentType;
+			lines.push(`- You are a sub-agent: the ${parentType} session "${parent.record.title}" handed you this task and is waiting for you. Your last message is your report to it: what you did, where it is, and anything left or uncertain.`);
+		}
+		lines.push("- Other sessions may work in this worktree at the same time: commit only your own files (`git add <paths>`, not `-A`), and if git says index.lock exists, wait a moment and try again.");
 		if (r.linkedAsset) {
 			lines.push(`- This session was started from \`${r.linkedAsset}\` in Game Studio: that's the asset the user wants to discuss or change.`);
 		} else {
@@ -294,6 +334,7 @@ export class SessionService {
 			thinking: e.record.thinking,
 			appendSystemPrompt: [this.preamble(e, agentType), agentType.prompt].filter(Boolean),
 			skillPaths: agentType.skills.map((s) => join(this.deps.skillsDir, s)).filter((p) => existsSync(p)),
+			delegatesTo: this.delegatesTo(e, agentType),
 		});
 		this.live.add(e.record.id);
 		this.touch(e.record.id);
@@ -301,6 +342,56 @@ export class SessionService {
 			e.record.piSessionFile = file;
 			this.save(e);
 		}
+	}
+
+	/** Who a session may delegate to: its type's edges, minus any type already above it in its chain of sessions. */
+	private delegatesTo(e: Entry, agentType: AgentTypeInfo): { id: string; name: string; description: string }[] {
+		const chain = this.chainTypes(e);
+		const types = this.deps.agentTypes();
+		return (agentType.delegatesTo ?? [])
+			.filter((id) => !chain.has(id))
+			.flatMap((id) => types.filter((t) => t.id === id))
+			.map((t) => ({ id: t.id, name: t.name, description: t.description }));
+	}
+
+	/**
+	 * A parent's `delegate` call: a child session of `agentType` (an edge of the delegation graph, not a type already
+	 * above it) working in the parent's worktree, and its last message as the report once it settles.
+	 */
+	private async delegate(parent: Entry, p: { agentType?: string; task?: string; title?: string }, requestId: string, progress: (text: string) => void): Promise<string> {
+		const types = this.deps.agentTypes();
+		const parentType = types.find((t) => t.id === parent.record.agentType);
+		const type = types.find((t) => t.id === p.agentType);
+		if (!type) throw new Error(`There's no agent type "${p.agentType}"`);
+		const allowed = parentType ? this.delegatesTo(parent, parentType) : [];
+		if (!allowed.some((t) => t.id === type.id)) {
+			const why = this.chainTypes(parent).has(type.id) ? `a ${type.name} is already above you in this chain of sub-agents` : `it isn't one of the types you delegate to`;
+			throw new Error(`Can't delegate to ${type.name}: ${why} (you can delegate to: ${allowed.map((t) => t.id).join(", ") || "nobody"})`);
+		}
+		if (!p.task?.trim()) throw new Error("Describe the task");
+		// The parent's repo when the type works there; otherwise its own (an Engine Engineer under a game session).
+		const target = type.targets.includes(parent.record.target) ? parent.record.target : type.targets[0];
+		if (!target) throw new Error(`${type.name} has no repos to work in`);
+		const child = await this.create({
+			agentType: type.id,
+			target,
+			model: parent.record.model,
+			prompt: p.task,
+			title: p.title,
+			parentId: parent.record.id,
+			...(target === parent.record.target ? {} : { worktreeLabel: `${this.worktreeOf(parent).record.label} (${target})` }),
+		});
+		this.delegations.set(requestId, child.id);
+		progress(`${type.name} is working on it in session “${child.title}”`);
+		try {
+			await this.whenSettled(child.id);
+		} finally {
+			this.delegations.delete(requestId);
+		}
+		const done = this.get(child.id);
+		if (done.error) return `${type.name} (session “${done.title}”) stopped with an error: ${done.error}`;
+		const report = lastAssistantText(await this.messages(child.id));
+		return `${type.name} (session “${done.title}”) finished${done.reviewRequested ? " and asked for review" : ""}. Its report:\n\n${report || "(it wrote no report)"}`;
 	}
 
 	private async ensureOpen(e: Entry): Promise<void> {
@@ -324,7 +415,9 @@ export class SessionService {
 		this.prompt(e, text, mode);
 	}
 
+	/** Stops a session's agent, and its running sub-agents first. */
 	async abort(id: string): Promise<void> {
+		for (const c of this.entries.values()) if (c.record.parentId === id && isRunning(c.record.status)) await this.abort(c.record.id);
 		if (this.live.has(id)) await this.deps.host.call("abort", id);
 	}
 
@@ -549,6 +642,11 @@ export class SessionService {
 			case "studio_request": {
 				const { requestId } = event;
 				const reply = (ok: boolean, value: unknown) => void this.deps.host.call("studioReply", requestId, ok, value).catch(() => {});
+				if (event.method === "delegate") {
+					const progress = (text: string) => void this.deps.host.call("studioProgress", requestId, text).catch(() => {});
+					this.delegate(e, event.params, requestId, progress).then((v) => reply(true, v), (err: Error) => reply(false, err.message));
+					break;
+				}
 				if (!this.deps.studioRequest) {
 					reply(false, "This studio can't serve that request");
 					break;
@@ -565,9 +663,13 @@ export class SessionService {
 					.then((value) => reply(true, value), (err: Error) => reply(false, err.message));
 				break;
 			}
-			case "studio_request_cancel":
+			case "studio_request_cancel": {
+				// A cancelled delegate call stops its sub-agent.
+				const child = this.delegations.get(event.requestId);
+				if (child) void this.abort(child).catch(() => {});
 				this.deps.cancelStudioRequest?.(event.requestId);
 				break;
+			}
 			case "session_event": {
 				this.deps.emit(event);
 				const ev = event.event;

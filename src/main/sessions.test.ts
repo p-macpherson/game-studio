@@ -17,6 +17,9 @@ const general: AgentTypeInfo = {
 	source: "builtin",
 };
 
+const helper: AgentTypeInfo = { ...general, id: "helper", name: "Helper", targets: ["project"], delegatesTo: [] };
+const lead: AgentTypeInfo = { ...general, id: "lead", name: "Lead", targets: ["project"], delegatesTo: ["helper"] };
+
 describe("SessionService", () => {
 	let root: string;
 	let project: string;
@@ -41,7 +44,7 @@ describe("SessionService", () => {
 			host,
 			settings: () => settings,
 			projectPath: () => project,
-			agentTypes: () => [general],
+			agentTypes: () => [general, helper, lead],
 			skillsDir: join(root, "skills"),
 			emit: (e) => events.push(e),
 		});
@@ -181,6 +184,29 @@ describe("SessionService", () => {
 			`.studio/worktrees/${open}.json`,
 		]);
 	});
+
+	it("delegates a task to a sub-agent in its worktree and gets its report; only along the graph", async () => {
+		const lead1 = await service.create({ agentType: "lead", target: "project", model: "faux/echo", prompt: 'tool delegate {"agentType": "helper", "task": "child note"}' });
+		await settled(lead1.id);
+		const children = service.list().filter((s) => s.parentId === lead1.id);
+		expect(children).toHaveLength(1);
+		expect(children[0]).toMatchObject({ agentType: "helper", worktreeId: lead1.worktreeId, status: "idle" });
+		expect(readFileSync(join(lead1.worktreePath, "faux-notes.md"), "utf8")).toBe("child note\n");
+		// The child's last message comes back as the report.
+		const report = JSON.stringify((await service.messages(lead1.id)).at(-1));
+		expect(report).toContain("Helper (session");
+		expect(report).toContain("Noted: child note");
+
+		// A type outside its edges is refused by the tool's own schema, which lists exactly its edges.
+		await service.send(lead1.id, 'tool delegate {"agentType": "general", "task": "x"}');
+		await settled(lead1.id);
+		expect(JSON.stringify((await service.messages(lead1.id)).at(-1))).toContain('agentType: expected \\"helper\\"');
+		expect(service.list().filter((s) => s.parentId === lead1.id)).toHaveLength(1);
+		// Sessions without edges get no delegate tool at all.
+		const live = (core as unknown as { sessions: Map<string, { session: { getActiveToolNames(): string[] } }> }).sessions;
+		expect(live.get(lead1.id)!.session.getActiveToolNames()).toContain("delegate");
+		expect(live.get(children[0].id)!.session.getActiveToolNames()).not.toContain("delegate");
+	}, 30_000);
 
 	it("refuses to merge when the main checkout is on another branch", async () => {
 		const s = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: "x" });

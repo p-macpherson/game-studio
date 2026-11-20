@@ -57,7 +57,8 @@ function watchProject(path: string | undefined): void {
 
 async function main(): Promise<void> {
 	await app.whenReady();
-	const host = await utilityHostLink(piDir, process.env.GAME_STUDIO_FAUX === "1" ? { GAME_STUDIO_FAUX: "1" } : {});
+	// Sub-agents run side by side in the one session host, each maybe with a codemode script (Pi's default is 2 workers).
+	const host = await utilityHostLink(piDir, { PI_CODEMODE_MAX_WORKERS: "8", ...(process.env.GAME_STUDIO_FAUX === "1" ? { GAME_STUDIO_FAUX: "1" } : {}) });
 	const agentTypes = () => loadAgentTypes(join(appRoot, "agent-types"), project?.path);
 	const genRoot = process.env.GAME_STUDIO_GEN ?? join(app.getPath("home"), ".local/share/game-studio/gen");
 	const gen = new GenService({

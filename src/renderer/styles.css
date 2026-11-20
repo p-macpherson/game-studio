@@ -1733,3 +1733,22 @@ button.link {
 	left: 100%;
 	top: 0;
 }
+
+/* Session tree */
+.session-item.sub-agent {
+	border-left: 2px solid var(--border);
+}
+.tree-toggle {
+	width: 18px;
+	padding: 0;
+	border: none;
+	background: none;
+	color: var(--muted);
+	flex-shrink: 0;
+	text-align: center;
+}
+.session-family {
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-top: 6px;
+}

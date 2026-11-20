@@ -143,6 +143,10 @@ export interface AgentTypeInfo {
 	/** System prompt text appended to Pi's base prompt. */
 	prompt: string;
 	source: "builtin" | "project";
+	/** Agent types it may hand tasks to (`delegate`): edges of the delegation graph, which has no cycles. */
+	delegatesTo?: string[];
+	/** Edges dropped when the types loaded (unknown types, or an edge that closed a cycle). */
+	problems?: string[];
 }
 
 export interface ProviderInfo {

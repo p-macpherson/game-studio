@@ -8,6 +8,8 @@ export interface StudioToolContext {
 	post(event: HostEvent): void;
 	/** Waits for the user's answer to an `ask_user` question. */
 	ask(questionId: string, signal: AbortSignal | undefined): Promise<string>;
+	/** The agent types this session may delegate to; none means no `delegate` tool. */
+	delegatesTo?: { id: string; name: string; description: string }[];
 	/** Calls a main-process service (asset generation) and waits for its reply. */
 	request(method: StudioRequestMethod, params: Record<string, unknown>, signal: AbortSignal | undefined, progress: (text: string) => void): Promise<unknown>;
 }
@@ -33,7 +35,32 @@ export function studioTools(ctx: StudioToolContext) {
 			return ok(typeof result === "string" ? result : JSON.stringify(result, null, 2));
 		};
 
+	const delegation = ctx.delegatesTo?.length
+		? [
+				defineTool({
+					name: "delegate",
+					label: "Delegate to a sub-agent",
+					description:
+						"Hand a task to a sub-agent: a new session of another agent type that works in your worktree (its commits land beside yours) and that the " +
+						"user can watch and talk to. This waits until it finishes and returns its final report. Several delegate calls at once (e.g. Promise.all in " +
+						"a codemode script) run side by side. The sub-agent doesn't see your conversation: give it the whole task, the context it needs, what " +
+						"done looks like, and paths to the files involved. You can delegate to: " +
+						ctx.delegatesTo.map((t) => `${t.id} (${t.name}: ${t.description})`).join("; "),
+					parameters: Type.Object({
+						agentType: Type.Union(ctx.delegatesTo.map((t) => Type.Literal(t.id))),
+						task: Type.String({ description: "The task, with everything the sub-agent needs to know" }),
+						title: Type.Optional(Type.String({ description: "A short title for its session" })),
+					}),
+					async execute(_id, params, signal, onUpdate) {
+						const report = await ctx.request("delegate", params, signal, (text) => onUpdate?.({ content: [{ type: "text", text }], details: {} }));
+						return ok(String(report));
+					},
+				}),
+			]
+		: [];
+
 	return [
+		...delegation,
 		defineTool({
 			name: "generate_concept_images",
 			label: "Generate concept images",

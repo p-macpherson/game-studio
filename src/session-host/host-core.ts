@@ -165,6 +165,7 @@ export class HostCore implements HostApi {
 			: SessionManager.create(spec.cwd, spec.sessionDir);
 		const tools = studioTools({
 			sessionId: spec.id,
+			delegatesTo: spec.delegatesTo,
 			post: this.opts.post,
 			ask: (questionId, signal) =>
 				new Promise<string>((resolve, reject) => {

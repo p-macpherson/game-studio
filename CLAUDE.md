@@ -51,7 +51,8 @@ Install dependencies with `npm install --ignore-scripts` (Pi's recommendation). 
 |---|---|
 | `src/shared/{types,ipc,host}.ts` | Domain types, the renderer↔main API (`StudioApi`, `StudioEvent`), and the main↔session host protocol |
 | `src/main/sessions.ts`, `src/main/worktrees.ts` | Session orchestrator: records, lifecycle (mark done/resume), host events; sessions work in **worktrees** (`WorktreeStore`: labelled records in `.studio/worktrees/<id>.json`, checkouts, diff, merge/discard as a whole), shared by a session's children. Old per-session records migrate on load |
-| `src/session-host/host-core.ts` | Pi sessions, accounts and models; `studio-tools.ts` holds the agent's tools for talking to the studio |
+| `src/session-host/host-core.ts` | Pi sessions, accounts and models; `studio-tools.ts` holds the agent's tools for talking to the studio, including `delegate` (only for types with delegation edges; the studio side is `SessionService.delegate`: a child session in the parent's worktree, awaited, its last message returned) |
+| `src/main/agent-types.ts` | Agent types (`AGENT.md`), and `checkDelegation`: the `delegatesTo` graph stays acyclic (closing edges and unknown types are dropped into `problems`) |
 | `src/main/project.ts` + `templates/game/` | New-project scaffold (engine added as the `engine/` submodule) |
 | `agent-types/<id>/AGENT.md`, `skills/<name>/SKILL.md` | Built-in agent types (frontmatter + prompt) and Pi skills |
 | `src/modules/<id>/` | Studio modules (one section per part of the game): `info.ts` (the `ModuleInfo` contract from `src/shared/modules.ts`, plus summaries) and `view.tsx`. Register a new module in `MODULES` (`src/main/assets.ts`) and `MODULE_VIEWS` (`src/renderer/modules.tsx`) |

@@ -356,6 +356,20 @@ try {
 	await page.getByTestId("variant-row").nth(1).waitFor();
 	await step("30-sound-merged", page);
 
+	// Sub-agents: a session delegates a task; the Sessions list shows the child under its parent, and the child
+	// links back to it.
+	await nav.getByRole("button", { name: "Sessions" }).click();
+	await page.getByRole("button", { name: "+ New session" }).click();
+	await page.locator(".agent-type", { hasText: "General" }).click();
+	await page.getByTestId("new-session-prompt").fill('tool delegate {"agentType": "gameplay-engineer", "task": "a note from the sub-agent", "title": "Sub-agent note"}');
+	await page.getByRole("button", { name: "Start session" }).click();
+	await page.getByTestId("chat").getByText(/^Result:[\s\S]*Noted: a note from the sub-agent/).waitFor({ timeout: 60_000 });
+	await page.locator("[data-testid=session-item][data-depth='1']", { hasText: "Sub-agent note" }).waitFor();
+	await page.locator("[data-testid=session-item][data-depth='0']").filter({ has: page.getByTestId("tree-toggle") }).first().waitFor();
+	await step("32-session-tree", page);
+	await page.locator("[data-testid=session-item][data-depth='1']", { hasText: "Sub-agent note" }).click();
+	await page.getByTestId("session-family").getByText("↑ Sub-agent of").waitFor();
+
 	// Source control and accounts render.
 	await page.getByRole("button", { name: "Source Control" }).click();
 	await page.locator(".list-row", { hasText: "studio: worktree" }).first().waitFor();
