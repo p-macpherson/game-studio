@@ -16,7 +16,7 @@ from acestep.llm_inference import LLMHandler
 
 src, loop_s, out = sys.argv[1], float(sys.argv[2]), sys.argv[3]
 os.makedirs(out, exist_ok=True)
-CAPTION = "whimsical fantasy adventure game music, playful goblin theme, wooden flute melody, pizzicato and warm strings, light hand percussion, instrumental"
+CAPTION = os.environ.get("CAPTION", "whimsical fantasy adventure game music, playful goblin theme, wooden flute melody, pizzicato and warm strings, light hand percussion, instrumental")
 dit = AceStepHandler()
 dit.initialize_service(project_root="", config_path="acestep-v15-turbo", device="cuda", offload_to_cpu=True)
 llm = LLMHandler()
@@ -35,8 +35,8 @@ n = int(round(loop_s * sr))
 for strength in (0.8, 0.6):
     torch.cuda.reset_peak_memory_stats()
     t = time.time()
-    p = GenerationParams(task_type="cover", src_audio=src, caption=CAPTION, instrumental=True, lyrics="[Instrumental]", bpm=100,
-                         keyscale="D minor", timesignature="4", thinking=False, seed=7, shift=3.0, audio_cover_strength=strength)
+    p = GenerationParams(task_type="cover", src_audio=src, caption=CAPTION, instrumental=True, lyrics="[Instrumental]", bpm=int(os.environ.get("BPM", "100")),
+                         keyscale=os.environ.get("KEY", "D minor"), timesignature="4", thinking=False, seed=7, shift=3.0, audio_cover_strength=strength)
     r = generate_music(dit, llm, p, GenerationConfig(batch_size=1, audio_format="wav"), save_dir=os.path.join(out, f"c{strength}"))
     secs = time.time() - t
     cover, csr = sf.read(r.audios[0]["path"])
