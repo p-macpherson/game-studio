@@ -131,6 +131,17 @@ export function studioTools(ctx: StudioToolContext) {
 			},
 		}),
 		defineTool({
+			name: "render_song",
+			label: "Render song",
+			description:
+				"Validate assets/music/<name>/song.json (the studio's score format: see the music-composition skill) and render it to assets/music/<name>/<name>.ogg, " +
+				"the file the game plays with engine.play_music. Loops render seamlessly unless the song sets loop: false. Takes about a second. " +
+				"On a problem it lists every one with where it is (e.g. 'sections.A.tracks.bass: bar 3 has 4.5 beats, but a bar is 4'). " +
+				"On success it describes what was rendered (sections, tracks, note counts and ranges): check that against what you meant, since you can't listen. Render after every edit.",
+			parameters: Type.Object({ name: Type.String({ description: "The piece's folder name under assets/music/, lower-kebab-case, e.g. 'goblin-theme'" }) }),
+			execute: generation("render_song"),
+		}),
+		defineTool({
 			name: "finalize_model",
 			label: "Finalize 3D model",
 			description:

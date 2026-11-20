@@ -67,6 +67,20 @@ get VAST-AI/UniRig 'skeleton/articulation-xl_quantization_256/*' 'skin/articulat
 # UniRig only needs this model's config (its skeleton model is built on OPT's architecture).
 HF_HOME="$GEN/hf" "${HF_CLI[@]}" download facebook/opt-350m config.json >/dev/null
 
+step "Music: GeneralUser GS SoundFont (v2.0.3; free for any music, including commercial)"
+SF2="$GEN/models/soundfonts/GeneralUser-GS.sf2"
+if [[ -s "$SF2" ]]; then
+	echo "   already downloaded"
+else
+	mkdir -p "$(dirname "$SF2")"
+	curl -fsSL -o "$SF2.part" https://raw.githubusercontent.com/mrbumpy409/GeneralUser-GS/684543d5e5efaef08d02be50dcda8d552478fa60/GeneralUser-GS.sf2
+	mv "$SF2.part" "$SF2"
+	echo "   downloaded"
+fi
+for cmd in fluidsynth ffmpeg; do
+	command -v "$cmd" >/dev/null || echo "   warning: $cmd isn't installed; music rendering needs it (sudo pacman -S $cmd)"
+done
+
 step "Environment: image (FLUX.2 Klein)"
 mkenv image
 pip image "${TORCH_CU130[@]}" torch==2.14.1 torchvision

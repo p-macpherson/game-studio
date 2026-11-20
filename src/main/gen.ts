@@ -211,6 +211,7 @@ export class GenService {
 						"src/UniRig/experiments/skin/articulation-xl/model.ckpt",
 					]),
 				];
+		components.push(musicComponent(soundfontPath(root)));
 		return {
 			root,
 			ready: components.every((c) => c.ok),
@@ -372,4 +373,20 @@ export class GenService {
 		this.deps.emit(event);
 		for (const l of this.progressListeners) l(event);
 	}
+}
+
+/** The General MIDI SoundFont music is rendered with (gen/setup.sh downloads it). */
+export function soundfontPath(root: string): string {
+	return process.env.GAME_STUDIO_SOUNDFONT ?? join(root, "models/soundfonts/GeneralUser-GS.sf2");
+}
+
+const onPath = (cmd: string) => (process.env.PATH ?? "").split(":").some((dir) => dir && existsSync(join(dir, cmd)));
+
+/** Music rendering runs on the CPU: FluidSynth and ffmpeg from the system, plus the SoundFont. */
+function musicComponent(soundfont: string): GenComponent {
+	const missing = [
+		...(existsSync(soundfont) ? [] : ["the SoundFont (Install)"]),
+		...["fluidsynth", "ffmpeg"].filter((c) => !onPath(c)).map((c) => `${c} (system package: pacman -S ${c})`),
+	];
+	return { id: "music", name: "Music rendering (FluidSynth + GeneralUser GS)", ok: !missing.length, detail: missing.length ? `missing ${missing.join(", ")}` : "installed" };
 }

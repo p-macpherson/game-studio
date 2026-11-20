@@ -1,0 +1,261 @@
+// Music: renders a song (assets/music/<name>/song.json, the studio's score format in src/shared/song.ts) to audio.
+//   song.json      the score (the asset)
+//   <name>.ogg     what the game plays (`engine.play_music`); a seamless loop unless the song says loop: false
+//   render.json    which song.json the OGG was rendered from, so a stale render shows
+// Rendering is FluidSynth with a General MIDI SoundFont, then ffmpeg. A loop is rendered three times in a row
+// and the middle pass kept: its start already holds the reverb and release tails of the bars before it.
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { drumName, GM_PROGRAMS, parseSong, pitchName, TICKS_PER_BEAT, type Song, type Timeline } from "../shared/song";
+import { safeJoin } from "./assets";
+
+export const MUSIC_DIR = "assets/music";
+const NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+const RATE = 44100;
+/** A song that doesn't loop gets this much room for its last notes to ring out. */
+const TAIL_SECONDS = 3;
+
+export interface RenderInfo {
+	/** sha1 of the song.json it was rendered from. */
+	song: string;
+	seconds: number;
+	loop: boolean;
+	renderedAt: string;
+}
+
+export interface RenderResult {
+	ogg: string;
+	seconds: number;
+	loop: boolean;
+	tempo: number;
+	sections: { name: string; bars: number; seconds: number }[];
+	tracks: { id: string; instrument: string; notes: number; range?: string }[];
+}
+
+export class SongError extends Error {
+	constructor(readonly problems: { at: string; message: string }[]) {
+		super(`song.json has ${problems.length} problem(s):\n${problems.map((p) => `- ${p.at ? `${p.at}: ` : ""}${p.message}`).join("\n")}`);
+	}
+}
+
+export const songHash = (text: string) => createHash("sha1").update(text).digest("hex");
+
+export class MusicPipeline {
+	constructor(private readonly deps: { soundfont(): string; fluidsynth?: string; ffmpeg?: string }) {}
+
+	dir(cwd: string, name: string): string {
+		if (!NAME.test(name)) throw new Error(`A piece's name is lower-kebab-case (e.g. "goblin-theme"), not "${name}"`);
+		return safeJoin(cwd, `${MUSIC_DIR}/${name}`);
+	}
+
+	/** Validates and renders assets/music/<name>/song.json to <name>.ogg. */
+	async render(ctx: { cwd: string; progress?(text: string): void }, p: { name: string }): Promise<RenderResult> {
+		const dir = this.dir(ctx.cwd, p.name);
+		const file = join(dir, "song.json");
+		if (!existsSync(file)) throw new Error(`No ${MUSIC_DIR}/${p.name}/song.json yet: write the score first`);
+		const text = readFileSync(file, "utf8");
+		let json: unknown;
+		try {
+			json = JSON.parse(text);
+		} catch (err) {
+			throw new SongError([{ at: "", message: `Not valid JSON: ${(err as Error).message}` }]);
+		}
+		const { song, timeline, errors } = parseSong(json);
+		if (errors.length || !song || !timeline) throw new SongError(errors);
+		const soundfont = this.deps.soundfont();
+		if (!existsSync(soundfont)) throw new Error(`The SoundFont isn't installed (${soundfont}); run Settings → Asset generation → Install`);
+
+		const loop = song.loop !== false;
+		const tmp = mkdtempSync(join(tmpdir(), "gs-music-"));
+		try {
+			ctx.progress?.(`Rendering ${p.name} with FluidSynth`);
+			const mid = join(tmp, "song.mid");
+			writeFileSync(mid, toMidi(song, timeline, loop ? 3 : 1, loop ? 0 : TAIL_SECONDS));
+			const wav = join(tmp, "song.wav");
+			await run(this.deps.fluidsynth ?? "fluidsynth", ["-ni", "-q", "-a", "file", "-g", "0.6", "-r", String(RATE), "-F", wav, soundfont, mid]);
+			let audio = readWav(readFileSync(wav));
+			const loopFrames = Math.round(timeline.seconds * RATE);
+			audio = loop ? loopFromPasses(audio, loopFrames) : sliceFrames(audio, 0, loopFrames + TAIL_SECONDS * RATE);
+			const cut = join(tmp, "cut.wav");
+			writeFileSync(cut, writeWav(audio));
+			const ogg = join(dir, `${p.name}.ogg`);
+			ctx.progress?.("Encoding OGG");
+			await run(this.deps.ffmpeg ?? "ffmpeg", ["-y", "-loglevel", "error", "-i", cut, "-c:a", "libvorbis", "-q:a", "5", ogg]);
+			const seconds = audio.frames / RATE;
+			const info: RenderInfo = { song: songHash(text), seconds: Math.round(seconds * 1000) / 1000, loop, renderedAt: new Date().toISOString() };
+			writeFileSync(join(dir, "render.json"), `${JSON.stringify(info, null, "\t")}\n`);
+			return summarize(song, timeline, `${MUSIC_DIR}/${p.name}/${p.name}.ogg`, info);
+		} finally {
+			rmSync(tmp, { recursive: true, force: true });
+		}
+	}
+}
+
+/** What was rendered, in words an agent can check against its intent (it can't listen). */
+function summarize(song: Song, t: Timeline, ogg: string, info: RenderInfo): RenderResult {
+	const secPerTick = 60 / song.tempo / TICKS_PER_BEAT;
+	return {
+		ogg,
+		seconds: info.seconds,
+		loop: info.loop,
+		tempo: song.tempo,
+		sections: t.sections.map((s) => ({ name: s.name, bars: s.ticks / t.ticksPerBar, seconds: Math.round(s.ticks * secPerTick * 100) / 100 })),
+		tracks: t.tracks.map((tr) => {
+			const pitches = tr.notes.map((n) => n.pitch);
+			const name = tr.drums ? "drums" : GM_PROGRAMS[tr.program];
+			if (!pitches.length) return { id: tr.id, instrument: name, notes: 0 };
+			const lo = Math.min(...pitches);
+			const hi = Math.max(...pitches);
+			return { id: tr.id, instrument: name, notes: tr.notes.length, range: tr.drums ? [...new Set(pitches)].map(drumName).join(" ") : `${pitchName(lo)}-${pitchName(hi)}` };
+		}),
+	};
+}
+
+// --- MIDI ---------------------------------------------------------------------------------------------------
+
+const vlq = (n: number): number[] => {
+	const out = [n & 0x7f];
+	while ((n >>= 7)) out.unshift(0x80 | (n & 0x7f));
+	return out;
+};
+
+function chunk(type: string, data: number[]): number[] {
+	const len = data.length;
+	return [...Buffer.from(type, "ascii"), (len >>> 24) & 255, (len >>> 16) & 255, (len >>> 8) & 255, len & 255, ...data];
+}
+
+function trackChunk(events: { tick: number; bytes: number[]; order: number }[]): number[] {
+	events.sort((a, b) => a.tick - b.tick || a.order - b.order);
+	const data: number[] = [];
+	let now = 0;
+	for (const e of events) {
+		data.push(...vlq(e.tick - now), ...e.bytes);
+		now = e.tick;
+	}
+	data.push(0, 0xff, 0x2f, 0);
+	return chunk("MTrk", data);
+}
+
+/** A Standard MIDI File (format 1) of the song, repeated `passes` times, with `tailSeconds` of silence after. */
+export function toMidi(song: Song, t: Timeline, passes = 1, tailSeconds = 0): Uint8Array {
+	const usPerBeat = Math.round(60_000_000 / song.tempo);
+	const meter = song.meter ?? [4, 4];
+	const end = t.totalTicks * passes + Math.round(tailSeconds * (song.tempo / 60) * TICKS_PER_BEAT);
+	const conductor = [
+		{ tick: 0, order: 0, bytes: [0xff, 0x51, 3, (usPerBeat >> 16) & 255, (usPerBeat >> 8) & 255, usPerBeat & 255] },
+		{ tick: 0, order: 0, bytes: [0xff, 0x58, 4, meter[0], Math.log2(meter[1]), 24, 8] },
+		// A marker at the very end keeps FluidSynth rendering through the tail.
+		{ tick: end, order: 0, bytes: [0xff, 0x06, 3, ...Buffer.from("end")] },
+	];
+	const chunks = [trackChunk(conductor)];
+	for (const tr of t.tracks) {
+		const ch = tr.channel;
+		const ev: { tick: number; bytes: number[]; order: number }[] = [
+			{ tick: 0, order: 0, bytes: [0xc0 | ch, tr.program] },
+			{ tick: 0, order: 0, bytes: [0xb0 | ch, 7, Math.round(tr.volume * 127)] },
+			{ tick: 0, order: 0, bytes: [0xb0 | ch, 10, Math.round((tr.pan + 1) * 63.5)] },
+			{ tick: 0, order: 0, bytes: [0xb0 | ch, 91, Math.round(tr.reverb * 127)] },
+		];
+		for (let p = 0; p < passes; p++) {
+			const offset = p * t.totalTicks;
+			for (const n of tr.notes) {
+				// Note-offs sort before note-ons at the same tick, so repeated notes retrigger.
+				ev.push({ tick: offset + n.tick, order: 2, bytes: [0x90 | ch, n.pitch, Math.min(127, Math.max(1, n.velocity))] });
+				ev.push({ tick: offset + n.tick + n.ticks, order: 1, bytes: [0x80 | ch, n.pitch, 0] });
+			}
+		}
+		chunks.push(trackChunk(ev));
+	}
+	const header = chunk("MThd", [0, 1, 0, chunks.length, (TICKS_PER_BEAT >> 8) & 255, TICKS_PER_BEAT & 255]);
+	return Uint8Array.from([...header, ...chunks.flat()]);
+}
+
+// --- WAV ----------------------------------------------------------------------------------------------------
+
+interface Pcm {
+	channels: number;
+	rate: number;
+	bits: number;
+	frames: number;
+	data: Buffer;
+}
+
+export function readWav(buf: Buffer): Pcm {
+	if (buf.toString("ascii", 0, 4) !== "RIFF" || buf.toString("ascii", 8, 12) !== "WAVE") throw new Error("Not a WAV file");
+	let fmt: { channels: number; rate: number; bits: number } | null = null;
+	for (let i = 12; i + 8 <= buf.length; ) {
+		const id = buf.toString("ascii", i, i + 4);
+		const size = buf.readUInt32LE(i + 4);
+		if (id === "fmt ") fmt = { channels: buf.readUInt16LE(i + 10), rate: buf.readUInt32LE(i + 12), bits: buf.readUInt16LE(i + 22) };
+		if (id === "data") {
+			if (!fmt) throw new Error("WAV data before its format");
+			const data = buf.subarray(i + 8, Math.min(buf.length, i + 8 + size));
+			return { ...fmt, data, frames: Math.floor(data.length / ((fmt.bits / 8) * fmt.channels)) };
+		}
+		i += 8 + size + (size & 1);
+	}
+	throw new Error("WAV without data");
+}
+
+/** Frames [from, to), padded with silence past the end. */
+function sliceFrames(pcm: Pcm, from: number, to: number): Pcm {
+	const frame = (pcm.bits / 8) * pcm.channels;
+	const out = Buffer.alloc((to - from) * frame);
+	pcm.data.copy(out, 0, Math.min(pcm.data.length, from * frame), Math.min(pcm.data.length, to * frame));
+	return { ...pcm, data: out, frames: to - from };
+}
+
+const SEAM_FADE_SECONDS = 0.03;
+
+/**
+ * A seamless loop from three rendered passes: the middle pass, whose first 30 ms are crossfaded from what
+ * really followed the middle pass (the start of pass three) into its own start. FluidSynth starts notes on
+ * 64-sample block boundaries, so unless the loop is a whole number of blocks, passes two and three differ by up
+ * to a block; the crossfade makes the jump from the loop's end back to its start land on the true continuation.
+ */
+export function loopFromPasses(pcm: Pcm, loopFrames: number): Pcm {
+	if (pcm.bits !== 16) throw new Error(`Expected 16-bit audio from FluidSynth, got ${pcm.bits}-bit`);
+	const loop = sliceFrames(pcm, loopFrames, 2 * loopFrames);
+	const next = sliceFrames(pcm, 2 * loopFrames, 2 * loopFrames + Math.round(SEAM_FADE_SECONDS * pcm.rate));
+	const fade = next.frames;
+	for (let i = 0; i < fade; i++) {
+		const t = ((i + 0.5) / fade) * (Math.PI / 2); // equal-power
+		for (let c = 0; c < pcm.channels; c++) {
+			const at = (i * pcm.channels + c) * 2;
+			const v = next.data.readInt16LE(at) * Math.cos(t) + loop.data.readInt16LE(at) * Math.sin(t);
+			loop.data.writeInt16LE(Math.max(-32768, Math.min(32767, Math.round(v))), at);
+		}
+	}
+	return loop;
+}
+
+export function writeWav(pcm: Pcm): Buffer {
+	const h = Buffer.alloc(44);
+	const frame = (pcm.bits / 8) * pcm.channels;
+	h.write("RIFF", 0, "ascii");
+	h.writeUInt32LE(36 + pcm.data.length, 4);
+	h.write("WAVEfmt ", 8, "ascii");
+	h.writeUInt32LE(16, 16);
+	h.writeUInt16LE(pcm.bits === 32 ? 3 : 1, 20);
+	h.writeUInt16LE(pcm.channels, 22);
+	h.writeUInt32LE(pcm.rate, 24);
+	h.writeUInt32LE(pcm.rate * frame, 28);
+	h.writeUInt16LE(frame, 32);
+	h.writeUInt16LE(pcm.bits, 34);
+	h.write("data", 36, "ascii");
+	h.writeUInt32LE(pcm.data.length, 40);
+	return Buffer.concat([h, pcm.data]);
+}
+
+function run(cmd: string, args: string[]): Promise<void> {
+	return new Promise((resolve, reject) => {
+		const proc = spawn(cmd, args, { stdio: ["ignore", "ignore", "pipe"] });
+		let err = "";
+		proc.stderr.on("data", (d) => (err = (err + d).slice(-2000)));
+		proc.on("error", (e) => reject(new Error(`${cmd} isn't available: ${e.message}`)));
+		proc.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`${cmd} failed (exit ${code}): ${err.trim().split("\n").slice(-3).join(" ")}`))));
+	});
+}

@@ -17,7 +17,7 @@ npm test             # vitest: git/worktree/session lifecycle and project creati
 npm run e2e          # build, then drive the app with Playwright through project creation and a full session
                      # lifecycle on the faux model; screenshots in out/e2e/ (look at them after UI changes)
 npm run test:gpu     # the real generation models end to end on the GPU (a few minutes; needs gen/setup.sh done)
-bash gen/setup.sh    # install/repair local generation: model repos, ~45 GB of weights, Python envs (idempotent)
+bash gen/setup.sh    # install/repair local generation: model repos, ~45 GB of weights, Python envs, the music SoundFont (idempotent)
 node spike/pi-spike.ts <scratch-dir>   # the M0 Pi SDK spike (faux provider, no credentials needed)
 ```
 
@@ -66,6 +66,7 @@ Install dependencies with `npm install --ignore-scripts` (Pi's recommendation). 
 | `src/main/models.ts` | Model pipeline (`assets/models/<name>/`: `<name>.glb`, `thumbnail.png`, `model.json`, `concepts/`, `source/`) and the handler for agents' generation tools (`studio_request` from the session host) |
 | `gen/spike/` | The M4a spike scripts; findings are in the vault note `M4 3D Models.md` |
 | `src/modules/3d-models/` | 3D Models section: the asset is a model's `model.json`; concept board, three.js `ModelViewer`, in-engine render (`RunService.preview`). Its buttons run generation in a 3D Modeller session created without a prompt (a workspace) via `models3d.*` |
+| `src/shared/song.ts`, `src/main/music.ts` | Music: the song score format (`assets/music/<name>/song.json`: parser, validator, timeline) shared by the UI, the renderer and agents' `render_song`; MIDI writer and the FluidSynth + ffmpeg render to a seamless-loop `<name>.ogg` (three passes, middle one kept, seam crossfaded). Agent type `music-composer`, skill `music-composition` (the format reference) |
 | `src/main/studio-files.ts` | `studio-file://<main or session id>/<path>`: serves models and images from a checkout to the renderer (use `studioFile()` in `src/renderer/api.ts`) |
 
 ## Testing

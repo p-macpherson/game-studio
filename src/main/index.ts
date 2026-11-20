@@ -8,8 +8,9 @@ import { AssetService, MODULES } from "./assets";
 import * as g from "./git";
 import { utilityHostLink } from "./host-link";
 import { createProject, readProject } from "./project";
-import { GenService } from "./gen";
+import { GenService, soundfontPath } from "./gen";
 import { generationRequests, ModelPipeline } from "./models";
+import { MusicPipeline } from "./music";
 import { RunService } from "./runner";
 import { SessionService } from "./sessions";
 import { SettingsStore } from "./settings";
@@ -57,14 +58,16 @@ async function main(): Promise<void> {
 	await app.whenReady();
 	const host = await utilityHostLink(piDir, process.env.GAME_STUDIO_FAUX === "1" ? { GAME_STUDIO_FAUX: "1" } : {});
 	const agentTypes = () => loadAgentTypes(join(appRoot, "agent-types"), project?.path);
+	const genRoot = process.env.GAME_STUDIO_GEN ?? join(app.getPath("home"), ".local/share/game-studio/gen");
 	const gen = new GenService({
-		root: process.env.GAME_STUDIO_GEN ?? join(app.getPath("home"), ".local/share/game-studio/gen"),
+		root: genRoot,
 		codeDir: join(appRoot, "gen"),
 		emit,
 		fake: process.env.GAME_STUDIO_GEN_FAKE === "1",
 	});
 	const pipeline = new ModelPipeline(gen);
-	const genRequests = generationRequests(pipeline, gen, { preview: (sessionId, name) => previewModel(sessionId, name) });
+	const music = new MusicPipeline({ soundfont: () => soundfontPath(genRoot) });
+	const genRequests = generationRequests(pipeline, gen, { preview: (sessionId, name) => previewModel(sessionId, name), music });
 	const sessions = new SessionService({
 		host,
 		settings: () => settings.get(),

@@ -54,7 +54,8 @@ export type StudioRequestMethod =
 	| "rig_prop"
 	| "animate_model"
 	| "finalize_model"
-	| "preview_model";
+	| "preview_model"
+	| "render_song";
 
 export type HostEvent =
 	/** A raw Pi AgentSessionEvent, JSON-sanitised. */

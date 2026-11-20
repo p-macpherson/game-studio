@@ -10,6 +10,7 @@ import { basename, join, relative } from "node:path";
 import type { ConceptImage, ConceptRecord, GenJob, GenJobKind, ModelManifest } from "../shared/gen";
 import { safeJoin } from "./assets";
 import type { GenService } from "./gen";
+import type { MusicPipeline } from "./music";
 import type { StudioRequest } from "./sessions";
 
 export const MODELS_DIR = "assets/models";
@@ -36,6 +37,8 @@ export function generationRequests(
 	opts: {
 		/** Renders a model in the game's engine (RunService.preview), for `preview_model`. */
 		preview?(sessionId: string, model: string): Promise<{ images: string[]; errors: string[] }>;
+		/** Renders songs (assets/music/), for `render_song`. */
+		music?: MusicPipeline;
 	} = {},
 ) {
 	const jobs = new Map<string, Set<string>>();
@@ -64,6 +67,9 @@ export function generationRequests(
 					case "preview_model":
 						if (!opts.preview) throw new Error("In-engine previews aren't available here");
 						return await opts.preview(req.sessionId, (req.params as { model: string }).model);
+					case "render_song":
+						if (!opts.music) throw new Error("Music rendering isn't available here");
+						return await opts.music.render(ctx, p);
 				}
 			} finally {
 				jobs.delete(req.requestId);
