@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -141,6 +142,21 @@ describe.skipIf(!existsSync(join(engineRepo, "third_party/lib")))("RunService", 
 		expect(pick.hit?.scene_id).toBe(4);
 		await runner.stop();
 	}, 60_000);
+
+	it("launches the game while builds of the same checkout are running", async () => {
+		// An agent's own ./build.sh (outside the studio) and an agent's preview_scene rewrite build/game while the
+		// Scenes view starts the game: Linux refuses to start a binary that is being written (ETXTBSY).
+		const outside = spawn(join(project, "build.sh"), ["build"], { cwd: project });
+		const outsideDone = new Promise((r) => outside.on("close", r));
+		const [preview, run] = await Promise.all([
+			runner.previewScene(null, "assets/scenes/main.json", ["top"]),
+			new Promise((r) => setTimeout(r, 150)).then(() => runner.start(null, "hidden", { scene: "scenes/main.json" })),
+		]);
+		expect(preview.images).toHaveLength(1);
+		expect(run.state).toBe("running");
+		await outsideDone;
+		await runner.stop();
+	}, 90_000);
 
 	it("runs a session's worktree", async () => {
 		const s = await sessions.create({ agentType: "gameplay-engineer", target: "project", model: "faux/echo", prompt: "hello" });

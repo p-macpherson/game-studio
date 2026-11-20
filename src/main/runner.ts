@@ -1,7 +1,7 @@
 // Builds, runs and tests the game through the project's `build.sh`, from the main checkout or a session's
 // worktree. A run is driven over the engine's control protocol: frames are streamed into the studio (hidden
 // mode), and the inspector, input and console are plain control commands.
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, spawn, type SpawnOptions } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 import type { StudioEvent } from "../shared/ipc";
@@ -45,6 +45,22 @@ export function sceneBounds(entities: SceneEntity[]): { center: number[]; extent
 	return { center, extent: Math.max(3, (Math.max(hi[0] - lo[0], hi[2] - lo[2]) / 2) * 1.15 + 1.5) };
 }
 
+/**
+ * Starts a game binary. A build the studio doesn't control (an agent's own ./build.sh) may still be writing it, and
+ * Linux refuses to start a file open for writing (spawn throws ETXTBSY): wait for the build to finish.
+ */
+export async function spawnGame(file: string, args: string[], options: SpawnOptions, timeoutMs = 20_000): Promise<ChildProcess> {
+	const deadline = Date.now() + timeoutMs;
+	for (;;) {
+		try {
+			return spawn(file, args, options);
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code !== "ETXTBSY" || Date.now() > deadline) throw err;
+			await sleep(100);
+		}
+	}
+}
+
 interface ActiveRun {
 	info: RunInfo;
 	proc?: ChildProcess;
@@ -69,6 +85,7 @@ export class RunService {
 	private run: ActiveRun | null = null;
 	private streaming = false;
 	private testQueue: Promise<unknown> = Promise.resolve();
+	private turns = new Map<string, Promise<unknown>>();
 
 	constructor(private readonly deps: RunServiceDeps) {}
 
@@ -141,7 +158,7 @@ export class RunService {
 		const args = [`--mode=${mode}`, `--control=${port}`];
 		if (mode === "hidden") args.push("--fps=60");
 		if (options.scene) args.push("--paused", `--scene=${options.scene}`);
-		const proc = spawn(join(co.cwd, "build/game"), args, { cwd: co.cwd, env: { ...process.env, NO_COLOR: "1" } });
+		const proc = await this.launch(co, args);
 		run.proc = proc;
 		run.info.port = port;
 		run.info.state = "starting";
@@ -208,7 +225,7 @@ export class RunService {
 			throw new Error(`The game doesn't build, so it can't show the model:\n${(built.stdout + built.stderr).trim().split("\n").slice(-12).join("\n")}`);
 		}
 		const port = await freePort();
-		const proc = spawn(join(co.cwd, "build/game"), ["--mode=hidden", `--control=${port}`, "--fps=60"], { cwd: co.cwd, env: { ...process.env, NO_COLOR: "1" } });
+		const proc = await this.launch(co, ["--mode=hidden", `--control=${port}`, "--fps=60"]);
 		let client: EngineClient | undefined;
 		try {
 			client = await EngineClient.connect(port, () => proc.exitCode === null);
@@ -256,7 +273,7 @@ export class RunService {
 		}
 		const port = await freePort();
 		const args = ["--mode=hidden", `--control=${port}`, "--fps=60", "--paused", `--scene=${path.replace(/^assets\//, "")}`];
-		const proc = spawn(join(co.cwd, "build/game"), args, { cwd: co.cwd, env: { ...process.env, NO_COLOR: "1" } });
+		const proc = await this.launch(co, args);
 		let client: EngineClient | undefined;
 		try {
 			client = await EngineClient.connect(port, () => proc.exitCode === null);
@@ -378,7 +395,27 @@ export class RunService {
 		}
 	}
 
+	/**
+	 * Runs one step for a checkout after the previous one has finished. A build rewrites build/game for most of its
+	 * run, and Linux won't start a binary that is open for writing (ETXTBSY), so the studio's builds, tests and game
+	 * launches in one checkout take turns (the Scenes view and an agent's preview_scene used to collide).
+	 */
+	private inTurn<T>(cwd: string, step: () => Promise<T>): Promise<T> {
+		const next = (this.turns.get(cwd) ?? Promise.resolve()).then(step, step);
+		this.turns.set(cwd, next.catch(() => {}));
+		return next;
+	}
+
+	/** Starts the checkout's game binary in its turn. */
+	private launch(co: CheckoutInfo, args: string[]): Promise<ChildProcess> {
+		return this.inTurn(co.cwd, () => spawnGame(join(co.cwd, "build/game"), args, { cwd: co.cwd, env: { ...process.env, NO_COLOR: "1" } }));
+	}
+
 	private exec(co: CheckoutInfo, args: string[], onOutput?: (text: string) => void, timeoutMs?: number): Promise<ExecResult> {
+		return this.inTurn(co.cwd, () => this.execNow(co, args, onOutput, timeoutMs));
+	}
+
+	private execNow(co: CheckoutInfo, args: string[], onOutput?: (text: string) => void, timeoutMs?: number): Promise<ExecResult> {
 		return new Promise((resolve) => {
 			const env = { ...process.env, NO_COLOR: "1", ...(co.engineDir ? { ENGINE_DIR: co.engineDir } : {}) };
 			const proc = spawn(join(co.cwd, "build.sh"), args, { cwd: co.cwd, env });
