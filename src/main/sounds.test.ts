@@ -60,22 +60,22 @@ describe.skipIf(!has("ffmpeg"))("SoundPipeline", () => {
 		expect(JSON.parse(readFileSync(join(dirOf(cwd, "chest-open"), "render.json"), "utf8"))).toMatchObject({ files: ["chest-open.ogg"] });
 	});
 
-	it("renders one file per variant with its own overrides, remakes a missing take, and drops variants it no longer has", async () => {
+	it("renders one file per variant (named after the sound, in a subfolder too) with its own overrides, remakes a missing take, and drops variants it no longer has", async () => {
 		const cwd = tempDir();
 		const sounds = new SoundPipeline({ gen: fakeGen() });
-		await sounds.generateTakes({ cwd }, { name: "footstep", prompt: "a footstep on grass", seconds: 0.6, count: 3, seed: 3 });
-		rmSync(join(dirOf(cwd, "footstep"), "takes/main-5.wav")); // e.g. a clone without its LFS files
+		await sounds.generateTakes({ cwd }, { name: "steps/footstep", prompt: "a footstep on grass", seconds: 0.6, count: 3, seed: 3 });
+		rmSync(join(dirOf(cwd, "steps/footstep"), "takes/main-5.wav")); // e.g. a clone without its LFS files
 		const variants = composeVariants(["main-3", "main-4", "main-5"], 3, 1);
-		writeSound(cwd, "footstep", { variants });
-		const r = await sounds.render({ cwd }, { name: "footstep" });
+		writeSound(cwd, "steps/footstep", { variants });
+		const r = await sounds.render({ cwd }, { name: "steps/footstep" });
 		expect(r.variants.map((v) => v.file.split("/").pop())).toEqual(["footstep.ogg", "footstep-2.ogg", "footstep-3.ogg"]);
-		expect(existsSync(join(dirOf(cwd, "footstep"), "takes/main-5.wav"))).toBe(true);
+		expect(existsSync(join(dirOf(cwd, "steps/footstep"), "takes/main-5.wav"))).toBe(true);
 
-		writeSound(cwd, "footstep", { length: 0.3, variants: [{ ...variants[1], length: 0.25 }] });
-		await sounds.render({ cwd }, { name: "footstep" });
-		expect(decode(join(dirOf(cwd, "footstep"), "footstep.ogg")).seconds).toBeCloseTo(0.25, 2);
-		expect(existsSync(join(dirOf(cwd, "footstep"), "footstep-2.ogg"))).toBe(false);
-		expect(existsSync(join(dirOf(cwd, "footstep"), "footstep-3.ogg"))).toBe(false);
+		writeSound(cwd, "steps/footstep", { length: 0.3, variants: [{ ...variants[1], length: 0.25 }] });
+		await sounds.render({ cwd }, { name: "steps/footstep" });
+		expect(decode(join(dirOf(cwd, "steps/footstep"), "footstep.ogg")).seconds).toBeCloseTo(0.25, 2);
+		expect(existsSync(join(dirOf(cwd, "steps/footstep"), "footstep-2.ogg"))).toBe(false);
+		expect(existsSync(join(dirOf(cwd, "steps/footstep"), "footstep-3.ogg"))).toBe(false);
 	});
 
 	it("levels each layer before its gain, so a quiet take isn't buried under a synth layer", async () => {
