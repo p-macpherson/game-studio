@@ -389,11 +389,11 @@ export class SessionService {
 		const e = this.entry(id);
 		const r = e.record;
 		this.assertNotRunning(e);
-		if (this.hasWorktree(e)) await g.commitAll(this.worktreePath(e), `Uncommitted changes from session ${r.id}`);
+		if (this.hasWorktree(e)) await g.commitAll(this.worktreePath(e), `${r.title}\n\nThe session's uncommitted work, committed by Game Studio when merging session ${r.id}.`);
 		const current = await g.currentBranch(e.repoPath);
 		if (current !== r.baseBranch) throw new Error(`${basename(e.repoPath)} is on ${current}; switch it to ${r.baseBranch} to merge`);
 		try {
-			await g.git(e.repoPath, ["merge", "--no-ff", "-q", "-m", `Merge session ${r.id}: ${r.title}`, r.branch]);
+			await g.git(e.repoPath, ["merge", "--no-ff", "-q", "-m", `Merge "${r.title}" (session ${r.id})`, r.branch]);
 		} catch (err) {
 			await g.git(e.repoPath, ["merge", "--abort"]).catch(() => {});
 			throw new Error(`Merge failed, nothing was changed: ${(err as Error).message}`);
