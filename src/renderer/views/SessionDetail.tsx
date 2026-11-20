@@ -4,7 +4,7 @@ import type { SessionSummary } from "../../shared/types";
 import { findAgentType } from "../../shared/agents";
 import { call } from "../api";
 import { useStudio } from "../store";
-import { confirmDiscard, confirmMerge } from "../workspace";
+import { confirmDiscard } from "../workspace";
 import { Chat } from "./Chat";
 import { Diff } from "./Diff";
 import { StatusBadge, TargetBadge } from "./Sessions";
@@ -80,11 +80,7 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 								<button
 									className="primary"
 									disabled={busy}
-									onClick={() =>
-										act(async () => {
-											if (await confirmMerge(s.worktreeId, s.worktreeLabel, shared > 1 ? ` Its ${shared} sessions end with it.` : "")) await call("sessions.merge", s.id);
-										})
-									}
+									onClick={() => useStudio.getState().openMerge(s.worktreeId)}
 								>
 									Merge
 								</button>

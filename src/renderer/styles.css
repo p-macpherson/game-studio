@@ -2015,3 +2015,44 @@ textarea {
 	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
 	font-size: 12px;
 }
+
+/* The Merge dialog */
+.merge-body {
+	gap: 14px;
+	max-height: 62vh;
+	overflow: auto;
+}
+.merge-body h4 {
+	margin: 0;
+}
+.merge-group summary {
+	gap: 8px;
+	padding: 4px 6px;
+	border-radius: 5px;
+	cursor: pointer;
+}
+.merge-group summary:hover {
+	background: var(--panel);
+}
+.merge-file {
+	gap: 8px;
+	padding: 2px 6px 2px 18px;
+	font-size: 12px;
+}
+.link-like {
+	padding: 0;
+	text-align: left;
+}
+.merge-alert {
+	padding: 8px 12px;
+	border-radius: 6px;
+	font-size: 12.5px;
+}
+.merge-alert.error {
+	background: color-mix(in srgb, var(--red) 14%, var(--bg));
+	border: 1px solid color-mix(in srgb, var(--red) 40%, var(--bg));
+}
+.merge-alert.warning {
+	background: color-mix(in srgb, var(--yellow) 12%, var(--bg));
+	border: 1px solid color-mix(in srgb, var(--yellow) 40%, var(--bg));
+}

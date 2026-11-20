@@ -82,6 +82,9 @@ interface State {
 	worktreeChanges: { path: string; change: "added" | "modified" | "deleted" }[];
 	/** The selected worktree's manual-edit history and unsaved files (refreshed with the selector). */
 	history: { worktree: string; steps: HistoryStep[]; unsaved: string[] } | null;
+	/** The worktree whose Merge dialog is open. */
+	merging: string | null;
+	openMerge(worktreeId: string | null): void;
 	/** A short message shown for a moment (e.g. "Undid: Scene main: set Transform"). */
 	notice: string | null;
 	refreshHistory(): Promise<void>;
@@ -158,6 +161,8 @@ export const useStudio = create<State>((set, get) => ({
 	worktrees: [],
 	worktreeChanges: [],
 	history: null,
+	merging: null,
+	openMerge: (worktreeId) => set({ merging: worktreeId }),
 	notice: null,
 	async refreshHistory() {
 		const worktree = get().worktree;

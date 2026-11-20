@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { WorktreeSummary } from "../../shared/types";
 import { call } from "../api";
 import { isOpenProjectWorktree, useStudio } from "../store";
-import { confirmDiscard, confirmMerge, saveMessage } from "../workspace";
+import { confirmDiscard, saveMessage } from "../workspace";
 
 const otherFiles = <T extends { path: string }>(files: T[]) => files.filter((f) => !f.path.startsWith(".studio/"));
 
@@ -69,13 +69,7 @@ export function WorktreePicker() {
 			}
 		});
 	};
-	const merge = () => {
-		if (!current) return;
-		const files = changed.length ? `\n\n${changed.length} changed file${changed.length > 1 ? "s" : ""}:\n${changed.slice(0, 15).join("\n")}${changed.length > 15 ? "\n…" : ""}` : "\n\nIt has no changes.";
-		void act(async () => {
-			if (await confirmMerge(current.id, current.label, files)) await call("worktrees.merge", current.id);
-		});
-	};
+	const merge = () => current && useStudio.getState().openMerge(current.id);
 	const discard = () => {
 		if (!current) return;
 		void act(async () => {
@@ -107,7 +101,7 @@ export function WorktreePicker() {
 					<span className="muted small grow ellipsis" title={changed.join("\n")}>
 						{changed.length} change{changed.length === 1 ? "" : "s"}
 					</span>
-					<button className="small" disabled={busy || working(current)} onClick={merge} data-testid="worktree-merge" title="Merge everything this worktree changed into main">
+					<button className="small" disabled={busy} onClick={merge} data-testid="worktree-merge" title="Merge everything this worktree changed into main (shows what it changed and its sessions first)">
 						Merge
 					</button>
 					<button className="small icon" disabled={busy} onClick={() => (setNaming("rename"), setLabel(current.label))} title="Rename">

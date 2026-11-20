@@ -5,7 +5,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSyn
 import { basename, join } from "node:path";
 import type { HostEvent, PromptMode, StudioRequestMethod } from "../shared/host";
 import type { StudioEvent } from "../shared/ipc";
-import type { AgentTypeInfo, NewSessionRequest, PendingQuestion, SessionRecord, SessionSummary, Settings, Target, WorktreeRecord, WorktreeSummary } from "../shared/types";
+import type { AgentTypeInfo, GitCommit, NewSessionRequest, PendingQuestion, SessionRecord, SessionSummary, Settings, Target, WorktreeRecord, WorktreeSummary } from "../shared/types";
 import { findAgentType } from "../shared/agents";
 import * as g from "./git";
 import type { HostLink } from "./host-link";
@@ -503,6 +503,12 @@ export class SessionService {
 
 	private sessionsIn(worktreeId: string): Entry[] {
 		return [...this.entries.values()].filter((e) => e.record.worktreeId === worktreeId);
+	}
+
+	/** The commits on a worktree's branch since it was made (newest first), e.g. each agent's work. */
+	async worktreeCommits(id: string): Promise<GitCommit[]> {
+		const w = this.worktrees.get(id);
+		return g.log(w.repoPath, 500, `${w.record.baseCommit}..${w.record.branch}`);
 	}
 
 	/** Uncommitted changes in a worktree's checkout (not the studio's records): what a Save commits, or Revert drops. */

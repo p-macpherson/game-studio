@@ -231,6 +231,7 @@ async function main(): Promise<void> {
 			const step = manualStep(method, params);
 			return step ? history.record(worktreeId, cwd, step.label, step.scopes, run) : run();
 		},
+		"worktrees.commits": (id) => sessions.worktreeCommits(id),
 		"history.get": async (worktreeId) => ({ steps: history.steps(worktreeId), unsaved: await sessions.worktreeUnsaved(worktreeId) }),
 		"history.undo": async (worktreeId) => history.undo(worktreeId, checkoutRoot(worktreeId)),
 		"history.redo": async (worktreeId) => history.redo(worktreeId, checkoutRoot(worktreeId)),

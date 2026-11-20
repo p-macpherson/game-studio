@@ -120,6 +120,8 @@ export interface StudioApi {
 	"worktrees.save"(id: string, message: string): Promise<void>;
 	/** Puts a worktree's unsaved changes back to its last commit (clearing its history). */
 	"worktrees.revert"(id: string): Promise<void>;
+	/** The commits on a worktree's branch since it was made, newest first. */
+	"worktrees.commits"(id: string): Promise<GitCommit[]>;
 	"worktrees.merge"(id: string): Promise<void>;
 	"worktrees.discard"(id: string): Promise<void>;
 	"worktrees.changedFiles"(id: string): Promise<{ path: string; change: "added" | "modified" | "deleted" }[]>;

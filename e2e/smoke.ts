@@ -77,6 +77,7 @@ try {
 
 	// Merge: done sessions are hidden by default.
 	await page.locator(".session-header").getByRole("button", { name: "Merge" }).click();
+	await page.getByTestId("merge-confirm").click();
 	await page.locator(".session-items .empty").waitFor();
 	if (readFileSync(join(projectPath, "faux-notes.md"), "utf8") !== "add a note\n") throw new Error("merge did not reach main");
 	await page.getByRole("button", { name: "Done", exact: true }).click();
@@ -115,8 +116,40 @@ try {
 	await page.locator(".markdown a", { hasText: "the overview" }).click();
 	await page.locator(".markdown h1", { hasText: "E2E Game" }).waitFor();
 
-	// Merging the worktree (from the sidebar) makes it a regular doc; the selection goes back to main.
+	// Merging the worktree (from the sidebar) makes it a regular doc; the selection goes back to main. The Merge
+	// dialog sums up its changes by section and lists its sessions: one still working blocks the merge; idle, a warning.
+	// A second session in the worktree that works for a few seconds (a fresh one, so it's busy from its first prompt).
+	await page.evaluate(async () => {
+		const all = (await window.studio.call("sessions.list")) as { worktreeId: string; worktreeLabel: string; status: string }[];
+		const worktreeId = all.find((x) => x.status !== "done" && x.worktreeLabel.startsWith("write docs/design/Combat.md"))!.worktreeId;
+		void window.studio.call("sessions.create", {
+			agentType: "project-scoping",
+			target: "project",
+			model: "faux/echo",
+			prompt: `tool bash ${JSON.stringify({ command: "sleep 30" })}`,
+			worktreeId,
+		});
+	});
+	await page.waitForFunction(
+		async () => ((await window.studio.call("sessions.list")) as { status: string; title: string }[]).some((s) => s.status === "in_progress" && s.title.startsWith("tool bash")),
+		undefined,
+		{ timeout: 15_000 },
+	);
 	await page.getByTestId("worktree-merge").click();
+	await page.getByTestId("merge-blocked").waitFor({ timeout: 10_000 });
+	if (await page.getByTestId("merge-confirm").isEnabled()) throw new Error("merge allowed while a session works");
+	await step("44-merge-blocked", page);
+	// Stopping it unblocks the merge (it's idle now: a warning).
+	await page.evaluate(async () => {
+		const s = ((await window.studio.call("sessions.list")) as { id: string; title: string }[]).find((x) => x.title.startsWith("tool bash"))!;
+		await window.studio.call("sessions.abort", s.id);
+	});
+	await page.getByTestId("merge-warning").waitFor({ timeout: 30_000 });
+	await page.getByTestId("merge-group").filter({ hasText: "Design Docs" }).click();
+	await page.getByTestId("merge-session").filter({ hasText: "write docs/design/Combat.md" }).waitFor();
+	await page.getByTestId("merge-session").nth(1).waitFor(); // and the second one
+	await step("45-merge-dialog", page);
+	await page.getByTestId("merge-confirm").click();
 	await page.getByTestId("worktree-current").filter({ hasText: "main" }).waitFor({ timeout: 30_000 });
 	await docs.filter({ hasText: "Combat" }).and(page.locator('[title*="Hit things."]')).waitFor(); // the excerpt, as its tooltip
 	if ((await docs.filter({ hasText: "Combat" }).textContent())?.includes("⎇")) throw new Error("merged doc still shown as worktree work");
@@ -466,8 +499,9 @@ try {
 	await page.getByTestId("variant-row").nth(1).waitFor({ timeout: 30_000 });
 	await page.locator("[data-testid=sound-detail] [data-testid=render-status][data-state=current]").waitFor({ timeout: 30_000 });
 	await step("29-sound-variants", page);
-	// Merging is the worktree's, from the sidebar; the sound then shows as in the game (no ⎇ label).
+	// Merging is the worktree's, from the sidebar (saving the section's edits first); the sound then shows as in the game.
 	await page.getByTestId("worktree-merge").click();
+	await page.getByTestId("merge-confirm").filter({ hasText: "Save and merge" }).click();
 	await page.getByTestId("asset-item").filter({ hasText: "e2e-chime" }).getByTestId("change-label").waitFor({ state: "detached", timeout: 30_000 });
 	await page.getByTestId("variant-row").nth(1).waitFor();
 	await step("30-sound-merged", page);

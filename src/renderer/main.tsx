@@ -6,6 +6,7 @@ import { MODULE_VIEWS } from "./modules";
 import { type View, useStudio } from "./store";
 import "./styles.css";
 import { applyAppearance, loadAppearance } from "./appearance";
+import { MergeDialog } from "./views/MergeDialog";
 import { NewSessionDialog } from "./views/NewSession";
 import { Play } from "./views/Play";
 import { ProjectMenu, ProjectPicker } from "./views/Projects";
@@ -21,7 +22,7 @@ const NAV: { view: View; label: string; icon: string }[] = [
 ];
 
 function App() {
-	const { project, view, setView, sessions, modules, error, refresh, handleEvent, newSession, run, worktreeChanges, notice } = useStudio();
+	const { project, view, setView, sessions, modules, error, refresh, handleEvent, newSession, run, worktreeChanges, notice, merging } = useStudio();
 	/** How many of a section's assets the selected worktree added, modified and removed. */
 	const changesIn = (m: (typeof modules)[number]) => {
 		const owned = worktreeChanges.filter((c) => moduleOwns(m, c.path));
@@ -118,6 +119,7 @@ function App() {
 				})()}
 			</main>
 			{newSession && <NewSessionDialog preset={newSession} />}
+			{merging && <MergeDialog key={merging} worktreeId={merging} />}
 			{notice && (
 				<div className="toast" data-testid="notice">
 					{notice}

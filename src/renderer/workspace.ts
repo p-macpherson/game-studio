@@ -38,15 +38,6 @@ export function saveMessage(steps: string[], files: string[]): string {
 	return `Manual edits\n\n${files.map((f) => `- ${f}`).join("\n")}`;
 }
 
-/** Asks before merging a worktree; with unsaved changes, offers to save them first (and does). */
-export async function confirmMerge(worktreeId: string, label: string, details = ""): Promise<boolean> {
-	const u = await unsavedOf(worktreeId);
-	if (!u.count) return window.confirm(`Merge worktree “${label}” into the game?${details}`);
-	if (!window.confirm(`Worktree “${label}” has unsaved changes:\n${u.text}\n\nSave them and merge into the game?${details}`)) return false;
-	await call("worktrees.save", worktreeId, u.message);
-	return true;
-}
-
 /** Asks before discarding a worktree, listing the unsaved changes that would be lost. */
 export async function confirmDiscard(worktreeId: string, label: string, details = ""): Promise<boolean> {
 	const u = await unsavedOf(worktreeId);
