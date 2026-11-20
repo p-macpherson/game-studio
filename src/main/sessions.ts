@@ -376,10 +376,13 @@ export class SessionService {
 		// The parent's repo when the type works there; otherwise its own (an Engine Engineer under a game session).
 		const target = type.targets.includes(parent.record.target) ? parent.record.target : type.targets[0];
 		if (!target) throw new Error(`${type.name} has no repos to work in`);
+		// The child's own default model when it's available (a Sonnet specialist under an Opus director), else the parent's.
+		const available = new Set((await this.deps.host.call("models").catch(() => [])).map((m) => m.ref));
+		const model = type.defaultModel && available.has(type.defaultModel) ? type.defaultModel : parent.record.model;
 		const child = await this.create({
 			agentType: type.id,
 			target,
-			model: parent.record.model,
+			model,
 			prompt: p.task,
 			title: p.title,
 			parentId: parent.record.id,
