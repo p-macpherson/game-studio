@@ -370,9 +370,17 @@ try {
 	await nav.getByRole("button", { name: "Scenes" }).click();
 	await page.getByTestId("asset-group").filter({ hasText: "Prefabs" }).waitFor();
 	await page.getByTestId("prefab-used").filter({ hasText: "Used 2× in main" }).waitFor({ timeout: 10_000 });
-	if ((await page.getByTestId("asset-group").first().textContent())?.startsWith("Scenes") !== true) throw new Error("scenes aren't listed first");
+	if (!/^[▾▸]Scenes/.test((await page.getByTestId("asset-group").first().textContent()) ?? "")) throw new Error("scenes aren't listed first");
 	await nav.getByRole("button", { name: "Scenes" }).locator(".change-added").waitFor({ timeout: 10_000 }); // the new prefab, in the sidebar too
 	await step("37-scene-groups", page);
+	// Headings fold away (remembered); the wheel over the scene zooms it and doesn't scroll the page behind.
+	const crateItem = page.getByTestId("asset-item").filter({ has: page.locator(".title", { hasText: /^crate$/ }) });
+	await page.getByTestId("asset-group").filter({ hasText: "Prefabs" }).click();
+	await crateItem.waitFor({ state: "detached" });
+	await page.getByTestId("asset-group").filter({ hasText: "Prefabs" }).click();
+	await crateItem.waitFor();
+	const wheelKept = await page.getByTestId("scene-viewport").evaluate((el) => !el.dispatchEvent(new WheelEvent("wheel", { deltaY: 100, bubbles: true, cancelable: true })));
+	if (!wheelKept) throw new Error("the scene's wheel zoom lets the page scroll");
 
 	// The menu collapses to an icon rail; its buttons keep their names (as tooltips).
 	await page.getByTestId("sidebar-toggle").click();
@@ -408,8 +416,9 @@ try {
 	await page.getByTestId("variant-row").nth(1).waitFor({ timeout: 30_000 });
 	await page.locator("[data-testid=sound-detail] [data-testid=render-status][data-state=current]").waitFor({ timeout: 30_000 });
 	await step("29-sound-variants", page);
-	// Merging from the draft banner brings the sound into the game.
-	await page.getByTestId("draft-merge").click();
+	// The section only says it isn't in the game yet; merging is the worktree's, from the sidebar.
+	if ((await page.getByTestId("draft-banner").getByRole("button").count()) !== 0) throw new Error("the draft banner still has buttons");
+	await page.getByTestId("worktree-merge").click();
 	await page.getByTestId("draft-banner").waitFor({ state: "detached", timeout: 30_000 });
 	await page.getByTestId("variant-row").nth(1).waitFor();
 	await step("30-sound-merged", page);

@@ -1805,8 +1805,16 @@ button.link {
 /* Lists under headings (e.g. Scenes, then Prefabs) */
 .asset-group {
 	display: flex;
+	align-items: center;
 	gap: 6px;
+	width: 100%;
 	margin: 0;
+	background: none;
+	border: none;
+	border-radius: 0;
+	cursor: pointer;
+	text-align: left;
+	font-weight: 600;
 	padding: 10px 12px 4px;
 	font-size: 11px;
 	text-transform: uppercase;
@@ -1822,4 +1830,10 @@ button.link {
 	object-fit: contain;
 	background: #121317;
 	border-radius: 6px;
+}
+.asset-group:hover {
+	color: var(--text);
+}
+.asset-group .caret {
+	width: 10px;
 }

@@ -2,7 +2,7 @@
 // paused, with a free orbit camera; click to select (the engine's mesh \`pick\`), inspect and edit components,
 // move and place things, delete and duplicate. The file is the truth: every edit is a structured change to the
 // JSON in a session's worktree (\`edit_scene\`), mirrored into the live game by respawning what it touched.
-import { type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type WheelEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AssetSummary, ModuleInfo } from "../../shared/modules";
 import {
 	applyEdits,
@@ -590,6 +590,21 @@ function SceneViewport({
 		};
 	}, []);
 
+	// Wheel zooms. React's wheel listeners are passive, so a native one stops the page behind from scrolling too.
+	const viewport = useRef<HTMLDivElement>(null);
+	const hasFrame = !!frame;
+	useEffect(() => {
+		const el = viewport.current;
+		if (!el) return;
+		const wheel = (e: globalThis.WheelEvent) => {
+			e.preventDefault();
+			const { orbit: o, onOrbit: set } = latest.current;
+			set({ ...o, distance: Math.max(0.5, Math.min(400, o.distance * Math.exp(e.deltaY * 0.001))) });
+		};
+		el.addEventListener("wheel", wheel, { passive: false });
+		return () => el.removeEventListener("wheel", wheel);
+	}, [hasFrame]);
+
 	if (!frame) return <div className="viewport scene-viewport empty">{placeholder}</div>;
 	return (
 		<div
@@ -598,7 +613,7 @@ function SceneViewport({
 			data-testid="scene-viewport"
 			onKeyDown={onKey}
 			onContextMenu={(e) => e.preventDefault()}
-			onWheel={(e: WheelEvent) => onOrbit({ ...orbit, distance: Math.max(0.5, Math.min(400, orbit.distance * Math.exp(e.deltaY * 0.001))) })}
+			ref={viewport}
 		>
 			<div className="scene-frame">
 				<img

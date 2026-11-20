@@ -79,11 +79,9 @@ export function Highlight({ text, query }: { text: string; query: string }) {
  * Shown over an asset the selected worktree added or changed: it isn't in the game until the worktree is merged.
  * Merging (or discarding) takes the whole worktree, so the other files it changed are listed first.
  */
+/** Over an asset the selected worktree changed: it isn't in the game until the worktree is merged, from the sidebar. */
 function WorktreeBanner({ module, asset, worktree }: { module: ModuleInfo; asset: AssetSummary; worktree: WorktreeSummary }) {
-	const { sessions, showError } = useStudio();
 	const [others, setOthers] = useState<string[]>([]);
-	const [busy, setBusy] = useState(false);
-	const working = sessions.filter((s) => s.worktreeId === worktree.id && (s.status === "in_progress" || s.status === "starting"));
 	// An asset that is a folder's manifest (e.g. assets/sounds/x/sound.json) owns the whole folder.
 	const own = module.extensions.some((e) => e.startsWith("/")) ? `${asset.path.slice(0, asset.path.lastIndexOf("/"))}/` : asset.path;
 	useEffect(() => {
@@ -96,25 +94,11 @@ function WorktreeBanner({ module, asset, worktree }: { module: ModuleInfo; asset
 			live = false;
 		};
 	}, [worktree.id, worktree.updatedAt, own]);
-	const act = async (method: "worktrees.merge" | "worktrees.discard") => {
-		const merge = method === "worktrees.merge";
-		const also = others.length ? `\n\nThis ${merge ? "also brings in" : "also throws away"} ${others.length} other changed file${others.length > 1 ? "s" : ""}:\n${others.slice(0, 12).join("\n")}` : "";
-		if (!window.confirm(`${merge ? "Merge" : "Discard"} worktree “${worktree.label}”${merge ? " into the game" : ""}?${also}`)) return;
-		setBusy(true);
-		try {
-			await call(method, worktree.id);
-			useStudio.setState((s) => ({ assetsVersion: s.assetsVersion + 1 }));
-			await useStudio.getState().refreshWorktrees();
-		} catch (err) {
-			showError(err);
-		} finally {
-			setBusy(false);
-		}
-	};
 	return (
 		<div className="draft-banner row" data-testid="draft-banner">
 			<span className="grow">
-				{asset.change === "added" ? "New" : asset.change === "deleted" ? "Removed" : "Changed"} in worktree “{worktree.label}”, not in the game yet.
+				{asset.change === "added" ? "New" : asset.change === "deleted" ? "Removed" : "Changed"} in worktree “{worktree.label}”, not in the game until the worktree is merged
+				(from the worktree selector in the sidebar).
 				{others.length > 0 && (
 					<span className="muted" title={others.join("\n")}>
 						{" "}
@@ -122,13 +106,6 @@ function WorktreeBanner({ module, asset, worktree }: { module: ModuleInfo; asset
 					</span>
 				)}
 			</span>
-			{working.length > 0 && <span className="muted small">{working.length > 1 ? `${working.length} agents are` : "An agent is"} still working…</span>}
-			<button disabled={busy || working.length > 0} onClick={() => void act("worktrees.discard")} data-testid="draft-discard">
-				Discard
-			</button>
-			<button className="primary" disabled={busy || working.length > 0} onClick={() => void act("worktrees.merge")} data-testid="draft-merge">
-				{busy ? "Working…" : "Merge into the game"}
-			</button>
 		</div>
 	);
 }
@@ -146,6 +123,14 @@ export function AssetBrowser(props: AssetBrowserProps) {
 	// Filters (with a worktree selected): only what it changed; whether to list what it removed.
 	const [onlyChanged, setOnlyChanged] = useState(false);
 	const [includeRemoved, setIncludeRemoved] = useState(true);
+	// Folded group headings, remembered per section.
+	const groupsKey = `asset-groups-hidden:${module.id}`;
+	const [hiddenGroups, setHiddenGroups] = useState<string[]>(() => JSON.parse(localStorage.getItem(groupsKey) ?? "[]"));
+	const toggleGroup = (name: string) => {
+		const next = hiddenGroups.includes(name) ? hiddenGroups.filter((g) => g !== name) : [...hiddenGroups, name];
+		localStorage.setItem(groupsKey, JSON.stringify(next));
+		setHiddenGroups(next);
+	};
 
 	useEffect(() => {
 		// Only the latest request counts: one started during a merge can finish after the one that followed it.
@@ -195,6 +180,45 @@ export function AssetBrowser(props: AssetBrowserProps) {
 	const linkedSessions = selected ? sessions.filter((s) => s.linkedAsset === selected.path) : [];
 	const subtitle = (path: string) => (module.roots.length === 1 ? path.slice(module.roots[0].length + 1) : path);
 
+	// With groups: one section per heading (in order, only those with something to show); headings fold away.
+	const sections: { name?: string; items: AssetSummary[] }[] = props.groups
+		? [...props.groups.map((g) => g.name), "Other"]
+				.map((name) => ({ name, items: visible.filter((a) => groupName(a, props.groups!) === name) }))
+				.filter((sec) => sec.items.length > 0)
+		: [{ items: visible }];
+	const item = (a: AssetSummary) => (
+		<div
+			key={a.path}
+			data-testid="asset-item"
+			className={`session-item asset-item ${a.path === selected?.path ? "selected" : ""}`}
+			onClick={() => showAsset({ path: a.path })}
+		>
+			{props.itemPreview?.(a, checkout)}
+			<div className="row">
+				<span className={`title grow ellipsis ${a.change === "deleted" ? "removed" : ""}`}>{a.title}</span>
+				{a.change && <ChangeLabel change={a.change} />}
+				{a.updatedAt && (
+					<span className="muted" style={{ fontSize: 11 }}>
+						{relativeTime(a.updatedAt)}
+					</span>
+				)}
+			</div>
+			<span className="muted ellipsis" style={{ fontSize: 11 }}>
+				{subtitle(a.path)}
+			</span>
+			{a.excerpt && <span className="excerpt">{a.excerpt}</span>}
+			{hits
+				.filter((h) => h.path === a.path)
+				.slice(0, 3)
+				.map((h) => (
+					<div key={h.line} className="hit ellipsis">
+						{h.line}: <Highlight text={h.text} query={query.trim()} />
+					</div>
+				))}
+			{props.itemFooter?.(a, checkout)}
+		</div>
+	);
+
 	const modify = (path: string) =>
 		openNewSession({ agentType: module.agentType, target: "project", linkedAsset: path, context: `About ${path}`, placeholder: props.modifyPlaceholder });
 
@@ -223,43 +247,22 @@ export function AssetBrowser(props: AssetBrowserProps) {
 				<div className="session-items">
 					{assets?.length === 0 && <div className="empty">{props.emptyText}</div>}
 					{!!assets?.length && visible.length === 0 && <div className="empty">Nothing matches.</div>}
-					{visible.map((a, i) => (
-						<Fragment key={a.path}>
-						{props.groups && groupName(a, props.groups) !== (i > 0 ? groupName(visible[i - 1], props.groups) : undefined) && (
-							<h3 className="asset-group" data-testid="asset-group">
-								{groupName(a, props.groups)}
-								<span className="muted">{visible.filter((v) => groupName(v, props.groups!) === groupName(a, props.groups!)).length}</span>
-							</h3>
-						)}
-						<div
-							data-testid="asset-item"
-							className={`session-item asset-item ${a.path === selected?.path ? "selected" : ""}`}
-							onClick={() => showAsset({ path: a.path })}
-						>
-							{props.itemPreview?.(a, checkout)}
-							<div className="row">
-								<span className={`title grow ellipsis ${a.change === "deleted" ? "removed" : ""}`}>{a.title}</span>
-								{a.change && <ChangeLabel change={a.change} />}
-								{a.updatedAt && (
-									<span className="muted" style={{ fontSize: 11 }}>
-										{relativeTime(a.updatedAt)}
-									</span>
-								)}
-							</div>
-							<span className="muted ellipsis" style={{ fontSize: 11 }}>
-								{subtitle(a.path)}
-							</span>
-							{a.excerpt && <span className="excerpt">{a.excerpt}</span>}
-							{hits
-								.filter((h) => h.path === a.path)
-								.slice(0, 3)
-								.map((h) => (
-									<div key={h.line} className="hit ellipsis">
-										{h.line}: <Highlight text={h.text} query={query.trim()} />
-									</div>
-								))}
-							{props.itemFooter?.(a, checkout)}
-						</div>
+					{sections.map((sec) => (
+						<Fragment key={sec.name ?? ""}>
+							{sec.name && (
+								<button
+									className="asset-group"
+									data-testid="asset-group"
+									aria-expanded={!hiddenGroups.includes(sec.name)}
+									title={hiddenGroups.includes(sec.name) ? `Show ${sec.name.toLowerCase()}` : `Hide ${sec.name.toLowerCase()}`}
+									onClick={() => toggleGroup(sec.name!)}
+								>
+									<span className="caret">{hiddenGroups.includes(sec.name) ? "▸" : "▾"}</span>
+									{sec.name}
+									<span className="muted">{sec.items.length}</span>
+								</button>
+							)}
+							{!(sec.name && hiddenGroups.includes(sec.name)) && sec.items.map(item)}
 						</Fragment>
 					))}
 				</div>
@@ -282,7 +285,7 @@ export function AssetBrowser(props: AssetBrowserProps) {
 					<div className="tab-body">
 						{selected.change === "deleted" ? (
 							<div className="empty" data-testid="asset-removed">
-								Removed in worktree “{selectedWorktree?.label}”. Merging the worktree removes it from the game; discarding keeps it.
+								Removed in worktree “{selectedWorktree?.label}”. Merging the worktree removes it from the game; discarding the worktree keeps it.
 							</div>
 						) : (
 							props.content({
