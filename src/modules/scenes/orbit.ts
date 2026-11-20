@@ -45,6 +45,11 @@ export function project(o: Orbit, p: Vec3, width: number, height: number): { x: 
 	return { x: ((dot(d, right) / (z * t * (width / height)) + 1) / 2) * width, y: ((1 - dot(d, up) / (z * t)) / 2) * height };
 }
 
+/** Orbits around the target by a drag of (dx, dy) frame pixels; the scene turns with the mouse, like grabbing it. */
+export function orbitDrag(o: Orbit, dx: number, dy: number): Orbit {
+	return { ...o, yaw: o.yaw - dx * 0.3, pitch: Math.max(3, Math.min(89, o.pitch + dy * 0.3)) };
+}
+
 /** Moves the target in the ground plane by a drag of (dx, dy) frame pixels. */
 export function pan(o: Orbit, dx: number, dy: number, height: number): Orbit {
 	const { right } = axes(o);

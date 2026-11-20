@@ -26,7 +26,7 @@ import { useStudio } from "../../renderer/store";
 import { AssetBrowser, type AssetContentProps } from "../../renderer/views/AssetBrowser";
 import { workspaceFor } from "../../renderer/workspace";
 import { enginePath, isPrefab } from "./info";
-import { defaultOrbit, FOV, type Orbit, orbitPosition, pan, project, type Vec3 } from "./orbit";
+import { defaultOrbit, FOV, type Orbit, orbitDrag, orbitPosition, pan, project, type Vec3 } from "./orbit";
 
 const bumpAssets = () => useStudio.setState((s) => ({ assetsVersion: s.assetsVersion + 1 }));
 const quiet = (p: Promise<unknown>) => p.catch(() => {});
@@ -525,7 +525,7 @@ function SceneViewport({
 			if (!d.moved && Math.hypot(dx, dy) < 4) return;
 			d.moved = true;
 			if (d.button === 0 && !d.shift) {
-				latest.current.onOrbit({ ...d.orbit, yaw: d.orbit.yaw + dx * 0.3, pitch: Math.max(3, Math.min(89, d.orbit.pitch + dy * 0.3)) });
+				latest.current.onOrbit(orbitDrag(d.orbit, dx, dy));
 			} else {
 				latest.current.onOrbit(pan(d.orbit, dx, dy, latest.current.frame.height));
 			}
