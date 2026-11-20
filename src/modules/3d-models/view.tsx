@@ -8,6 +8,7 @@ import type { AssetSummary, ModuleInfo } from "../../shared/modules";
 import { call, onEvent, studioFile } from "../../renderer/api";
 import { useStudio } from "../../renderer/store";
 import { AssetBrowser, type AssetContentProps } from "../../renderer/views/AssetBrowser";
+import { workspaceFor } from "../../renderer/workspace";
 import { modelName } from "./info";
 import { ModelViewer, type ViewerOptions } from "./ModelViewer";
 
@@ -125,9 +126,9 @@ function NewModelDialog({ onClose }: { onClose(): void }) {
 
 	const create = async () => {
 		try {
-			const session = await call("models3d.workspace", finalName, `assets/models/${finalName}/model.json`);
+			const session = await call("workspace.create", "3d-modeller", `Model: ${finalName}`, `assets/models/${finalName}/model.json`);
 			setSessionId(session.id);
-			await call("models3d.run", session.id, "generate_concepts", { model: finalName, prompt: description.trim(), count });
+			await call("workspace.run", session.id, "generate_concepts", { model: finalName, prompt: description.trim(), count });
 			bumpAssets();
 			showAsset({ path: `assets/models/${finalName}/model.json`, sessionId: session.id });
 			onClose();
@@ -207,12 +208,9 @@ function ModelDetail({ asset, text, sessionId }: AssetContentProps) {
 	const run = async (method: StudioRequestMethod, params: Record<string, unknown>, then?: Tab) => {
 		setRunning(true);
 		try {
-			let target = sessionId;
-			if (!target) {
-				target = (await call("models3d.workspace", name, asset.path)).id;
-				showAsset({ path: asset.path, sessionId: target });
-			}
-			await call("models3d.run", target, method, { model: name, ...params });
+			const target = await workspaceFor(asset, sessionId, "3d-modeller", `Model: ${name}`);
+			if (target.id !== sessionId) showAsset({ path: asset.path, sessionId: target.id });
+			await call("workspace.run", target.id, method, { model: name, ...params });
 			bumpAssets();
 			if (then) setTab(then);
 		} catch (err) {

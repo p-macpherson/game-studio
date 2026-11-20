@@ -26,7 +26,15 @@ writeFileSync(
 const app = await electron.launch({
 	args: ["."],
 	// Faux agent model, and a fake generation backend (fixture outputs, no GPU); Blender runs for real.
-	env: { ...process.env, GAME_STUDIO_USER_DATA: userData, GAME_STUDIO_FAUX: "1", GAME_STUDIO_GEN_FAKE: "1", GAME_STUDIO_GEN: join(root, "gen") },
+	// Music renders for real with the installed SoundFont (FluidSynth runs on the CPU).
+	env: {
+		...process.env,
+		GAME_STUDIO_USER_DATA: userData,
+		GAME_STUDIO_FAUX: "1",
+		GAME_STUDIO_GEN_FAKE: "1",
+		GAME_STUDIO_GEN: join(root, "gen"),
+		GAME_STUDIO_SOUNDFONT: process.env.GAME_STUDIO_SOUNDFONT ?? join(homedir(), ".local/share/game-studio/gen/models/soundfonts/GeneralUser-GS.sf2"),
+	},
 });
 const step = async (name: string, page: Page) => {
 	await page.screenshot({ path: join(shots, `${name}.png`) });
@@ -226,6 +234,39 @@ try {
 	await page.getByTestId("prop-rig").waitFor({ timeout: 60_000 });
 	await page.locator(".model-side select").filter({ hasText: "Rest pose" }).selectOption("open");
 	await step("21-prop-rig", page);
+
+	// Music: "New piece" starts a Music Composer session; its score renders, and the section shows and plays it.
+	const theme = {
+		title: "E2E Theme",
+		tempo: 120,
+		key: "C major",
+		instruments: { lead: { program: "flute" }, drums: { drums: true } },
+		sections: { A: { bars: 2, tracks: { lead: "C5:q E5 G5 E5 | D5:h G4", drums: "kick:q hat snare hat" } } },
+		arrangement: ["A", "A"],
+	};
+	await nav.getByRole("button", { name: "Music" }).click();
+	await page.getByRole("button", { name: "+ New piece" }).click();
+	await page.locator(".agent-type.on", { hasText: "Music Composer" }).waitFor();
+	await page.getByTestId("new-session-prompt").fill(`write assets/music/e2e-theme/song.json: ${JSON.stringify(theme)}`);
+	await page.getByRole("button", { name: "Start session" }).click();
+	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
+	await page.getByTestId("composer").fill('tool render_song {"name": "e2e-theme"}');
+	await page.getByTestId("composer").press("Enter");
+	await page.getByTestId("chat").getByText(/^Result:[\s\S]*e2e-theme\.ogg/).waitFor({ timeout: 60_000 });
+	await nav.getByRole("button", { name: "Music" }).click();
+	await page.getByTestId("asset-item").filter({ hasText: "E2E Theme" }).click();
+	await page.locator("[data-testid=render-status][data-state=current]").waitFor({ timeout: 30_000 });
+	await page.getByTestId("arr-track").nth(1).waitFor();
+	await page.locator("[data-testid=music-play]:not([disabled])").waitFor();
+	await step("22-music", page);
+
+	// A quick change writes the score in the session and re-renders it.
+	await page.locator(".simple-edits summary").click();
+	await page.locator(".simple-edits input[type=number]").fill("90");
+	await page.locator(".simple-edits").getByRole("button", { name: "Apply" }).click();
+	await page.locator(".music-facts", { hasText: "90 bpm" }).waitFor({ timeout: 30_000 });
+	await page.locator("[data-testid=render-status][data-state=current]").waitFor({ timeout: 30_000 });
+	await step("23-music-edit", page);
 
 	// Source control and accounts render.
 	await page.getByRole("button", { name: "Source Control" }).click();

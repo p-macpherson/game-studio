@@ -206,19 +206,12 @@ async function main(): Promise<void> {
 		"gen.jobs": async () => gen.list(),
 		"gen.cancel": async (jobId) => gen.cancel(jobId),
 		"gen.install": async () => gen.install(),
-		"models3d.workspace": (name, linkedAsset) => {
-			const type = agentTypes().find((t) => t.id === "3d-modeller");
-			if (!type) throw new Error("The 3D Modeller agent type is missing");
-			return sessions.create({
-				agentType: type.id,
-				target: "project",
-				model: type.defaultModel ?? "anthropic/claude-sonnet-5-5",
-				prompt: "",
-				title: `Model: ${name}`,
-				linkedAsset,
-			});
+		"workspace.create": (agentType, title, linkedAsset) => {
+			const type = agentTypes().find((t) => t.id === agentType);
+			if (!type) throw new Error(`There's no ${agentType} agent type`);
+			return sessions.create({ agentType: type.id, target: "project", model: type.defaultModel ?? "anthropic/claude-sonnet-5-5", prompt: "", title, linkedAsset });
 		},
-		"models3d.run": (sessionId, method, params) =>
+		"workspace.run": (sessionId, method, params) =>
 			genRequests.studioRequest({ sessionId, requestId: `ui-${Date.now()}`, cwd: checkoutRoot(sessionId), method, params, progress: () => {} }),
 		"models3d.concepts": async (checkout, name) => pipeline.conceptImages({ cwd: checkoutRoot(checkout) }, name),
 		"models3d.preview": (checkout, name) => previewModel(checkout, name),

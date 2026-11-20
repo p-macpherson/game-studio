@@ -3,10 +3,12 @@ import type { ComponentType } from "react";
 import { DesignDocsView } from "../modules/design-docs/view";
 import { GameCodeView } from "../modules/game-code/view";
 import { ModelsView } from "../modules/3d-models/view";
+import { MusicView } from "../modules/music/view";
 import type { ModuleInfo } from "../shared/modules";
 
 export const MODULE_VIEWS: Record<string, ComponentType<{ module: ModuleInfo }>> = {
 	"design-docs": DesignDocsView,
 	"game-code": GameCodeView,
 	"3d-models": ModelsView,
+	music: MusicView,
 };

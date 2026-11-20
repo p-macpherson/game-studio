@@ -51,6 +51,27 @@ export class MusicPipeline {
 		return safeJoin(cwd, `${MUSIC_DIR}/${name}`);
 	}
 
+	/**
+	 * The Music section's simple edits (tempo, an instrument's sound or volume), written into song.json and
+	 * rendered. Bigger changes are the composer's job.
+	 */
+	async edit(
+		ctx: { cwd: string; progress?(text: string): void },
+		p: { name: string; tempo?: number; instruments?: Record<string, { program?: string | number; volume?: number }> },
+	): Promise<RenderResult> {
+		const file = join(this.dir(ctx.cwd, p.name), "song.json");
+		const song = JSON.parse(readFileSync(file, "utf8")) as Song;
+		if (p.tempo !== undefined) song.tempo = p.tempo;
+		for (const [id, change] of Object.entries(p.instruments ?? {})) {
+			if (!song.instruments[id]) throw new Error(`No instrument "${id}"`);
+			Object.assign(song.instruments[id], change);
+		}
+		const { errors } = parseSong(song);
+		if (errors.length) throw new SongError(errors);
+		writeFileSync(file, `${JSON.stringify(song, null, 2)}\n`);
+		return this.render(ctx, { name: p.name });
+	}
+
 	/** Validates and renders assets/music/<name>/song.json to <name>.ogg. */
 	async render(ctx: { cwd: string; progress?(text: string): void }, p: { name: string }): Promise<RenderResult> {
 		const dir = this.dir(ctx.cwd, p.name);

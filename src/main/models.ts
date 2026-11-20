@@ -70,6 +70,9 @@ export function generationRequests(
 					case "render_song":
 						if (!opts.music) throw new Error("Music rendering isn't available here");
 						return await opts.music.render(ctx, p);
+					case "edit_song":
+						if (!opts.music) throw new Error("Music rendering isn't available here");
+						return await opts.music.edit(ctx, p);
 				}
 			} finally {
 				jobs.delete(req.requestId);

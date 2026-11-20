@@ -1160,3 +1160,181 @@ label.check {
 	border-radius: 6px;
 	font-size: 13px;
 }
+
+/* Music */
+.music-detail {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	padding: 16px 20px;
+	overflow: auto;
+	height: 100%;
+	--playhead: 0;
+}
+.music-head {
+	align-items: flex-start;
+	gap: 12px;
+}
+.music-style {
+	font-style: italic;
+	color: var(--text);
+}
+.render-status .warn {
+	color: var(--yellow);
+}
+.music-problems {
+	border-color: var(--red);
+	font-size: 13px;
+}
+.music-problems code {
+	color: var(--red);
+}
+.music-player {
+	gap: 10px;
+	align-items: center;
+}
+.music-player .mono {
+	font-family: var(--mono);
+	font-size: 12px;
+}
+.arrangement {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+}
+.arr-row {
+	display: flex;
+	align-items: stretch;
+	height: 34px;
+}
+.arr-header {
+	height: 26px;
+}
+.arr-label {
+	width: 210px;
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 13px;
+	padding-right: 8px;
+	min-width: 0;
+}
+.swatch {
+	width: 10px;
+	height: 10px;
+	border-radius: 3px;
+	flex: none;
+}
+.arr-lane {
+	position: relative;
+	flex: 1;
+	background: var(--panel);
+	border-radius: 4px;
+	overflow: hidden;
+}
+.arr-section {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	border: none;
+	border-left: 1px solid var(--border);
+	border-radius: 0;
+	background: var(--panel-2);
+	color: var(--muted);
+	font-size: 12px;
+	padding: 0 6px;
+	text-align: left;
+	overflow: hidden;
+	white-space: nowrap;
+}
+.arr-section.on {
+	background: var(--accent-2);
+	color: #fff;
+}
+.arr-cell {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	border-left: 1px solid var(--border);
+}
+.arr-cell.on {
+	background: rgba(106, 166, 255, 0.08);
+}
+.arr-notes {
+	position: absolute;
+	inset: 3px 0;
+	width: 100%;
+	height: calc(100% - 6px);
+}
+.arr-playhead {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: calc(var(--playhead) * 100%);
+	width: 2px;
+	background: #fff;
+	opacity: 0.8;
+	pointer-events: none;
+}
+.note-view {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+.note-view-title {
+	color: var(--text);
+	margin-right: 6px;
+}
+.note-frame {
+	display: flex;
+	gap: 4px;
+}
+.note-labels {
+	position: relative;
+	width: 30px;
+	flex: none;
+	font-size: 10px;
+	color: var(--muted);
+	font-family: var(--mono);
+}
+.note-labels span {
+	position: absolute;
+	right: 0;
+	transform: translateY(-50%);
+}
+.note-svg {
+	flex: 1;
+	min-width: 0;
+	width: 100%;
+	background: var(--panel);
+	border-radius: 6px;
+}
+.note-svg .key-white {
+	fill: #1f232a;
+}
+.note-svg .key-black {
+	fill: #191c22;
+}
+.note-svg .key-c {
+	fill: #252a32;
+}
+.note-svg .key-drum {
+	fill: #22262d;
+}
+.note-svg .bar-line {
+	stroke: var(--border);
+	stroke-width: 1;
+	vector-effect: non-scaling-stroke;
+}
+.simple-edits summary {
+	cursor: pointer;
+	color: var(--muted);
+}
+.simple-edits .col {
+	gap: 8px;
+	margin-top: 10px;
+}
+.small {
+	font-size: 12px;
+}

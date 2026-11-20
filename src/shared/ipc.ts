@@ -81,12 +81,12 @@ export interface StudioApi {
 	"gen.image"(path: string): Promise<string>;
 
 	/**
-	 * A 3D Modeller session used as a workspace for the 3D Models section's buttons: created without running
-	 * the agent (no account needed), linked to the model, and chattable later.
+	 * A session used as a workspace for a section's buttons (3D Models, Music): created without running the
+	 * agent (no account needed), linked to the asset, and chattable later.
 	 */
-	"models3d.workspace"(name: string, linkedAsset?: string): Promise<SessionSummary>;
-	/** Runs a generation step in a session's worktree (the same steps agents call as tools). */
-	"models3d.run"(sessionId: string, method: StudioRequestMethod, params: Record<string, unknown>): Promise<unknown>;
+	"workspace.create"(agentType: string, title: string, linkedAsset?: string): Promise<SessionSummary>;
+	/** Runs a studio step in a session's worktree (the same steps agents call as tools: generation, render_song). */
+	"workspace.run"(sessionId: string, method: StudioRequestMethod, params: Record<string, unknown>): Promise<unknown>;
 	/** Concept images of a model, from the main checkout (null) or a session's worktree. */
 	"models3d.concepts"(checkout: string | null, name: string): Promise<ConceptImage[]>;
 	/** The model rendered by the game's own engine: front, three-quarter and back views, plus engine errors. */
