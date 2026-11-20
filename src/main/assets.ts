@@ -66,19 +66,22 @@ export class AssetService {
 		const root = this.checkoutRoot(checkout);
 		const main = this.checkoutRoot(null);
 		const changes = new Map((checkout ? await this.sessions.worktreeChangedFiles(checkout) : []).map((f) => [f.path, f.change]));
-		return this.files(m, root)
-			.map((path) => {
-				const full = join(root, path);
-				const change = changes.get(path);
-				return {
-					path,
-					...m.summarize(readFileSync(full, "utf8"), path),
-					inMain: existsSync(join(main, path)),
-					updatedAt: statSync(full).mtime.toISOString(),
-					...(change === "added" || change === "modified" ? { change } : {}),
-				};
-			})
-			.sort((a, b) => a.path.localeCompare(b.path));
+		const present: AssetSummary[] = this.files(m, root).map((path) => {
+			const full = join(root, path);
+			const change = changes.get(path);
+			return {
+				path,
+				...m.summarize(readFileSync(full, "utf8"), path),
+				inMain: existsSync(join(main, path)),
+				updatedAt: statSync(full).mtime.toISOString(),
+				...(change === "added" || change === "modified" ? { change } : {}),
+			};
+		});
+		// What the worktree removed: listed from main, so it can be seen (and the removal merged or undone).
+		const removed: AssetSummary[] = [...changes]
+			.filter(([path, change]) => change === "deleted" && moduleOwns(m.info, path) && existsSync(join(main, path)))
+			.map(([path]) => ({ path, ...m.summarize(readFileSync(join(main, path), "utf8"), path), inMain: true, change: "deleted" as const }));
+		return [...present, ...removed].sort((a, b) => a.path.localeCompare(b.path));
 	}
 
 	/** Reads an asset from a checkout (the main one by default). */

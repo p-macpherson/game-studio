@@ -1,6 +1,7 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { onEvent } from "./api";
+import { moduleOwns } from "../shared/modules";
 import { MODULE_VIEWS } from "./modules";
 import { type View, useStudio } from "./store";
 import "./styles.css";
@@ -17,8 +18,26 @@ const NAV: { view: View; label: string; icon: string }[] = [
 	{ view: "source-control", label: "Source Control", icon: "⎇" },
 ];
 
+/** A section's changes in the selected worktree, in the change colours: new, modified, removed. */
+function NavChanges({ added, modified, deleted }: { added: number; modified: number; deleted: number }) {
+	if (!added && !modified && !deleted) return null;
+	const title = [added && `${added} new`, modified && `${modified} modified`, deleted && `${deleted} removed`].filter(Boolean).join(", ");
+	return (
+		<span className="nav-changes" title={`In the selected worktree: ${title}`} data-testid="nav-changes">
+			{added > 0 && <span className="change-added">{added}</span>}
+			{modified > 0 && <span className="change-modified">{modified}</span>}
+			{deleted > 0 && <span className="change-deleted">{deleted}</span>}
+		</span>
+	);
+}
+
 function App() {
-	const { project, view, setView, sessions, modules, error, refresh, handleEvent, newSession, run } = useStudio();
+	const { project, view, setView, sessions, modules, error, refresh, handleEvent, newSession, run, worktreeChanges } = useStudio();
+	/** How many of a section's assets the selected worktree added, modified and removed. */
+	const changesIn = (m: (typeof modules)[number]) => {
+		const owned = worktreeChanges.filter((c) => moduleOwns(m, c.path));
+		return { added: owned.filter((c) => c.change === "added").length, modified: owned.filter((c) => c.change === "modified").length, deleted: owned.filter((c) => c.change === "deleted").length };
+	};
 	const [ready, setReady] = useState(false);
 	const [skipPicker, setSkipPicker] = useState(false);
 	// The menu can shrink to an icon rail (labels become tooltips); remembered across launches.
@@ -64,6 +83,7 @@ function App() {
 							>
 								<span className="nav-icon">{m.icon}</span>
 								<span className="nav-label">{m.name}</span>
+								<NavChanges {...changesIn(m)} />
 							</button>
 						))}
 						<button className={`nav-item ${view === "play" ? "active" : ""}`} title="Play & Test" aria-label="Play & Test" onClick={() => setView("play")}>

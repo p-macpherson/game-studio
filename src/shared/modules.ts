@@ -25,8 +25,8 @@ export interface AssetSummary {
 	/** Exists in the project's main checkout. */
 	inMain: boolean;
 	updatedAt?: string;
-	/** In a worktree: it added or changed this asset (not in the game until the worktree is merged). */
-	change?: "added" | "modified";
+	/** In a worktree: it added, changed or removed this asset (not in the game until the worktree is merged). */
+	change?: "added" | "modified" | "deleted";
 }
 
 export interface AssetSearchHit {

@@ -5,7 +5,7 @@ import type { WorktreeSummary } from "../../shared/types";
 import { call } from "../api";
 import { isOpenProjectWorktree, useStudio } from "../store";
 
-const otherFiles = (files: { path: string }[]) => files.filter((f) => !f.path.startsWith(".studio/"));
+const otherFiles = <T extends { path: string }>(files: T[]) => files.filter((f) => !f.path.startsWith(".studio/"));
 
 export function WorktreePicker() {
 	const { project, worktree, worktrees, sessions, assetsVersion, selectWorktree, refreshWorktrees, showError } = useStudio();
@@ -19,9 +19,17 @@ export function WorktreePicker() {
 	const working = (w: WorktreeSummary) => sessions.some((s) => s.worktreeId === w.id && (s.status === "in_progress" || s.status === "starting"));
 
 	useEffect(() => {
-		if (!current) return setChanged([]);
+		if (!current) {
+			setChanged([]);
+			useStudio.setState({ worktreeChanges: [] });
+			return;
+		}
 		let live = true;
-		call("worktrees.changedFiles", current.id).then((f) => live && setChanged(otherFiles(f).map((x) => x.path)), () => {});
+		call("worktrees.changedFiles", current.id).then((f) => {
+			if (!live) return;
+			setChanged(otherFiles(f).map((x) => x.path));
+			useStudio.setState({ worktreeChanges: otherFiles(f) });
+		}, () => {});
 		return () => {
 			live = false;
 		};

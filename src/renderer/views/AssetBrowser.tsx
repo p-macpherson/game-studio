@@ -36,6 +36,17 @@ export interface AssetBrowserProps {
 	actions?(asset: AssetSummary, checkout?: string): ReactNode;
 }
 
+const CHANGE_LABEL = { added: "New", modified: "Modified", deleted: "Removed" } as const;
+
+/** What the selected worktree did to an asset: ⎇ New (green), ⎇ Modified (yellow), ⎇ Removed (red). */
+export function ChangeLabel({ change }: { change: NonNullable<AssetSummary["change"]> }) {
+	return (
+		<span className={`change-label change-${change}`} title={`${CHANGE_LABEL[change]} in the selected worktree (not in the game until it's merged)`} data-testid="change-label">
+			⎇ {CHANGE_LABEL[change]}
+		</span>
+	);
+}
+
 export function Highlight({ text, query }: { text: string; query: string }) {
 	const i = text.toLowerCase().indexOf(query.toLowerCase());
 	if (i < 0 || !query) return <>{text}</>;
@@ -87,7 +98,7 @@ function WorktreeBanner({ module, asset, worktree }: { module: ModuleInfo; asset
 	return (
 		<div className="draft-banner row" data-testid="draft-banner">
 			<span className="grow">
-				{asset.change === "added" ? "New" : "Changed"} in worktree “{worktree.label}”, not in the game yet.
+				{asset.change === "added" ? "New" : asset.change === "deleted" ? "Removed" : "Changed"} in worktree “{worktree.label}”, not in the game yet.
 				{others.length > 0 && (
 					<span className="muted" title={others.join("\n")}>
 						{" "}
@@ -116,6 +127,9 @@ export function AssetBrowser(props: AssetBrowserProps) {
 	const [loaded, setLoaded] = useState<{ key: string; text: string }>({ key: "", text: "" });
 	const checkout = worktree ?? undefined;
 	const selectedWorktree = worktrees.find((w) => w.id === worktree);
+	// Filters (with a worktree selected): only what it changed; whether to list what it removed.
+	const [onlyChanged, setOnlyChanged] = useState(false);
+	const [includeRemoved, setIncludeRemoved] = useState(true);
 
 	useEffect(() => {
 		// Only the latest request counts: one started during a merge can finish after the one that followed it.
@@ -156,10 +170,11 @@ export function AssetBrowser(props: AssetBrowserProps) {
 
 	const visible = useMemo(() => {
 		const q = query.trim().toLowerCase();
-		if (!assets || !q) return assets ?? [];
+		const filtered = (assets ?? []).filter((a) => (!onlyChanged || a.change) && (includeRemoved || a.change !== "deleted"));
+		if (!q) return filtered;
 		const hitPaths = new Set(hits.map((h) => h.path));
-		return assets.filter((a) => `${a.title} ${a.path}`.toLowerCase().includes(q) || hitPaths.has(a.path));
-	}, [assets, hits, query]);
+		return filtered.filter((a) => `${a.title} ${a.path}`.toLowerCase().includes(q) || hitPaths.has(a.path));
+	}, [assets, hits, query, onlyChanged, includeRemoved]);
 
 	const linkedSessions = selected ? sessions.filter((s) => s.linkedAsset === selected.path) : [];
 	const subtitle = (path: string) => (module.roots.length === 1 ? path.slice(module.roots[0].length + 1) : path);
@@ -178,9 +193,20 @@ export function AssetBrowser(props: AssetBrowserProps) {
 						</button>
 					</div>
 					<input placeholder="Search names and text…" value={query} onChange={(e) => setQuery(e.target.value)} />
+					{worktree && (
+						<div className="row asset-filters" data-testid="asset-filters">
+							<label className="check">
+								<input type="checkbox" checked={onlyChanged} onChange={(e) => setOnlyChanged(e.target.checked)} data-testid="filter-changed" /> Only changes in this worktree
+							</label>
+							<label className="check">
+								<input type="checkbox" checked={includeRemoved} onChange={(e) => setIncludeRemoved(e.target.checked)} data-testid="filter-removed" /> Include removed
+							</label>
+						</div>
+					)}
 				</div>
 				<div className="session-items">
 					{assets?.length === 0 && <div className="empty">{props.emptyText}</div>}
+					{!!assets?.length && visible.length === 0 && <div className="empty">Nothing matches.</div>}
 					{visible.map((a) => (
 						<div
 							key={a.path}
@@ -190,7 +216,8 @@ export function AssetBrowser(props: AssetBrowserProps) {
 						>
 							{props.itemPreview?.(a, checkout)}
 							<div className="row">
-								<span className="title grow ellipsis">{a.title}</span>
+								<span className={`title grow ellipsis ${a.change === "deleted" ? "removed" : ""}`}>{a.title}</span>
+								{a.change && <ChangeLabel change={a.change} />}
 								{a.updatedAt && (
 									<span className="muted" style={{ fontSize: 11 }}>
 										{relativeTime(a.updatedAt)}
@@ -201,11 +228,6 @@ export function AssetBrowser(props: AssetBrowserProps) {
 								{subtitle(a.path)}
 							</span>
 							{a.excerpt && <span className="excerpt">{a.excerpt}</span>}
-							{a.change && (
-								<div className="row" style={{ flexWrap: "wrap" }}>
-									<span className="badge draft">{a.change === "added" ? "New in this worktree" : "Changed in this worktree"}</span>
-								</div>
-							)}
 							{hits
 								.filter((h) => h.path === a.path)
 								.slice(0, 3)
@@ -234,13 +256,19 @@ export function AssetBrowser(props: AssetBrowserProps) {
 						{selected.change && selectedWorktree && <WorktreeBanner module={module} asset={selected} worktree={selectedWorktree} />}
 					</div>
 					<div className="tab-body">
-						{props.content({
-							asset: selected,
-							text: loaded.key === `${selected.path}:${worktree ?? ""}` ? loaded.text : "",
-							checkout,
-							assets,
-							line: focus?.line,
-						})}
+						{selected.change === "deleted" ? (
+							<div className="empty" data-testid="asset-removed">
+								Removed in worktree “{selectedWorktree?.label}”. Merging the worktree removes it from the game; discarding keeps it.
+							</div>
+						) : (
+							props.content({
+								asset: selected,
+								text: loaded.key === `${selected.path}:${worktree ?? ""}` ? loaded.text : "",
+								checkout,
+								assets,
+								line: focus?.line,
+							})
+						)}
 						{linkedSessions.length > 0 && (
 							<div className="doc-view col" style={{ paddingTop: 0 }}>
 								<h3>Sessions on this {module.noun}</h3>

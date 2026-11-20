@@ -108,7 +108,7 @@ try {
 	await page.getByRole("button", { name: "Start session" }).click();
 	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
 	await page.getByRole("button", { name: "Design Docs" }).click();
-	await docs.filter({ hasText: "Combat" }).filter({ hasText: "New in this worktree" }).click();
+	await docs.filter({ hasText: "Combat" }).filter({ hasText: "⎇ New" }).click();
 	await page.locator(".markdown h1", { hasText: "Combat" }).waitFor();
 	await page.getByTestId("worktree-current").filter({ hasText: "write docs/design/Combat.md" }).waitFor();
 	await page.getByTestId("draft-banner").waitFor();
@@ -120,7 +120,7 @@ try {
 	await page.getByTestId("worktree-merge").click();
 	await page.getByTestId("worktree-current").filter({ hasText: "main" }).waitFor({ timeout: 30_000 });
 	await docs.filter({ hasText: "Combat" }).filter({ hasText: "Hit things." }).waitFor();
-	if ((await docs.filter({ hasText: "Combat" }).textContent())?.includes("in this worktree")) throw new Error("merged doc still shown as worktree work");
+	if ((await docs.filter({ hasText: "Combat" }).textContent())?.includes("⎇")) throw new Error("merged doc still shown as worktree work");
 
 	// "Discuss / modify" links the session to the doc; its edit shows as a draft of the overview.
 	await docs.filter({ hasText: "E2E Game" }).click();
@@ -130,10 +130,23 @@ try {
 	await page.getByRole("button", { name: "Start session" }).click();
 	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
 	await page.getByRole("button", { name: "Design Docs" }).click();
-	await docs.filter({ hasText: "E2E Game" }).filter({ hasText: "Changed in this worktree" }).click();
+	await docs.filter({ hasText: "E2E Game" }).filter({ hasText: "⎇ Modified" }).click();
 	await page.locator(".markdown", { hasText: "Now with combat" }).waitFor();
 	await page.getByText("Sessions on this doc").waitFor();
 	await step("10-doc-draft-of-existing", page);
+	// The same session removes a doc: listed as removed; the sidebar counts the section's changes by kind; the
+	// "only changes" filter narrows the list.
+	await page.getByText("Sessions on this doc").locator("..").locator(".list-row").first().click();
+	await page.getByTestId("composer").fill(`tool bash ${JSON.stringify({ command: "git rm -q docs/design/Combat.md && git commit -qm 'Remove combat doc'" })}`);
+	await page.getByTestId("composer").press("Enter");
+	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
+	await page.getByRole("button", { name: "Design Docs" }).click();
+	await docs.filter({ hasText: "⎇ Removed" }).filter({ hasText: "Combat" }).click();
+	await page.getByTestId("asset-removed").waitFor();
+	await page.getByTestId("nav-changes").locator(".change-deleted").first().waitFor();
+	await page.getByTestId("filter-changed").check();
+	await step("36-worktree-changes", page);
+	await page.getByTestId("filter-changed").uncheck();
 	await page.getByTestId("worktree-current").click();
 	await page.getByTestId("worktree-menu").waitFor();
 	await step("31-worktree-selector", page);
@@ -183,7 +196,7 @@ try {
 	await step("14-build-failed", page);
 	await page.locator(".diagnostic", { hasText: "game/extra.odin:4" }).click();
 	await page.locator(".code-line.target", { hasText: "nope" }).waitFor();
-	await page.locator(".asset-item.selected", { hasText: "New in this worktree" }).waitFor();
+	await page.locator(".asset-item.selected", { hasText: "⎇ New" }).waitFor();
 	await page.getByTestId("worktree-current").filter({ hasText: "write game/extra.odin" }).waitFor();
 	await step("15-error-in-draft", page);
 

@@ -77,6 +77,8 @@ interface State {
 	/** The worktree the sections show and edit (null: main), remembered per project; and every worktree. */
 	worktree: string | null;
 	worktrees: WorktreeSummary[];
+	/** The selected worktree's changed files (refreshed by the selector), for the sidebar's per-section counts. */
+	worktreeChanges: { path: string; change: "added" | "modified" | "deleted" }[];
 
 	/** Play & Test: which checkout to build/run/test, the current run, its console and latest frame. */
 	playCheckout: CheckoutId;
@@ -128,6 +130,7 @@ export const useStudio = create<State>((set, get) => ({
 	assetsVersion: 0,
 	worktree: null,
 	worktrees: [],
+	worktreeChanges: [],
 	playCheckout: null,
 	playTab: "run",
 	settingsTab: "general",
@@ -166,7 +169,7 @@ export const useStudio = create<State>((set, get) => ({
 		}
 		if (id === get().worktree) return;
 		// Play & Test follows the selection.
-		set((s) => ({ worktree: id, playCheckout: id, assetsVersion: s.assetsVersion + 1 }));
+		set((s) => ({ worktree: id, playCheckout: id, worktreeChanges: [], assetsVersion: s.assetsVersion + 1 }));
 	},
 	async refreshSessions() {
 		set({ sessions: await call("sessions.list") });

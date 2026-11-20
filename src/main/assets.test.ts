@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { summarizeMarkdown } from "../modules/design-docs/info";
@@ -39,7 +39,7 @@ describe("AssetService", () => {
 
 	beforeEach(async () => {
 		const root = tempDir();
-		project = makeRepo(join(root, "game"), { "docs/design/Overview.md": "# My Game\n\nA game about cubes.\n", "src/x.md": "# not a doc" });
+		project = makeRepo(join(root, "game"), { "docs/design/Overview.md": "# My Game\n\nA game about cubes.\n", "docs/design/Lore.md": "# Lore\n\nOld tales.\n", "src/x.md": "# not a doc" });
 		sessions = new SessionService({
 			host: await inProcessHost(join(root, "pi")),
 			settings: () => ({ engineRepo: join(root, "none"), studioRepo: join(root, "none"), worktreeRoot: join(root, "wt"), recentProjects: [] }),
@@ -60,15 +60,21 @@ describe("AssetService", () => {
 		});
 		await waitFor(() => sessions.get(s.id).status === "idle");
 		writeFileSync(join(s.worktreePath, "docs/design/Overview.md"), "# My Game\n\nNow with combat.\n");
+		rmSync(join(s.worktreePath, "docs/design/Lore.md"));
 
 		// Main doesn't see the worktree's work.
 		const main = await assets.list("design-docs");
-		expect(main.map((a) => [a.path, a.title, a.change])).toEqual([["docs/design/Overview.md", "My Game", undefined]]);
-		expect(main[0].excerpt).toBe("A game about cubes.");
+		expect(main.map((a) => [a.path, a.title, a.change])).toEqual([
+			["docs/design/Lore.md", "Lore", undefined],
+			["docs/design/Overview.md", "My Game", undefined],
+		]);
+		expect(main[1].excerpt).toBe("A game about cubes.");
 
 		const list = await assets.list("design-docs", s.worktreeId);
+		// What it removed is still listed (from main), marked as removed.
 		expect(list.map((a) => [a.path, a.title, a.inMain, a.change])).toEqual([
 			["docs/design/Combat.md", "Combat", false, "added"],
+			["docs/design/Lore.md", "Lore", true, "deleted"],
 			["docs/design/Overview.md", "My Game", true, "modified"],
 		]);
 
