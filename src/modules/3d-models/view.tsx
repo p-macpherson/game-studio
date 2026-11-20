@@ -388,9 +388,11 @@ function RigActions({ manifest, busy, run }: Pick<TabProps, "manifest" | "busy" 
 }
 
 function ConceptsTab({ manifest, name, dir, checkout, busy, run }: Omit<TabProps, "manifest"> & { manifest: ModelManifest | null; name: string }) {
-	const { assetsVersion, showError } = useStudio();
+	const { assetsVersion, showError, openNewSession } = useStudio();
 	const [concepts, setConcepts] = useState<ConceptImage[]>([]);
-	const [selected, setSelected] = useState<string | null>(null);
+	// Click selects one concept; Ctrl/Cmd-click adds more (e.g. a back view) to hand over together.
+	const [picked, setPicked] = useState<string[]>([]);
+	const selected = picked[0] ?? null;
 	const [prompt, setPrompt] = useState(manifest?.description ?? "");
 	const [edited, setEdited] = useState(false);
 	// Follow the manifest (it loads after the first render, and changes when concepts are made) until edited.
@@ -450,9 +452,9 @@ function ConceptsTab({ manifest, name, dir, checkout, busy, run }: Omit<TabProps
 				{concepts.map((c) => (
 					<figure
 						key={c.path}
-						className={`concept ${c.path === chosen ? "selected" : ""}`}
+						className={`concept ${c.path === chosen || picked.includes(c.path) ? "selected" : ""}`}
 						data-testid="concept"
-						onClick={() => setSelected(c.path)}
+						onClick={(e) => setPicked((p) => (e.ctrlKey || e.metaKey ? (p.includes(c.path) ? p.filter((x) => x !== c.path) : [...p, c.path]) : [c.path]))}
 						title={c.record ? `${c.record.prompt}\nseed ${c.record.seed}${c.record.references ? ` · from ${c.record.references.join(", ")}` : ""}` : c.path}
 					>
 						<img src={studioFile(checkout, c.path)} alt="" />
@@ -465,8 +467,8 @@ function ConceptsTab({ manifest, name, dir, checkout, busy, run }: Omit<TabProps
 			</div>
 			{chosen && (
 				<div className="make-model row" data-testid="make-model">
-					<span className="grow muted ellipsis" title={records.get(chosen)?.prompt}>
-						Selected: {chosen.split("/").pop()}
+					<span className="grow muted ellipsis" title={`${records.get(chosen)?.prompt ?? ""}\nCtrl-click to select more (e.g. a back view)`}>
+						Selected: {(picked.length ? picked : [chosen]).map((p) => p.split("/").pop()).join(", ")}
 					</span>
 					<label className="row">
 						Height
@@ -483,6 +485,26 @@ function ConceptsTab({ manifest, name, dir, checkout, busy, run }: Omit<TabProps
 							Re-texture
 						</button>
 					)}
+					<button
+						disabled={busy}
+						title="Start a 3D Modeller session with the selected concept(s): it makes the model and checks it in the engine"
+						data-testid="hand-to-modeller"
+						onClick={() => {
+							const images = picked.length ? picked : [chosen];
+							openNewSession({
+								agentType: "3d-modeller",
+								target: "project",
+								linkedAsset: `${dir}/model.json`,
+								context: `Hand to the 3D Modeller: ${name}`,
+								prompt:
+									`Make the 3D model "${name}" from the chosen concept ${images[0]}${images.length > 1 ? ` (also chosen: ${images.slice(1).join(", ")}; use a back view as \`back\`)` : ""}. ` +
+									`Height ${height} m${texture ? ", textured" : ", untextured"}${rig ? ", rigged (a character or creature)" : ""}. ` +
+									`The concepts were made from: "${records.get(images[0])?.prompt ?? manifest?.description ?? name}". Check it in the engine with preview_model.`,
+							});
+						}}
+					>
+						Hand to the 3D Modeller…
+					</button>
 					<button className="primary" disabled={busy || !(height > 0)} onClick={() => run("generate_model", { image: chosen, height, texture, rig }, "model")}>
 						{manifest?.stats ? "Regenerate 3D model" : "Generate 3D model"}
 					</button>

@@ -231,6 +231,14 @@ try {
 		() => (document.querySelector("[data-testid=concept-prompt]") as HTMLTextAreaElement | null)?.value === "A wooden crate with iron corners",
 	);
 	await step("18-concepts", page);
+	// Handing chosen concepts (Ctrl-click adds one) to a 3D Modeller session prefills its brief.
+	await page.getByTestId("concept").nth(2).click({ modifiers: ["Control"] });
+	await page.getByTestId("hand-to-modeller").click();
+	await page.locator(".agent-type.on", { hasText: "3D Modeller" }).waitFor();
+	await page.waitForFunction(() => /^Make the 3D model "wooden-crate-iron[\s\S]*also chosen/.test((document.querySelector("[data-testid=new-session-prompt]") as HTMLTextAreaElement | null)?.value ?? ""));
+	await step("34-hand-to-modeller", page);
+	await page.getByRole("button", { name: "Cancel" }).click();
+	await page.getByTestId("concept").nth(1).click();
 	await page.getByRole("button", { name: "Generate 3D model" }).click();
 	await page.locator("[data-testid=model-viewer][data-loaded=true]").waitFor({ timeout: 60_000 });
 	await page.getByTestId("asset-item").filter({ hasText: "Wooden crate iron" }).locator("img.model-thumb").waitFor();
@@ -280,6 +288,22 @@ try {
 	await page.locator(".music-facts", { hasText: "90 bpm" }).waitFor({ timeout: 30_000 });
 	await page.locator("[data-testid=render-status][data-state=current]").waitFor({ timeout: 30_000 });
 	await step("23-music-edit", page);
+
+	// A theme sketch offers "Arrange this theme…": a Composer brief for the full piece.
+	await page.locator(".session-header").first().waitFor();
+	await nav.getByRole("button", { name: "Sessions" }).click();
+	await page.getByRole("button", { name: "+ New session" }).click();
+	await page.locator(".agent-type", { hasText: "Composer" }).first().click();
+	await page.getByTestId("new-session-prompt").fill(`write assets/music/e2e-theme-sketch-1/song.json: ${JSON.stringify({ ...theme, title: "E2E Theme sketch 1" })}`);
+	await page.getByRole("button", { name: "Start session" }).click();
+	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
+	await nav.getByRole("button", { name: "Music" }).click();
+	await page.getByTestId("asset-item").filter({ hasText: "E2E Theme sketch 1" }).click();
+	await page.getByTestId("arrange-sketch").click();
+	await page.locator(".agent-type.on", { hasText: "Composer" }).waitFor();
+	await page.waitForFunction(() => ((document.querySelector("[data-testid=new-session-prompt]") as HTMLTextAreaElement | null)?.value ?? "").includes("into the full piece assets/music/e2e-theme/"));
+	await step("35-arrange-sketch", page);
+	await page.getByRole("button", { name: "Cancel" }).click();
 
 	// Scenes, from main: the template's scene opens live and paused; clicking the cube in the view selects it, an
 	// inspector edit makes (and selects) a new worktree "Scene: main" with the change, and duplicating adds an entity.

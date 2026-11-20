@@ -33,8 +33,11 @@ export function MusicView({ module }: { module: ModuleInfo }) {
 
 type RenderState = { kind: "loading" } | { kind: "none" } | { kind: "stale" } | { kind: "current"; seconds: number };
 
+/** The piece a theme sketch (`<name>-sketch-N`) is for, or null. */
+const sketchOf = (name: string) => /^(.+)-sketch-\d+$/.exec(name)?.[1] ?? null;
+
 function PieceDetail({ asset, text, checkout }: AssetContentProps) {
-	const { showAsset, showError } = useStudio();
+	const { showAsset, showError, openNewSession } = useStudio();
 	const name = pieceName(asset.path);
 	const dir = `assets/music/${name}`;
 	const parsed = useMemo(() => {
@@ -102,6 +105,23 @@ function PieceDetail({ asset, text, checkout }: AssetContentProps) {
 					</div>
 					{song?.style && <div className="music-style">{song.style}</div>}
 				</div>
+				{sketchOf(name) && (
+					<button
+						title="Start a Composer session that arranges this sketch into the full piece"
+						data-testid="arrange-sketch"
+						onClick={() =>
+							openNewSession({
+								agentType: "music-composer",
+								target: "project",
+								linkedAsset: asset.path,
+								context: `Arrange ${name}`,
+								prompt: `Arrange the theme sketch ${asset.path} into the full piece assets/music/${sketchOf(name)}/ (an intro, a contrasting section, variations, the full instrumentation), keeping its melody and character. Then delete the sketch folders.`,
+							})
+						}
+					>
+						Arrange this theme…
+					</button>
+				)}
 				<RenderStatus state={render} busy={busy} disabled={!timeline} onRender={() => void run("render_song", {})} />
 			</div>
 			{parsed.errors.length > 0 && (
