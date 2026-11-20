@@ -67,5 +67,5 @@ export function defaultOrbit(entities: Record<string, unknown>[] | undefined, pr
 		return Array.isArray(p) && !t?.parent && !t?.scale && (p[0] || p[2]) ? [p] : [];
 	});
 	const extent = Math.max(6, ...ps.map((p) => Math.hypot(p[0], p[2])));
-	return { target: [0, 0, 0], yaw: 0, pitch: 50, distance: extent * 1.9 };
+	return { target: [0, 0, 0], yaw: 0, pitch: 50, distance: extent * 1.5 };
 }

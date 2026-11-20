@@ -90,7 +90,7 @@ function SceneDetail({ asset, text, sessionId, assets }: AssetContentProps) {
 	const shown = useRef<string | null>(null);
 	const expected = useRef<string | null>(null);
 	const [selected, setSelectedState] = useState<number | null>(selections.get(asset.path) ?? null);
-	const [orbit, setOrbitState] = useState<Orbit>(() => cameras.get(asset.path) ?? defaultOrbit(scene?.entities, prefabFile));
+	const [orbit, setOrbitState] = useState<Orbit>(() => cameras.get(asset.path) ?? defaultOrbit(undefined, prefabFile));
 	const [mode, setMode] = useState<Mode>({ kind: "select" });
 	const [busy, setBusy] = useState(false);
 	const [prefabRoots, setPrefabRoots] = useState<Record<string, SceneEntity>>({});
@@ -160,6 +160,12 @@ function SceneDetail({ asset, text, sessionId, assets }: AssetContentProps) {
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [live, run?.id]);
+
+	// Frame the scene once its file has loaded (the view can mount before the text arrives).
+	useEffect(() => {
+		if (scene && !cameras.has(asset.path)) setOrbit(defaultOrbit(scene.entities, prefabFile));
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [scene]);
 
 	useEffect(() => {
 		if (live) void quiet(call("run.call", "camera", { position: orbitPosition(orbit), target: orbit.target, fov: FOV }));

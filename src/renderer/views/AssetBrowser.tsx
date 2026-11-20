@@ -54,7 +54,8 @@ export function AssetBrowser(props: AssetBrowserProps) {
 	const [assets, setAssets] = useState<AssetSummary[] | null>(null);
 	const [query, setQuery] = useState("");
 	const [hits, setHits] = useState<AssetSearchHit[]>([]);
-	const [text, setText] = useState("");
+	// The text of one checkout's version of one asset: content views never see the previous asset's text.
+	const [loaded, setLoaded] = useState<{ key: string; text: string }>({ key: "", text: "" });
 
 	useEffect(() => {
 		call("assets.list", module.id).then(setAssets, showError);
@@ -81,7 +82,8 @@ export function AssetBrowser(props: AssetBrowserProps) {
 	const sessionId = selected && (focus?.sessionId ?? (selected.inMain ? undefined : selected.drafts[0]?.sessionId));
 	useEffect(() => {
 		if (!selected) return;
-		call("assets.read", selected.path, sessionId).then(setText, showError);
+		const key = `${selected.path}:${sessionId ?? ""}`;
+		call("assets.read", selected.path, sessionId).then((text) => setLoaded({ key, text }), showError);
 	}, [selected?.path, sessionId, assetsVersion, showError]);
 
 	const visible = useMemo(() => {
@@ -190,7 +192,14 @@ export function AssetBrowser(props: AssetBrowserProps) {
 						{draft?.change === "deleted" ? (
 							<div className="empty">Deleted in session “{draft.sessionTitle}”.</div>
 						) : (
-							props.content({ asset: selected, text, sessionId, draft, assets, line: focus?.line })
+							props.content({
+									asset: selected,
+									text: loaded.key === `${selected.path}:${sessionId ?? ""}` ? loaded.text : "",
+									sessionId,
+									draft,
+									assets,
+									line: focus?.line,
+								})
 						)}
 						{linkedSessions.length > 0 && (
 							<div className="doc-view col" style={{ paddingTop: 0 }}>

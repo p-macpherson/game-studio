@@ -67,6 +67,7 @@ Install dependencies with `npm install --ignore-scripts` (Pi's recommendation). 
 | `gen/spike/` | The M4a spike scripts; findings are in the vault note `M4 3D Models.md` |
 | `src/modules/3d-models/` | 3D Models section: the asset is a model's `model.json`; concept board, three.js `ModelViewer`, in-engine render (`RunService.preview`). Its buttons run generation in a 3D Modeller session created without a prompt (a workspace) via `models3d.*` |
 | `src/shared/song.ts`, `src/main/music.ts` | Music: the song score format (`assets/music/<name>/song.json`: parser, validator, timeline) shared by the UI, the renderer and agents' `render_song`; MIDI writer and the FluidSynth + ffmpeg render to a seamless-loop `<name>.ogg` (three passes, middle one kept, seam crossfaded). Agent type `music-composer`, skill `music-composition` (the format reference) |
+| `src/shared/scene.ts`, `src/main/scenes.ts`, `src/modules/scenes/` | Scenes: scene/prefab files (parse, validate, structured edits that keep prefab references, one-entity-per-line format); `edit_scene` in a session's worktree; the section (live paused view through `RunService.start(..., {scene})`, mesh `pick`, orbit camera in `orbit.ts`, inspector, placement), mirrored live by respawning edited entities. `RunService.previewScene` serves agents' `preview_scene`. Agent type `level-designer`, skill `level-design` |
 | `src/main/studio-files.ts` | `studio-file://<main or session id>/<path>`: serves models and images from a checkout to the renderer (use `studioFile()` in `src/renderer/api.ts`) |
 
 ## Testing
