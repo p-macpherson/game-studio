@@ -311,6 +311,29 @@ try {
 	await page.getByTestId("sidebar-toggle").click();
 	await nav.getByRole("button", { name: "Source Control" }).waitFor();
 
+	// Sound Effects: "New sound" starts a Sound Designer session whose takes (fake worker) make a sound; the section
+	// shows it, its takes and where it's used, and using a second take re-renders it with two variants.
+	await nav.getByRole("button", { name: "Sound Effects" }).click();
+	await page.getByRole("button", { name: "+ New sound" }).click();
+	await page.locator(".agent-type.on", { hasText: "Sound Designer" }).waitFor();
+	await page.getByTestId("new-session-prompt").fill('tool generate_sound_takes {"name": "e2e-chime", "prompt": "a small bright chime", "seconds": 1, "count": 4, "seed": 7}');
+	await page.getByRole("button", { name: "Start session" }).click();
+	await page.getByTestId("chat").getByText(/^Result:[\s\S]*brightness_hz/).waitFor({ timeout: 60_000 });
+	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
+	await page.getByTestId("composer").fill('tool render_sound {"name": "e2e-chime"}');
+	await page.getByTestId("composer").press("Enter");
+	await page.getByTestId("chat").getByText(/^Result:[\s\S]*e2e-chime\.ogg/).waitFor({ timeout: 60_000 });
+	await nav.getByRole("button", { name: "Sound Effects" }).click();
+	await page.getByTestId("asset-item").filter({ hasText: "e2e-chime" }).click();
+	await page.locator("[data-testid=sound-detail] [data-testid=render-status][data-state=current]").waitFor({ timeout: 30_000 });
+	await page.getByTestId("take").nth(3).waitFor();
+	await page.getByTestId("variant-row").first().waitFor();
+	await step("28-sounds", page);
+	await page.locator("[data-testid=take][data-used=false]").first().getByTestId("take-toggle").click();
+	await page.getByTestId("variant-row").nth(1).waitFor({ timeout: 30_000 });
+	await page.locator("[data-testid=sound-detail] [data-testid=render-status][data-state=current]").waitFor({ timeout: 30_000 });
+	await step("29-sound-takes", page);
+
 	// Source control and accounts render.
 	await page.getByRole("button", { name: "Source Control" }).click();
 	await page.locator(".list-row", { hasText: "studio: session" }).first().waitFor();

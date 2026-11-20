@@ -90,6 +90,9 @@ export function generationRequests(
 					case "render_sound":
 						if (!opts.sounds) throw new Error("Sound rendering isn't available here");
 						return await opts.sounds.render(ctx, p);
+					case "edit_sound":
+						if (!opts.sounds) throw new Error("Sound rendering isn't available here");
+						return await opts.sounds.edit(ctx, p);
 				}
 			} finally {
 				jobs.delete(req.requestId);

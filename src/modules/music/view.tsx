@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { StudioRequestMethod } from "../../shared/host";
 import type { ModuleInfo } from "../../shared/modules";
 import { drumName, GM_PROGRAMS, gmProgram, parseSong, pitchName, type Song, type Timeline, type TimelineTrack } from "../../shared/song";
-import { call, studioFile } from "../../renderer/api";
+import { call, sha1, studioFile } from "../../renderer/api";
 import { useStudio } from "../../renderer/store";
 import { AssetBrowser, type AssetContentProps } from "../../renderer/views/AssetBrowser";
 import { workspaceFor } from "../../renderer/workspace";
@@ -13,11 +13,6 @@ import { formatTime, pieceName } from "./info";
 
 const COLOURS = ["#e8a33d", "#5aa9e6", "#7bc47f", "#d8737f", "#b48ee8", "#4fc1b4", "#e6d45a", "#e58f5a"];
 const bumpAssets = () => useStudio.setState((s) => ({ assetsVersion: s.assetsVersion + 1 }));
-
-async function sha1(text: string): Promise<string> {
-	const digest = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(text));
-	return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
 
 export function MusicView({ module }: { module: ModuleInfo }) {
 	return (

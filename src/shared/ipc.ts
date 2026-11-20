@@ -91,6 +91,8 @@ export interface StudioApi {
 	"models3d.concepts"(checkout: string | null, name: string): Promise<ConceptImage[]>;
 	/** The model rendered by the game's own engine: front, three-quarter and back views, plus engine errors. */
 	"models3d.preview"(checkout: string | null, name: string): Promise<{ images: string[]; errors: string[] }>;
+	/** Where the game refers to a sound (`sounds/<name>/` in game code, scenes and prefabs) in a checkout. */
+	"sounds.usages"(checkout: string | null, name: string): Promise<{ path: string; line: number; text: string }[]>;
 
 	"sessions.list"(): Promise<SessionSummary[]>;
 	"sessions.create"(req: NewSessionRequest): Promise<SessionSummary>;

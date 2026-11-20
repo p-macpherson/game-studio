@@ -60,7 +60,8 @@ export type StudioRequestMethod =
 	| "edit_scene"
 	| "preview_scene"
 	| "generate_sound"
-	| "render_sound";
+	| "render_sound"
+	| "edit_sound";
 
 export type HostEvent =
 	/** A raw Pi AgentSessionEvent, JSON-sanitised. */

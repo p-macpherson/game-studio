@@ -11,7 +11,7 @@ import { createProject, readProject } from "./project";
 import { GenService, soundfontPath } from "./gen";
 import { generationRequests, ModelPipeline } from "./models";
 import { MusicPipeline } from "./music";
-import { SoundPipeline } from "./sounds";
+import { SoundPipeline, soundUsages } from "./sounds";
 import { RunService, type SceneView } from "./runner";
 import { SessionService } from "./sessions";
 import { SettingsStore } from "./settings";
@@ -222,6 +222,7 @@ async function main(): Promise<void> {
 			genRequests.studioRequest({ sessionId, requestId: `ui-${Date.now()}`, cwd: checkoutRoot(sessionId), method, params, progress: () => {} }),
 		"models3d.concepts": async (checkout, name) => pipeline.conceptImages({ cwd: checkoutRoot(checkout) }, name),
 		"models3d.preview": (checkout, name) => previewModel(checkout, name),
+		"sounds.usages": async (checkout, name) => soundUsages(checkoutRoot(checkout), name),
 
 		"gen.image": async (path) => {
 			// Only images from generation outputs, the open project or session worktrees.

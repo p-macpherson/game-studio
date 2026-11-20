@@ -1545,3 +1545,83 @@ button.link {
 .pad {
 	padding: 12px;
 }
+
+/* Sound Effects */
+.sound-detail {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	padding: 16px 20px;
+	overflow: auto;
+	height: 100%;
+}
+.sound-head {
+	align-items: flex-start;
+	gap: 12px;
+}
+.sound-notes {
+	color: var(--text);
+}
+.audio-row {
+	gap: 10px;
+	align-items: center;
+}
+.audio-label {
+	width: 170px;
+	font-size: 12px;
+	font-family: var(--mono);
+}
+.waveform {
+	flex: 1;
+	min-width: 0;
+	width: 100%;
+	height: 48px;
+	color: var(--accent);
+}
+.takes-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+	gap: 10px;
+}
+.take {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding: 8px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+}
+.take .mono {
+	font-family: var(--mono);
+	font-size: 12px;
+}
+.take.used {
+	border-color: var(--accent);
+	background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.badge.warn {
+	color: var(--yellow);
+	border-color: var(--yellow);
+}
+.usage {
+	text-align: left;
+	background: none;
+	border: none;
+	padding: 2px 0;
+	cursor: pointer;
+}
+.usage:hover code {
+	color: var(--accent);
+}
+.quick-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+	gap: 8px;
+	margin: 10px 0;
+}
+.quick-label {
+	width: 80px;
+}
+.quick-grid input[type="number"] {
+	width: 90px;
+}

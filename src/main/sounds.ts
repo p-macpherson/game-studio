@@ -10,7 +10,17 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { layerName, MAX_GENERATE_SECONDS, parseSound, type Sound, SOUND_NAME, type SoundProblem, variantCount, variantFile } from "../shared/sound";
+import {
+	layerName,
+	MAX_GENERATE_SECONDS,
+	parseSound,
+	type Sound,
+	SOUND_NAME,
+	type SoundProblem,
+	validateSound,
+	variantCount,
+	variantFile,
+} from "../shared/sound";
 import { safeJoin } from "./assets";
 import {
 	type Audio,
@@ -80,6 +90,39 @@ export class SoundError extends Error {
 
 export const soundHash = (text: string) => createHash("sha1").update(text).digest("hex");
 
+/** The processing fields the section edits directly. */
+export type SoundEdits = { [K in "pitch" | "highpass" | "lowpass" | "reverb" | "peak" | "loop" | "fade"]?: Sound[K] | null };
+const EDITABLE: (keyof SoundEdits)[] = ["pitch", "highpass", "lowpass", "reverb", "peak", "loop", "fade"];
+
+export interface SoundUsage {
+	path: string;
+	line: number;
+	text: string;
+}
+
+/** Where the game refers to a sound (`sounds/<name>/`): its code, scenes and prefabs. */
+export function soundUsages(cwd: string, name: string): SoundUsage[] {
+	const needle = `sounds/${name}/`;
+	const out: SoundUsage[] = [];
+	const walk = (rel: string, ext: string) => {
+		const dir = join(cwd, rel);
+		if (!existsSync(dir)) return;
+		for (const e of readdirSync(dir, { withFileTypes: true })) {
+			const path = `${rel}/${e.name}`;
+			if (e.isDirectory()) walk(path, ext);
+			else if (e.name.endsWith(ext)) {
+				readFileSync(join(cwd, path), "utf8")
+					.split("\n")
+					.forEach((text, i) => text.includes(needle) && out.push({ path, line: i + 1, text: text.trim().slice(0, 200) }));
+			}
+		}
+	};
+	walk("game", ".odin");
+	walk("assets/scenes", ".json");
+	walk("assets/prefabs", ".json");
+	return out;
+}
+
 /** Mix → processed sound, in the documented order: trim, pitch, filters, reverb, loop, level, fades. */
 export function processSound(sound: Sound, a: Audio): Audio {
 	let x = a;
@@ -137,6 +180,29 @@ export class SoundPipeline {
 			writeFileSync(file, `${JSON.stringify(sound, null, "\t")}\n`);
 		}
 		return { takes: infos, sheet: await this.sheet(infos.map((t) => join(ctx.cwd, t.file))), created };
+	}
+
+	/**
+	 * The Sound Effects section's edits, written into sound.json and rendered: which takes a generated layer uses
+	 * (one per variant), and the processing fields (null removes one). Anything bigger is the sound designer's.
+	 */
+	async edit(ctx: PipelineContext, p: { name: string; layer?: string; takes?: number[]; set?: SoundEdits }): Promise<SoundRenderResult> {
+		const file = join(this.dir(ctx.cwd, p.name), "sound.json");
+		const sound = JSON.parse(readFileSync(file, "utf8")) as Sound;
+		if (p.takes) {
+			const i = sound.layers.findIndex((l, i) => l.generate && layerName(l, i) === (p.layer ?? "main"));
+			if (i < 0) throw new Error(`No generated layer "${p.layer ?? "main"}"`);
+			sound.layers[i].takes = p.takes;
+		}
+		for (const [k, v] of Object.entries(p.set ?? {})) {
+			if (!EDITABLE.includes(k as keyof SoundEdits)) throw new Error(`Can't edit "${k}" here (only ${EDITABLE.join(", ")})`);
+			if (v === null) delete (sound as unknown as Record<string, unknown>)[k];
+			else (sound as unknown as Record<string, unknown>)[k] = v;
+		}
+		const problems = validateSound(sound);
+		if (problems.length) throw new SoundError(problems);
+		writeFileSync(file, `${JSON.stringify(sound, null, "\t")}\n`);
+		return this.render(ctx, { name: p.name });
 	}
 
 	/** Every take of a sound, newest first, with how each was made. */
