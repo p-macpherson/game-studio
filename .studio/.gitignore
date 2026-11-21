@@ -1,0 +1,5 @@
+# Game Studio keeps these on this machine, out of git: sessions' transcripts (large, and a log of the work rather
+# than part of the game), and the records of work closed more than a week ago.
+sessions/*/*.jsonl
+archive/
+*.tmp

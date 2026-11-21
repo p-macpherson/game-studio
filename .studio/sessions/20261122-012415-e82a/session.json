@@ -1,0 +1,17 @@
+{
+	"id": "20261122-012415-e82a",
+	"title": "Run in studio reads real gamepads (--read-pads)",
+	"agentType": "studio-engineer",
+	"target": "studio",
+	"status": "done",
+	"worktreeId": "20261122-012415-e82a",
+	"parentId": "20261121-234423-cc45",
+	"model": "anthropic/claude-opus-5-5",
+	"thinking": "high",
+	"createdAt": "2026-11-21T14:24:15.245Z",
+	"updatedAt": "2026-11-21T14:32:02.630Z",
+	"outcome": null,
+	"reviewRequested": false,
+	"piSessionFile": "2026-11-21T14-24-15-321Z_01a1fe7e-57d8-74f6-a034-6b0d7d0a3317.jsonl",
+	"closedAt": "2026-11-21T14:32:02.630Z"
+}
