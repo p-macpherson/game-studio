@@ -413,7 +413,10 @@ export function studioTools(ctx: StudioToolContext) {
 				"checked: the package started from another folder (release build, release.json's version, no warnings in its log), every tests/*.jsonl " +
 				"run against the packaged binary, and for Linux an AppImage that starts. Windows checks run under Wine. Takes a minute or two. Returns " +
 				"each check with its detail, the archives, and how many files ship. Use it to confirm a change survives packaging (a file loaded by a " +
-				"computed path needs release.json's include). Publishing to itch.io is the user's, from the Release section.",
+				"computed path needs release.json's include). Publishing to itch.io is the user's, from the Release section. The settings are release.json at " +
+				"the project root: {\"name\": \"Game Name\", \"version\": \"1.0.0\", \"icon\": \"ui/art/icons/app/app.png\" (a PNG under assets/: the window and .exe " +
+				"icon), \"targets\": [\"linux\", \"windows\"], \"include\"/\"exclude\": [asset globs like \"sounds/extra/*\"], \"itch\": {\"target\": \"user/game\"}}; " +
+				"without it the name is the project's and the version 0.1.0.",
 			parameters: Type.Object({
 				target: Type.Optional(Type.Union([Type.Literal("linux"), Type.Literal("windows")])),
 			}),
