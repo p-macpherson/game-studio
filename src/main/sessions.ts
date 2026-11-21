@@ -1121,11 +1121,16 @@ export class SessionService {
  * The engine ignores `/third_party/lib/`, which doesn't match a symlink, so the link is excluded locally.
  */
 export async function linkEngineLibs(engineCheckout: string, engineRepo: string): Promise<void> {
-	const libs = join(engineRepo, "third_party/lib");
-	const target = join(engineCheckout, "third_party/lib");
-	if (!existsSync(libs) || !existsSync(join(engineCheckout, "third_party")) || existsSync(target)) return;
-	symlinkSync(libs, target);
-	const exclude = (await g.git(engineCheckout, ["rev-parse", "--path-format=absolute", "--git-path", "info/exclude"])).trim();
-	mkdirSync(join(exclude, ".."), { recursive: true });
-	appendFileSync(exclude, "/third_party/lib\n");
+	if (!existsSync(join(engineCheckout, "third_party"))) return;
+	// The built libraries, and what release builds need: the Debian sysroot, Microsoft's CRT and SDK, and xwin.
+	for (const dir of ["lib", "sysroot", "xwin", "tools"]) {
+		const source = join(engineRepo, "third_party", dir);
+		const target = join(engineCheckout, "third_party", dir);
+		if (!existsSync(source) || existsSync(target)) continue;
+		symlinkSync(source, target);
+		const exclude = (await g.git(engineCheckout, ["rev-parse", "--path-format=absolute", "--git-path", "info/exclude"])).trim();
+		mkdirSync(join(exclude, ".."), { recursive: true });
+		const text = existsSync(exclude) ? readFileSync(exclude, "utf8") : "";
+		if (!text.split("\n").includes(`/third_party/${dir}`)) appendFileSync(exclude, `/third_party/${dir}\n`);
+	}
 }

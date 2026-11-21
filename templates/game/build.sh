@@ -2,7 +2,7 @@
 # Build, run and test {{name}}.
 #
 #   ./build.sh                    build (debug) into build/game
-#   ./build.sh release            optimised build
+#   ./build.sh release [windows]  release build for players (the engine's tools/release.sh): build/game-release(.exe)
 #   ./build.sh run [-- args]      build and run from the project root (e.g. -- --mode=hidden --control)
 #   ./build.sh check              type-check only
 #   ./build.sh test [script]      headless scripted test (default: tests/smoke.jsonl); exit code = verdict
@@ -38,7 +38,7 @@ cmd="${1:-build}"
 [[ $# -gt 0 ]] && shift
 case "$cmd" in
 	build) build -debug ;;
-	release) build -o:speed -no-bounds-check ;;
+	release) "$ENGINE_DIR/tools/release.sh" game build/game-release "${1:-linux}" ;;
 	run)
 		build -debug
 		[[ "${1:-}" == "--" ]] && shift
