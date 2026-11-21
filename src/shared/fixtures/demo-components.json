@@ -415,6 +415,24 @@
 		]
 	},
 	{
+		"name": "Effect",
+		"flags": [],
+		"fields": [
+			{
+				"name": "path",
+				"type": "string"
+			},
+			{
+				"name": "stopped",
+				"type": "bool"
+			},
+			{
+				"name": "speed",
+				"type": "f32"
+			}
+		]
+	},
+	{
 		"name": "Lifetime",
 		"flags": [],
 		"fields": [
@@ -461,6 +479,10 @@
 			{
 				"name": "celebrating",
 				"type": "bool"
+			},
+			{
+				"name": "dust_puffs",
+				"type": "int"
 			}
 		]
 	},
@@ -482,5 +504,35 @@
 		"name": "Treasure_Map",
 		"flags": [],
 		"fields": []
+	},
+	{
+		"name": "Screen_State",
+		"flags": [],
+		"fields": [
+			{
+				"name": "title",
+				"type": "bool"
+			},
+			{
+				"name": "hud",
+				"type": "bool"
+			},
+			{
+				"name": "pause",
+				"type": "bool"
+			},
+			{
+				"name": "win",
+				"type": "bool"
+			},
+			{
+				"name": "gold",
+				"type": "int"
+			},
+			{
+				"name": "glints",
+				"type": "int"
+			}
+		]
 	}
 ]
