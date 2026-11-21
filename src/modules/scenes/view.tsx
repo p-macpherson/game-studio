@@ -725,8 +725,9 @@ type SurfaceChoice = { name: string; tile: number; paths: ReturnType<typeof text
 
 /**
  * Puts a texture on a Mesh_Renderer: its colour, normal and roughness maps, tiled at the texture's size in metres
- * (`uv_scale` from the entity's size; exact on a plane, whose one face spans x and z; other meshes' faces each have
- * 0..1 UVs, so their largest side is used). "Fit tiling" recomputes it after a resize.
+ * (`uv_scale` from the entity's size; exact on a plane, whose one face spans x and z, and on a Path, whose UVs are
+ * metres; other meshes' faces each have 0..1 UVs, so their largest side is used). "Fit tiling" recomputes it after a
+ * resize.
  */
 function SurfacePicker({ entity, prefabRoot, checkout, busy, onSet }: { entity: SceneEntity; prefabRoot?: SceneEntity; checkout?: string; busy: boolean; onSet(v: Record<string, unknown>): void }) {
 	const { assetsVersion } = useStudio();
@@ -754,8 +755,11 @@ function SurfacePicker({ entity, prefabRoot, checkout, busy, onSet }: { entity: 
 	const t = { ...(isObject(eff.Transform?.fromPrefab) ? eff.Transform.fromPrefab : {}), ...(isObject(entity.Transform) ? entity.Transform : {}) } as Record<string, unknown>;
 	const scale = Array.isArray(t.scale) && t.scale.length === 3 ? (t.scale as number[]) : [1, 1, 1];
 	const current = choices?.find((c) => c.paths.texture === material.texture);
+	const isPath = isObject(entity.Path) || !!eff.Path;
 	const tiling = (tile: number) => {
 		const r = (n: number) => Math.round((n / tile) * 100) / 100;
+		// A Path's UVs are already metres along and across it (local space): only the scale remains.
+		if (isPath) return [r(scale[0]), r(scale[0])];
 		return mr.mesh === "plane" ? [r(scale[0]), r(scale[2])] : [r(Math.max(...scale)), r(Math.max(...scale))];
 	};
 	const apply = (c: SurfaceChoice | null) => {

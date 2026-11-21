@@ -52,8 +52,23 @@ A scene is `assets/scenes/<name>.json`; the game loads it by its path under `ass
 Grounds, paths and floors are usually built-in planes with a texture from `assets/textures/` (made ones have
 `<name>.png`, `_normal.png` and `_roughness.png`; `texture.json` says its `tile` in metres). Set the Mesh_Renderer's
 material to the three files with `uv_scale` = the plane's x and z scale / `tile`, and drop its `color` (see the
-**texture-art** skill for the format). A path or patch on the ground is a thinner plane 0.01-0.02 m above it, so the
-two don't flicker. No texture for what you need? Ask the Art Director for one (`delegate`), with the surface and size.
+**texture-art** skill for the format). A patch on the ground is a thinner plane 0.01-0.02 m above it, so the two
+don't flicker. No texture for what you need? Ask the Art Director for one (`delegate`), with the surface and size.
+
+**Paths, roads, rivers and trails are a `Path`**, never a row of planes (their corners make jagged edges and break
+the pattern at every bend): one entity with a smooth curve through `points` and a Mesh_Renderer with no `mesh`.
+```json
+{"id": 70, "Name": "Path to Chest 1", "Transform": {"position": [0, 0.01, 0]},
+ "Path": {"points": [[0, 0, 0], [0.8, 0, 1.6], [2.2, 0, 3.0], [2.6, 0, 5.2]], "width": 1.3},
+ "Mesh_Renderer": {"material": {"texture": "textures/cobblestone/cobblestone.png", "normal_map": "textures/cobblestone/cobblestone_normal.png",
+   "roughness_map": "textures/cobblestone/cobblestone_roughness.png", "uv_scale": [0.667, 0.667]}}}
+```
+- `points` are metres in the entity's local space (`y` is height, for slopes); the curve passes through each one.
+  A point every 1.5-3 m along the route is plenty; add more only where it bends.
+- UVs are metres along and across, so `uv_scale` = 1 / `tile` on both axes (times the entity's scale).
+- Keep bends wider than half the width, or the inside edge folds. Branches are separate Paths meeting at a junction
+  (a round plane, say); give overlapping ones heights 2 mm apart (0.010, 0.012…) so they don't flicker.
+- A Path has no collision: the player walks over it on the ground beneath.
 
 ## Check your work
 `preview_scene` builds the game, opens the scene paused and returns screenshots: `top` (from above: +Z is up the
