@@ -168,6 +168,7 @@ describe.skipIf(!hasBlender)("ModelPipeline", () => {
 		expect(manifest.steps.map((s) => s.kind)).toEqual(["shape", "texture", "rig", "finalize"]);
 		expect(manifest.steps.every((s) => typeof s.seconds === "number")).toBe(true);
 		expect(manifest.conceptSource).toMatchObject({ prompt: "a wooden crate", seed: 3, model: "fake" });
+
 		// Blender scaled the fixture cube (2 m) to the requested height, with its base on the ground.
 		expect((manifest.stats?.size as number[])[1]).toBeCloseTo(0.5, 2);
 		for (const f of ["crate.glb", "thumbnail.png", "source/shape.glb", "source/textured.glb", "source/rigged.glb"]) {
@@ -175,6 +176,11 @@ describe.skipIf(!hasBlender)("ModelPipeline", () => {
 		}
 		expect(progress.some((p) => p.startsWith("Shape for crate:"))).toBe(true);
 		expect(jobs.size).toBe(4);
+
+		// A model in a folder: its concepts are named after its last part and sit in its own concepts/ folder.
+		const nested = await pipeline.concepts(ctx, { model: "props/barrel", prompt: "a barrel", count: 2, seed: 5 });
+		expect(nested.images).toEqual(["assets/models/props/barrel/concepts/barrel-5.png", "assets/models/props/barrel/concepts/barrel-6.png"]);
+		expect(pipeline.conceptImages(ctx, "props/barrel").map((c) => c.path).sort()).toEqual(nested.images);
 
 		await expect(pipeline.generate(ctx, { model: "Crate!", image: images[0], height: 1 })).rejects.toThrow(/lower-kebab-case/);
 		await expect(pipeline.generate(ctx, { model: "x", image: "../../etc/passwd", height: 1 })).rejects.toThrow(/escapes/);

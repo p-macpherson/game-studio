@@ -6,7 +6,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { BLENDER_JOBS, FAMILY_OF, type GenComponent, type GenFamily, type GenJob, type GenJobKind, type GenStatus } from "../shared/gen";
+import { BLENDER_JOBS, CPU_FAMILIES, FAMILY_OF, type GenComponent, type GenFamily, type GenJob, type GenJobKind, type GenStatus } from "../shared/gen";
 import type { StudioEvent } from "../shared/ipc";
 
 const WORKER_SCRIPT: Record<GenFamily, string> = {
@@ -14,7 +14,10 @@ const WORKER_SCRIPT: Record<GenFamily, string> = {
 	hunyuan3d: "hunyuan_worker.py",
 	unirig: "unirig_worker.py",
 	"stable-audio": "audio_worker.py",
+	surface: "surface_worker.py",
 };
+/** The Python environment a family runs in, when it isn't one of its own. */
+const ENV_OF: Partial<Record<GenFamily, string>> = { surface: "image" };
 const JOB_HISTORY = 200;
 /** Nothing a worker or Blender does takes this long: past it the job is stuck, and the queue behind it must not be. */
 const JOB_TIMEOUT_MS = 30 * 60_000;
@@ -321,6 +324,21 @@ export class GenService {
 
 	private async onWorker(job: GenJob, setCancel: (cancel: () => void) => void): Promise<Record<string, unknown>> {
 		const { family, op } = FAMILY_OF[job.kind as keyof typeof FAMILY_OF];
+		if (CPU_FAMILIES.includes(family)) {
+			// Off the GPU: its own short-lived worker, leaving the warm model worker (if any) as it is.
+			const worker = this.startWorker(family);
+			setCancel(() => void worker.stop());
+			job.progress = { message: "Starting" };
+			this.changed(job);
+			try {
+				return await worker.request(job.id, op, job.params, (message, fraction) => {
+					job.progress = { message, fraction };
+					this.changed(job);
+				});
+			} finally {
+				void worker.stop();
+			}
+		}
 		if (this.worker && (this.worker.family !== family || !this.worker.alive)) await this.stopWorker();
 		if (!this.worker) this.worker = this.startWorker(family);
 		const worker = this.worker;
@@ -335,10 +353,10 @@ export class GenService {
 
 	private startWorker(family: GenFamily): Worker {
 		const { root, codeDir, fake } = this.deps;
-		const python = fake ? "python3" : join(root, "envs", family, "bin/python");
+		const python = fake ? "python3" : join(root, "envs", ENV_OF[family] ?? family, "bin/python");
 		const script = join(codeDir, "workers", fake ? "fake_worker.py" : WORKER_SCRIPT[family]);
 		if (!fake && !existsSync(python)) throw new Error(`The ${family} environment isn't installed (Settings → Asset generation)`);
-		const env = { ...process.env, GAME_STUDIO_GEN: root, PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True", PYTHONUNBUFFERED: "1" };
+		const env = { ...process.env, GAME_STUDIO_GEN: root, PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True", PYTHONUNBUFFERED: "1", ...(CPU_FAMILIES.includes(family) ? { GAME_STUDIO_NO_GPU: "1" } : {}) };
 		const onExit = () => {
 			if (this.worker === worker) this.worker = null;
 			this.deps.emit({ type: "gen_changed" });

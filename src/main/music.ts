@@ -13,9 +13,9 @@ import { join } from "node:path";
 import { drumName, gmProgram, GM_PROGRAMS, type Note, parseSong, pitchName, type Space, TICKS_PER_BEAT, type Song, type Timeline, type TimelineTrack } from "../shared/song";
 import { ASSET_NAME, leafName } from "../shared/asset-names";
 import { safeJoin } from "./assets";
-import { decodeWav } from "./audio-dsp";
+import { type AudioRun, inlineAudio } from "./audio-runner";
 import { handler, type StudioRequestHandlers } from "./studio-requests";
-import { encodeFloatWav, impulse, StemBus, unit } from "./music-mix";
+import { encodeFloatWav, impulse, lowCutHz, unit } from "./music-mix";
 
 export const MUSIC_DIR = "assets/music";
 const RATE = 44100;
@@ -48,7 +48,12 @@ export class SongError extends Error {
 export const songHash = (text: string) => createHash("sha1").update(text).digest("hex");
 
 export class MusicPipeline {
-	constructor(private readonly deps: { soundfont(): string; fluidsynth?: string; ffmpeg?: string }) {}
+	constructor(private readonly deps: { soundfont(): string; fluidsynth?: string; ffmpeg?: string; audio?: AudioRun }) {}
+
+	/** The heavy steps on whole buffers (audio-jobs.ts): in a worker thread in the app, inline otherwise. */
+	private get audio(): AudioRun {
+		return this.deps.audio ?? inlineAudio;
+	}
 
 	dir(cwd: string, name: string): string {
 		if (!ASSET_NAME.test(name)) throw new Error(`A piece's name is lower-kebab-case, with "/" for folders (e.g. "goblin-theme", "themes/goblin"), not "${name}"`);
@@ -85,18 +90,13 @@ export class MusicPipeline {
 	 */
 	private async mix(ctx: { progress?(text: string): void }, tmp: string, soundfont: string, song: Song, timeline: Timeline, passes: number, tail: number): Promise<string> {
 		const ffmpeg = this.deps.ffmpeg ?? "ffmpeg";
-		const bus = new StemBus();
 		const tracks = timeline.tracks.filter((tr) => tr.notes.length);
 		ctx.progress?.(`Rendering ${tracks.length} track(s) with FluidSynth`);
-		for (const [i, wav] of (await this.stemWavs(tmp, soundfont, song, timeline, passes, tail, tracks)).entries()) {
-			bus.add(decodeWav(readFileSync(wav)).audio, tracks[i]);
-			rmSync(wav);
-		}
-		if (!bus.dry.length) bus.dry = bus.send = [new Float32Array(Math.round(timeline.seconds * passes * RATE)), new Float32Array(Math.round(timeline.seconds * passes * RATE))];
-
+		const wavs = await this.stemWavs(tmp, soundfont, song, timeline, passes, tail, tracks);
 		ctx.progress?.("Mixing");
-		const mixed = join(tmp, "mix.wav");
-		await this.room(bus, song.space ?? "room", tmp, mixed);
+		const [dry, send, mixed] = [join(tmp, "mix-dry.wav"), join(tmp, "mix-send.wav"), join(tmp, "mix.wav")];
+		await this.audio("stemBus", { wavs, tracks: tracks.map((tr) => ({ cut: lowCutHz(tr), reverb: tr.reverb })), dry, send, emptyFrames: Math.round(timeline.seconds * passes * RATE) });
+		await this.room(song.space ?? "room", tmp, dry, send, mixed);
 		ctx.progress?.("Mastering");
 		// Glue and tone at a known level (the compressor's threshold assumes it), then level to the target and limit.
 		const pre = Math.max(-30, Math.min(30, TARGET_LUFS - (await loudness(ffmpeg, mixed))));
@@ -126,21 +126,20 @@ export class MusicPipeline {
 	}
 
 	/**
-	 * Dry plus the reverb send through the song's space, to a float WAV at `out`. afir's dry/wet are its input and
-	 * output gains (not a mix: dry=0 is silence); irnorm=-1 keeps the IR as made, so its unit energy sets the
-	 * reverb's level. Zero latency.
+	 * The dry mix plus its reverb send through the song's space, to a float WAV at `out` (the two inputs are removed).
+	 * afir's dry/wet are its input and output gains (not a mix: dry=0 is silence); irnorm=-1 keeps the IR as made, so
+	 * its unit energy sets the reverb's level. Zero latency.
 	 */
-	private async room(bus: StemBus, space: Space, tmp: string, out: string, tag = "mix"): Promise<void> {
-		if (space === "dry") return writeFileSync(out, encodeFloatWav(bus.dry));
-		const ir = join(tmp, `ir-${space}.wav`);
-		if (!existsSync(ir)) writeFileSync(ir, encodeFloatWav(impulse(space)));
-		const dry = join(tmp, `${tag}-dry.wav`);
-		const send = join(tmp, `${tag}-send.wav`);
-		writeFileSync(dry, encodeFloatWav(bus.dry));
-		writeFileSync(send, encodeFloatWav(bus.send));
-		await run(this.deps.ffmpeg ?? "ffmpeg", ["-y", "-loglevel", "error", "-i", dry, "-i", send, "-i", ir, "-filter_complex",
-			"[1:a][2:a]afir=dry=1:wet=1:irnorm=-1[w];[0:a][w]amix=inputs=2:normalize=0:duration=first[m]", "-map", "[m]", "-c:a", "pcm_f32le", out]);
-		rmSync(dry);
+	private async room(space: Space, tmp: string, dry: string, send: string, out: string): Promise<void> {
+		if (space === "dry") {
+			renameSync(dry, out);
+		} else {
+			const ir = join(tmp, `ir-${space}.wav`);
+			if (!existsSync(ir)) writeFileSync(ir, encodeFloatWav(impulse(space)));
+			await run(this.deps.ffmpeg ?? "ffmpeg", ["-y", "-loglevel", "error", "-i", dry, "-i", send, "-i", ir, "-filter_complex",
+				"[1:a][2:a]afir=dry=1:wet=1:irnorm=-1[w];[0:a][w]amix=inputs=2:normalize=0:duration=first[m]", "-map", "[m]", "-c:a", "pcm_f32le", out]);
+			rmSync(dry);
+		}
 		rmSync(send);
 	}
 
@@ -150,6 +149,19 @@ export class MusicPipeline {
 	 * per score into `cacheDir` (outside the project: they're for listening, not for the game).
 	 */
 	async stems(ctx: { cwd: string; progress?(text: string): void }, name: string, cacheDir: string): Promise<{ track: string; file: string }[]> {
+		// Two requests for the same piece at once (a double click) share one render: a second one would delete the
+		// first's folder as "an older version".
+		const key = `${cacheDir}\n${ctx.cwd}\n${name}`;
+		const running = this.stemRenders.get(key);
+		if (running) return running;
+		const render = this.renderStems(ctx, name, cacheDir).finally(() => this.stemRenders.delete(key));
+		this.stemRenders.set(key, render);
+		return render;
+	}
+
+	private readonly stemRenders = new Map<string, Promise<{ track: string; file: string }[]>>();
+
+	private async renderStems(ctx: { cwd: string; progress?(text: string): void }, name: string, cacheDir: string): Promise<{ track: string; file: string }[]> {
 		const text = readFileSync(join(this.dir(ctx.cwd, name), "song.json"), "utf8");
 		const { song, timeline, errors } = parseSong(JSON.parse(text));
 		if (errors.length || !song || !timeline) throw new SongError(errors);
@@ -171,32 +183,23 @@ export class MusicPipeline {
 			ctx.progress?.(`Rendering ${tracks.length} stem(s)`);
 			const wavs = await this.stemWavs(tmp, soundfont, song, timeline, passes, tail, tracks);
 			// Each in its room, summed to find the mix's level.
-			const sum: Float32Array[] = [];
 			const roomed: string[] = [];
 			for (const [i, tr] of tracks.entries()) {
-				const bus = new StemBus();
-				bus.add(decodeWav(readFileSync(wavs[i])).audio, tr);
-				rmSync(wavs[i]);
+				const [dry, send] = [join(tmp, `track-${i}-dry.wav`), join(tmp, `track-${i}-send.wav`)];
+				await this.audio("stemBus", { wavs: [wavs[i]], tracks: [{ cut: lowCutHz(tr), reverb: tr.reverb }], dry, send, emptyFrames: 1 });
 				roomed.push(join(tmp, `track-${i}.wav`));
-				await this.room(bus, song.space ?? "room", tmp, roomed[i], `track-${i}`);
-				const a = decodeWav(readFileSync(roomed[i])).audio;
-				for (let c = 0; c < 2; c++) {
-					sum[c] ??= new Float32Array(a[c].length);
-					for (let k = 0; k < Math.min(a[c].length, sum[c].length); k++) sum[c][k] += a[c][k];
-				}
+				await this.room(song.space ?? "room", tmp, dry, send, roomed[i]);
 			}
 			const summed = join(tmp, "sum.wav");
-			writeFileSync(summed, encodeFloatWav(sum.length ? sum : [new Float32Array(1), new Float32Array(1)]));
+			await this.audio("sumWavs", { files: roomed, out: summed });
 			const gain = Math.max(-30, Math.min(30, TARGET_LUFS - (await loudness(ffmpeg, summed))));
 			const loopFrames = Math.round(timeline.seconds * RATE);
 			const list: { track: string; file: string }[] = [];
 			for (const [i, tr] of tracks.entries()) {
 				const s16 = join(tmp, `track-${i}-s16.wav`);
 				await run(ffmpeg, ["-y", "-loglevel", "error", "-i", roomed[i], "-af", `volume=${gain.toFixed(2)}dB`, "-c:a", "pcm_s16le", s16]);
-				let pcm = readWav(readFileSync(s16));
-				pcm = loop ? loopFromPasses(pcm, loopFrames) : sliceFrames(pcm, 0, loopFrames + TAIL_SECONDS * RATE);
 				const cut = join(tmp, `track-${i}-cut.wav`);
-				writeFileSync(cut, writeWav(pcm));
+				await this.audio("cutLoop", { in: s16, out: cut, loop, loopFrames, tailFrames: TAIL_SECONDS * RATE });
 				const file = join(out, `${i}.ogg`);
 				await run(ffmpeg, ["-y", "-loglevel", "error", "-i", cut, "-c:a", "libvorbis", "-q:a", "4", file]);
 				list.push({ track: tr.id, file });
@@ -238,14 +241,11 @@ export class MusicPipeline {
 		const tmp = mkdtempSync(join(tmpdir(), "gs-music-"));
 		try {
 			const wav = await this.mix(ctx, tmp, soundfont, song, timeline, loop ? 3 : 1, loop ? 0 : TAIL_SECONDS);
-			let audio = readWav(readFileSync(wav));
-			const loopFrames = Math.round(timeline.seconds * RATE);
-			audio = loop ? loopFromPasses(audio, loopFrames) : sliceFrames(audio, 0, loopFrames + TAIL_SECONDS * RATE);
 			const cut = join(tmp, "cut.wav");
-			writeFileSync(cut, writeWav(audio));
+			const frames = await this.audio("cutLoop", { in: wav, out: cut, loop, loopFrames: Math.round(timeline.seconds * RATE), tailFrames: TAIL_SECONDS * RATE });
 			ctx.progress?.("Encoding OGG");
 			await run(this.deps.ffmpeg ?? "ffmpeg", ["-y", "-loglevel", "error", "-i", cut, "-c:a", "libvorbis", "-q:a", "5", ogg]);
-			return audio.frames / RATE;
+			return frames / RATE;
 		} finally {
 			rmSync(tmp, { recursive: true, force: true });
 		}
@@ -434,7 +434,7 @@ export function toMidi(song: Song, t: Timeline, passes = 1, tailSeconds = 0, onl
 
 // --- WAV ----------------------------------------------------------------------------------------------------
 
-interface Pcm {
+export interface Pcm {
 	channels: number;
 	rate: number;
 	bits: number;
@@ -460,7 +460,7 @@ export function readWav(buf: Buffer): Pcm {
 }
 
 /** Frames [from, to), padded with silence past the end. */
-function sliceFrames(pcm: Pcm, from: number, to: number): Pcm {
+export function sliceFrames(pcm: Pcm, from: number, to: number): Pcm {
 	const frame = (pcm.bits / 8) * pcm.channels;
 	const out = Buffer.alloc((to - from) * frame);
 	pcm.data.copy(out, 0, Math.min(pcm.data.length, from * frame), Math.min(pcm.data.length, to * frame));

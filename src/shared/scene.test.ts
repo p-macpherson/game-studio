@@ -120,3 +120,18 @@ describe("scene files", () => {
 		expect([x, y, z, w].map((n) => Math.round(n * 1000) / 1000)).toEqual([0, 0.707, 0, 0.707]);
 	});
 });
+
+describe("lenient parsing", () => {
+	it("drops trailing commas and comments, but never touches text inside strings", () => {
+		const text = '{ "entities": [ {"id": 1, "notes": "a, b,] and {c,}", "Name": "Gate", }, // the last one\n ], }';
+		const { scene, errors } = parseScene(text);
+		expect(errors).toEqual([]);
+		expect(scene?.entities[0].notes).toBe("a, b,] and {c,}");
+	});
+
+	it("checks entity references in arrays too", () => {
+		const { scene } = parseScene('{"entities": [{"id": 1, "Squad": {"members": [1, 7, 0]}}]}');
+		const schemas = [{ name: "Squad", flags: [], fields: [{ name: "members", type: "[3]Entity" }] }];
+		expect(validateScene(scene!, { schemas })).toEqual(["entity 1 (#1): Squad.members refers to unknown id 7"]);
+	});
+});

@@ -64,7 +64,33 @@ export function stripJson5(text: string): string {
 			i++;
 		}
 	}
-	return out.replace(/,(\s*[}\]])/g, "$1");
+	return dropTrailingCommas(out);
+}
+
+/** Commas before a closing bracket removed, outside strings only (a note that says "a, b,]" keeps its text). */
+function dropTrailingCommas(text: string): string {
+	let out = "";
+	for (let i = 0; i < text.length; ) {
+		const c = text[i];
+		if (c === '"') {
+			let j = i + 1;
+			while (j < text.length && text[j] !== '"') j += text[j] === "\\" ? 2 : 1;
+			out += text.slice(i, j + 1);
+			i = j + 1;
+			continue;
+		}
+		if (c === ",") {
+			let j = i + 1;
+			while (j < text.length && /\s/.test(text[j])) j++;
+			if (text[j] === "}" || text[j] === "]") {
+				i++;
+				continue;
+			}
+		}
+		out += c;
+		i++;
+	}
+	return out;
 }
 
 export interface ParseResult {
@@ -137,7 +163,9 @@ export function validateScene(scene: SceneFile, ctx: ValidateContext = {}): stri
 				}
 				const bad = checkField(f, v);
 				if (bad) problems.push(`${where}: ${name}.${field} ${bad}`);
-				if (f.type === "Entity" && typeof v === "number" && v !== 0 && !ids.has(v)) problems.push(`${where}: ${name}.${field} refers to unknown id ${v}`);
+				// One reference, or an array of them ([4]Entity, []Entity): the engine maps file ids wherever they sit.
+				const refs = f.type === "Entity" ? [v] : /^\[[^\]]*\]Entity$/.test(f.type) && Array.isArray(v) ? v : [];
+				for (const ref of refs) if (typeof ref === "number" && ref !== 0 && !ids.has(ref)) problems.push(`${where}: ${name}.${field} refers to unknown id ${ref}`);
 			}
 		}
 	}
@@ -297,8 +325,8 @@ export function deleteEntity(scene: SceneFile, id: number): { scene: SceneFile; 
 }
 
 /**
- * Copies an entity and its children with new ids (parent references inside the copy follow it), optionally moved
- * to `position`. Returns the new scene, the copy's id, and old → new ids.
+ * Copies an entity and its children with new ids (parent references inside the copy follow it; references in other
+ * components keep pointing at what the original pointed at), optionally moved to `position`. Returns the new scene, the copy's id, and old → new ids.
  */
 export function duplicateEntity(scene: SceneFile, id: number, position?: number[]): { scene: SceneFile; id: number; ids: Map<number, number> } {
 	const ids = new Map<number, number>();

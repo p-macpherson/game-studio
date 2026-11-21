@@ -12,6 +12,7 @@ import { utilityHostLink } from "./host-link";
 import { createProject, readProject, publishProject } from "./project";
 import { GenService, soundfontPath } from "./gen";
 import { assetRequests, moveStep } from "./asset-move";
+import { workerAudio } from "./audio-runner";
 import { modelRequests, ModelPipeline } from "./models";
 import { MusicPipeline, musicRequests } from "./music";
 import { sceneRequests } from "./scenes";
@@ -76,8 +77,10 @@ async function main(): Promise<void> {
 		fake: process.env.GAME_STUDIO_GEN_FAKE === "1",
 	});
 	const pipeline = new ModelPipeline(gen);
-	const music = new MusicPipeline({ soundfont: () => soundfontPath(genRoot) });
-	const sounds = new SoundPipeline({ gen });
+	// Decoding, mixing and encoding whole pieces happens in a worker thread, not on this one (the UI's and the game view's).
+	const audio = workerAudio(join(import.meta.dirname, "audio-worker.js"));
+	const music = new MusicPipeline({ soundfont: () => soundfontPath(genRoot), audio });
+	const sounds = new SoundPipeline({ gen, audio });
 	const textures = new TexturePipeline(gen);
 	// Every part of the studio brings its own requests: a new section adds a line here.
 	const moduleInfos = MODULES.map((m) => m.info);
@@ -363,6 +366,7 @@ async function main(): Promise<void> {
 	app.on("window-all-closed", () => {
 		runner.dispose();
 		sessions.dispose();
+		audio.dispose();
 		host.kill();
 		// Model workers hold the GPU: wait (a few seconds at most) until they have really gone before quitting.
 		void Promise.race([gen.dispose(), new Promise((r) => setTimeout(r, 6000))]).finally(() => app.quit());

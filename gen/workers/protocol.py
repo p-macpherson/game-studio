@@ -37,7 +37,13 @@ class Job:
         send({"id": self.id, "event": "progress", "message": message, "fraction": fraction})
 
 
+# Set for workers that only use the CPU: importing torch (and waking CUDA) just to report memory would cost seconds.
+NO_GPU = os.environ.get("GAME_STUDIO_NO_GPU") == "1"
+
+
 def gpu_peak_gib() -> float | None:
+    if NO_GPU:
+        return None
     try:
         import torch
 
@@ -60,12 +66,13 @@ def serve(ops: dict[str, Callable[[Job, dict[str, Any]], dict[str, Any]]]) -> No
             continue
         started = time.time()
         try:
-            try:
-                import torch
+            if not NO_GPU:
+                try:
+                    import torch
 
-                torch.cuda.reset_peak_memory_stats()
-            except Exception:
-                pass
+                    torch.cuda.reset_peak_memory_stats()
+                except Exception:
+                    pass
             result = op(job, req.get("params") or {})
             result.setdefault("seconds", round(time.time() - started, 1))
             peak = gpu_peak_gib()

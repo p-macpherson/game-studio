@@ -29,24 +29,19 @@ import { ASSET_NAME, leafName } from "../shared/asset-names";
 import { safeJoin } from "./assets";
 import {
 	type Audio,
-	decodeWav,
-	encodeWav,
 	fades,
 	filter,
 	frames,
-	fromDb,
 	loopCrossfade,
 	type Measurements,
-	measure,
 	mix,
 	normalizePeak,
 	pitchShift,
 	RATE,
-	resample,
 	reverb,
-	synth,
 	trimSilence,
 } from "./audio-dsp";
+import { type AudioRun, inlineAudio } from "./audio-runner";
 import type { GenService } from "./gen";
 import { handler, type PipelineContext, type StudioRequestHandlers } from "./studio-requests";
 
@@ -137,7 +132,12 @@ export function processSound(sound: Processing & { loop?: boolean }, a: Audio): 
 }
 
 export class SoundPipeline {
-	constructor(private readonly deps: { gen: GenService; ffmpeg?: string }) {}
+	constructor(private readonly deps: { gen: GenService; ffmpeg?: string; audio?: AudioRun }) {}
+
+	/** The heavy steps on whole buffers (audio-jobs.ts): in a worker thread in the app, inline otherwise. */
+	private get audio(): AudioRun {
+		return this.deps.audio ?? inlineAudio;
+	}
 
 	dir(cwd: string, name: string): string {
 		if (!ASSET_NAME.test(name)) throw new Error(`A sound's name is lower-kebab-case, with "/" for folders (e.g. "chest-open", "ui/click"), not "${name}"`);
@@ -162,7 +162,7 @@ export class SoundPipeline {
 		const base = p.seed ?? Math.floor(Math.random() * (2 ** 31 - 100));
 		const seeds = Array.from({ length: count }, (_, i) => base + i);
 		const generated = await this.takes(ctx, p.name, group, p.prompt, p.seconds, seeds);
-		const infos = generated.map((t) => this.takeInfo(ctx, dir, takeId(group, t.seed), t.clap));
+		const infos = await Promise.all(generated.map((t) => this.takeInfo(ctx, dir, takeId(group, t.seed), t.clap)));
 		const scores = infos.map((t) => t.clap).filter((c): c is number => c !== undefined);
 		if (scores.length > 2) {
 			const median = [...scores].sort((a, b) => a - b)[Math.floor(scores.length / 2)];
@@ -226,18 +226,11 @@ export class SoundPipeline {
 			const wavs: string[] = [];
 			for (const [i, v] of sound.variants.entries()) {
 				ctx.progress?.(`Rendering ${variantFile(leafName(p.name), i)}`);
-				// Each layer trimmed and levelled to full scale first, so gains compare layers as they're heard.
-				const parts = v.layers.map((l) => ({
-					audio: normalizePeak("take" in l ? trimSilence(this.loadTake(dir, l.take)) : [synth(l.synth)], 0),
-					at: Math.round((l.at ?? 0) * RATE),
-					gain: fromDb(l.gain ?? 0),
-				}));
-				const audio = processSound(processingOf(sound, v), mix(parts));
 				const wav = join(tmp, `v${i}.wav`);
-				writeFileSync(wav, encodeWav(audio));
+				const measured = await this.audio("renderVariant", { dir, layers: v.layers, processing: processingOf(sound, v), out: wav });
 				await this.ffmpeg(["-y", "-loglevel", "error", "-i", wav, "-c:a", "libvorbis", "-q:a", "6", join(dir, variantFile(leafName(p.name), i))]);
 				wavs.push(wav);
-				variants.push({ file: `${SOUNDS_DIR}/${p.name}/${variantFile(leafName(p.name), i)}`, ...measure(audio) });
+				variants.push({ file: `${SOUNDS_DIR}/${p.name}/${variantFile(leafName(p.name), i)}`, ...measured });
 			}
 			// Fewer variants than last time: remove the extra files.
 			for (const f of readdirSync(dir)) {
@@ -275,15 +268,9 @@ export class SoundPipeline {
 		return takes;
 	}
 
-	private loadTake(dir: string, id: string): Audio {
-		const { audio, rate } = decodeWav(readFileSync(join(dir, "takes", `${id}.wav`)));
-		return resample(audio, rate);
-	}
-
-	private takeInfo(ctx: PipelineContext, dir: string, id: string, clap?: number): TakeInfo {
+	private async takeInfo(ctx: PipelineContext, dir: string, id: string, clap?: number): Promise<TakeInfo> {
 		const file = join(dir, "takes", `${id}.wav`);
-		const { audio, rate } = decodeWav(readFileSync(file));
-		return { id, file: file.slice(ctx.cwd.length + 1), ...(clap === undefined ? {} : { clap: Math.round(clap * 1000) / 1000 }), ...measure(resample(audio, rate)) };
+		return { id, file: file.slice(ctx.cwd.length + 1), ...(clap === undefined ? {} : { clap: Math.round(clap * 1000) / 1000 }), ...(await this.audio("measureWav", { file })) };
 	}
 
 	/** Waveform (top) over spectrogram (log frequency) for each file, stacked in order, as a PNG data URL. */

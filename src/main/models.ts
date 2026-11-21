@@ -62,7 +62,7 @@ export class ModelPipeline {
 		const r = await this.step(ctx, "image", `Concepts for ${p.model}`, {
 			prompt: p.prompt,
 			out_dir: out,
-			name: p.model,
+			name: leafName(p.model), // the files' prefix: a model in a folder ("props/barrel") is still "barrel-<seed>.png"
 			count,
 			seed: p.seed,
 			references,

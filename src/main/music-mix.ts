@@ -78,7 +78,11 @@ export class StemBus {
 	send: Audio = [];
 
 	add(stem: Audio, track: TimelineTrack): void {
-		const cut = lowCutHz(track);
+		this.addWith(stem, lowCutHz(track), track.reverb);
+	}
+
+	/** A stem with its low cut (Hz) and reverb send (0..1) given. */
+	addWith(stem: Audio, cut: number, reverb: number): void {
 		const chans = stem.length === 1 ? [stem[0], stem[0]] : stem.slice(0, 2);
 		for (let c = 0; c < 2; c++) {
 			const x = biquad(chans[c], "highpass", cut);
@@ -89,7 +93,7 @@ export class StemBus {
 			const n = Math.min(x.length, this.dry[c].length);
 			for (let i = 0; i < n; i++) {
 				this.dry[c][i] += x[i];
-				this.send[c][i] += x[i] * track.reverb;
+				this.send[c][i] += x[i] * reverb;
 			}
 		}
 	}

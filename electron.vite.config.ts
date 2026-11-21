@@ -9,6 +9,7 @@ export default defineConfig({
 				input: {
 					index: resolve("src/main/index.ts"),
 					"session-host": resolve("src/session-host/index.ts"),
+					"audio-worker": resolve("src/main/audio-worker.ts"),
 				},
 			},
 		},

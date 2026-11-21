@@ -40,17 +40,24 @@ clone() {
 	done
 }
 
-# get REPO INCLUDE... [-- EXCLUDE...]: selected files of a Hugging Face repo into models/REPO (skips what's there).
+# get REPO REVISION INCLUDE... [-- EXCLUDE...]: selected files of a Hugging Face repo, at an exact commit, into
+# models/REPO (skips what's there). Pinned so a repair or a second machine gets the weights the code was tested with.
 get() {
-	local repo=$1 flag=--include args=(); shift
+	local repo=$1 revision=$2 flag=--include args=(); shift 2
 	for p in "$@"; do if [[ $p == -- ]]; then flag=--exclude; else args+=("$flag" "$p"); fi; done
 	echo "   $repo"
-	HF_HOME="$GEN/hf" "${HF_CLI[@]}" download "$repo" --local-dir "$GEN/models/$repo" "${args[@]}" >/dev/null
+	HF_HOME="$GEN/hf" "${HF_CLI[@]}" download "$repo" --revision "$revision" --local-dir "$GEN/models/$repo" "${args[@]}" >/dev/null
 }
 
 env_python() { echo "$GEN/envs/$1/bin/python"; }
 mkenv() { [[ -x "$(env_python "$1")" ]] || uv venv -q --python 3.11 "$GEN/envs/$1"; }
-pip() { local env=$1; shift; VIRTUAL_ENV="$GEN/envs/$env" uv pip install -q "$@"; }
+# pip ENV ARGS...: installs into an environment, held to the versions in gen/locks/ENV.txt (every package, direct or
+# not, as last known to work together) when that file exists.
+pip() {
+	local env=$1 lock="$HERE/locks/$1.txt"; shift
+	local held=(); [[ -f "$lock" ]] && held=(-c "$lock")
+	VIRTUAL_ENV="$GEN/envs/$env" uv pip install -q "${held[@]}" "$@"
+}
 TORCH_CU130=(--index-url https://download.pytorch.org/whl/cu130 --extra-index-url https://pypi.org/simple)
 
 step "Model repos"
@@ -58,14 +65,14 @@ clone Hunyuan3D-2 https://github.com/Tencent-Hunyuan/Hunyuan3D-2.git f8db63096c8
 clone UniRig https://github.com/VAST-AI-Research/UniRig.git 6793c6640ff01c8fb389f3993434124bb43d2933
 
 step "Model weights (about 42 GB the first time)"
-get black-forest-labs/FLUX.2-klein-4B 'model_index.json' 'scheduler/*' 'tokenizer/*' 'text_encoder/*' 'transformer/*' 'vae/*'
-get tencent/Hunyuan3D-2mini 'hunyuan3d-dit-v2-mini-turbo/config.yaml' 'hunyuan3d-dit-v2-mini-turbo/*.safetensors' 'hunyuan3d-vae-v2-mini-turbo/config.yaml' 'hunyuan3d-vae-v2-mini-turbo/*.safetensors'
-get tencent/Hunyuan3D-2mv 'hunyuan3d-dit-v2-mv-turbo/config.yaml' 'hunyuan3d-dit-v2-mv-turbo/*.safetensors'
+get black-forest-labs/FLUX.2-klein-4B e7b7dc27f91deacad38e78976d1f2b499d76a294 'model_index.json' 'scheduler/*' 'tokenizer/*' 'text_encoder/*' 'transformer/*' 'vae/*'
+get tencent/Hunyuan3D-2mini f90a0f7df7d5e6f71109cf333f6a95a0ae3194a6 'hunyuan3d-dit-v2-mini-turbo/config.yaml' 'hunyuan3d-dit-v2-mini-turbo/*.safetensors' 'hunyuan3d-vae-v2-mini-turbo/config.yaml' 'hunyuan3d-vae-v2-mini-turbo/*.safetensors'
+get tencent/Hunyuan3D-2mv 3a761b539b29fe4ff64714813aa9560fd66f5de0 'hunyuan3d-dit-v2-mv-turbo/config.yaml' 'hunyuan3d-dit-v2-mv-turbo/*.safetensors'
 # The paint code loads unet/diffusion_pytorch_model.bin; the .safetensors beside it is a different (IP-adapter) variant.
-get tencent/Hunyuan3D-2 'hunyuan3d-vae-v2-0-turbo/*' 'hunyuan3d-delight-v2-0/*' 'hunyuan3d-paint-v2-0-turbo/*' -- '*.ckpt' 'hunyuan3d-paint-v2-0-turbo/unet/diffusion_pytorch_model.safetensors'
-get VAST-AI/UniRig 'skeleton/articulation-xl_quantization_256/*' 'skin/articulation-xl/*'
+get tencent/Hunyuan3D-2 9cd649ba6913f7a852e3286bad86bfa9a2d83dcf 'hunyuan3d-vae-v2-0-turbo/*' 'hunyuan3d-delight-v2-0/*' 'hunyuan3d-paint-v2-0-turbo/*' -- '*.ckpt' 'hunyuan3d-paint-v2-0-turbo/unet/diffusion_pytorch_model.safetensors'
+get VAST-AI/UniRig 36842e2b5947e9e60f89275b83208c8e74071c63 'skeleton/articulation-xl_quantization_256/*' 'skin/articulation-xl/*'
 # UniRig only needs this model's config (its skeleton model is built on OPT's architecture).
-HF_HOME="$GEN/hf" "${HF_CLI[@]}" download facebook/opt-350m config.json >/dev/null
+HF_HOME="$GEN/hf" "${HF_CLI[@]}" download facebook/opt-350m --revision 08ab08cc4b72ff5593870b5d527cf4230323703c config.json >/dev/null
 
 step "Music: GeneralUser GS SoundFont (v2.0.3; free for any music, including commercial)"
 SF2="$GEN/models/soundfonts/GeneralUser-GS.sf2"
@@ -84,11 +91,11 @@ done
 step "Sound effects: Stable Audio Open Small + CLAP (Stability AI Community License: free under \$1M annual revenue)"
 # Gated on Hugging Face: accept the licence at https://huggingface.co/stabilityai/stable-audio-open-small and log
 # this cache in once with: HF_HOME=$GEN/hf uvx --from 'huggingface_hub[cli,hf_xet]==2.4.0' hf auth login
-get stabilityai/stable-audio-open-small model.safetensors model_config.json LICENSE \
+get stabilityai/stable-audio-open-small ea2772170fc06f80dfd02bea6e57a44d9d4bc9d3 model.safetensors model_config.json LICENSE \
 	|| echo "   warning: couldn't download Stable Audio Open Small (accept its licence and log in, see above); sound generation is off"
-get laion/larger_clap_general
+get laion/larger_clap_general ada0c23a36c4e8582805bb38fec3905903f18b41
 # The model's T5 text encoder is loaded by name; the worker runs offline from this cache.
-HF_HOME="$GEN/hf" "${HF_CLI[@]}" download t5-base config.json spiece.model tokenizer.json model.safetensors >/dev/null
+HF_HOME="$GEN/hf" "${HF_CLI[@]}" download t5-base --revision a9723ea7f1b39c1eae772870f3b547bf6ef7e6c1 config.json spiece.model tokenizer.json model.safetensors >/dev/null
 
 step "Environment: image (FLUX.2 Klein)"
 mkenv image

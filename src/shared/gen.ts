@@ -1,7 +1,10 @@
 /** Local asset generation: a GPU job queue over model workers. See the vault note "M4 3D Models". */
 
 /** A Python environment with its worker; only one runs at a time, since only one model family fits in VRAM. */
-export type GenFamily = "image" | "hunyuan3d" | "unirig" | "stable-audio";
+export type GenFamily = "image" | "hunyuan3d" | "unirig" | "stable-audio" | "surface";
+
+/** Families that never touch the GPU: their worker runs beside whichever one holds it, and is gone when its job is. */
+export const CPU_FAMILIES: readonly GenFamily[] = ["surface"];
 
 export type GenJobKind = "image" | "surface" | "surface_make" | "shape" | "texture" | "rig" | "sound" | BlenderJobKind;
 
@@ -52,9 +55,10 @@ export interface GenStatus {
 /** Which worker runs each GPU job kind (Blender jobs run on the CPU). */
 export const FAMILY_OF: Record<Exclude<GenJobKind, BlenderJobKind>, { family: GenFamily; op: string }> = {
 	image: { family: "image", op: "image" },
-	// Tileable surface textures (M9): candidates on the GPU, then the maps (CPU, in the same worker).
+	// Tileable surface textures (M9): candidates on the GPU; the maps on the CPU, in a small worker of their own, so
+	// making a texture doesn't stop a warm model of another family.
 	surface: { family: "image", op: "surface" },
-	surface_make: { family: "image", op: "surface_make" },
+	surface_make: { family: "surface", op: "surface_make" },
 	shape: { family: "hunyuan3d", op: "shape" },
 	texture: { family: "hunyuan3d", op: "texture" },
 	rig: { family: "unirig", op: "rig" },
