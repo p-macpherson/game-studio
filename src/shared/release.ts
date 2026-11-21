@@ -1,8 +1,13 @@
 // Shipping builds: the project's release.json, and which of its files a player's copy of the game needs. The main
 // process (src/main/release.ts) builds, packages and checks releases with these rules.
 
-export type ReleaseTarget = "linux" | "windows";
-export const RELEASE_TARGETS: ReleaseTarget[] = ["linux", "windows"];
+export type ReleaseTarget = "linux" | "windows" | "web";
+export const RELEASE_TARGETS: ReleaseTarget[] = ["linux", "windows", "web"];
+/** The platforms of a release.json that names none: web (a browser build) is opted into. */
+export const DEFAULT_RELEASE_TARGETS: ReleaseTarget[] = ["linux", "windows"];
+export const RELEASE_TARGET_LABEL: Record<ReleaseTarget, string> = { linux: "Linux", windows: "Windows", web: "Web" };
+/** The itch.io channel a target uploads to unless release.json names one. */
+export const DEFAULT_ITCH_CHANNEL: Record<ReleaseTarget, string> = { linux: "linux", windows: "windows", web: "html5" };
 export const RELEASE_FILE = "release.json";
 
 export interface ReleaseConfig {
@@ -38,8 +43,8 @@ export function parseReleaseConfig(text: string | undefined, projectName: string
 	const list = (k: string) => (Array.isArray(raw[k]) ? (raw[k] as unknown[]).filter((x): x is string => typeof x === "string") : []);
 	const version = str("version") ?? "0.1.0";
 	if (!/^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$/.test(version)) problems.push(`version "${version}" isn't like 1.0.0`);
-	const targets = raw.targets === undefined ? [...RELEASE_TARGETS] : list("targets");
-	for (const t of targets) if (!RELEASE_TARGETS.includes(t as ReleaseTarget)) problems.push(`unknown target "${t}" (linux or windows)`);
+	const targets = raw.targets === undefined ? [...DEFAULT_RELEASE_TARGETS] : list("targets");
+	for (const t of targets) if (!RELEASE_TARGETS.includes(t as ReleaseTarget)) problems.push(`unknown target "${t}" (linux, windows or web)`);
 	const icon = str("icon");
 	if (icon && !icon.toLowerCase().endsWith(".png")) problems.push(`icon "${icon}" must be a PNG under assets/`);
 	const itchRaw = raw.itch as { target?: unknown; channels?: unknown } | undefined;
@@ -77,6 +82,7 @@ export function releaseSlug(name: string): string {
 
 /** The archive (or AppImage) names for a build. */
 export function releaseArchiveName(config: ReleaseConfig, target: ReleaseTarget, kind: "tar.gz" | "zip" | "AppImage"): string {
+	if (target === "web") return `${releaseSlug(config.name)}-${config.version}-web.${kind}`;
 	return `${releaseSlug(config.name)}-${config.version}-${target}-x86_64.${kind}`;
 }
 
@@ -183,8 +189,8 @@ export interface ReleaseInfo {
 	manifest: ReleaseManifest;
 	/** Past builds in builds/, newest first. */
 	builds: ReleaseBuild[];
-	/** Wine is installed (Windows builds can be checked); appimagetool is here or can be downloaded. */
-	tools: { wine: boolean; appimagetool: boolean };
+	/** Wine is installed (Windows builds can be checked); appimagetool is here or can be downloaded; the game's engine can build for the web. */
+	tools: { wine: boolean; appimagetool: boolean; web: boolean };
 	/** An itch.io API key is saved (Settings → Accounts). */
 	itchKey: boolean;
 }

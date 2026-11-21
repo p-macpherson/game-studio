@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { notRuntime, parseReleaseConfig } from "../shared/release";
@@ -109,6 +110,23 @@ describe.skipIf(!haveEngine)("buildRelease", () => {
 		expect(existsSync(join(pkg, "assets/sounds/beep/takes"))).toBe(false);
 		expect(build.archives).toContain("builds/1.2.3/linux/ship-test-1.2.3-linux-x86_64.tar.gz");
 		expect(sh(root, "status", "--porcelain")).not.toContain("builds");
+	}, 300_000);
+
+	// No browser outside the studio: the package is made and the check says it couldn't run (the e2e runs it for real).
+	it.skipIf(!existsSync(join(engineRepo, "tools/web.sh")) || !existsSync(join(engineRepo, "third_party/lib/web/libraylib.a")))("packages a web build: a page with only the files that ship, zipped with index.html at its root", async () => {
+		const root = await game();
+		const build = await buildRelease({ root, projectName: "Ship Test", target: "web", engineRepo });
+		expect(build.checks).toEqual([{ name: "Runs in a browser", ok: false, detail: "There's no browser to check the web build with here" }]);
+		const pkg = join(root, build.dir);
+		expect(build.dir).toBe("builds/1.2.3/web/ship-test");
+		expect(readdirSync(pkg).sort()).toEqual(["LICENSES.txt", "index.data", "index.html", "index.js", "index.wasm", "odin.js"]);
+		expect(readFileSync(join(pkg, "index.html"), "utf8")).toContain("<title>Ship Test</title>");
+		// The assets are inside index.data: its file list (in index.js) names what ships and nothing else.
+		const loader = readFileSync(join(pkg, "index.js"), "utf8");
+		expect(loader).toContain("/assets/sounds/beep/beep.ogg");
+		expect(loader).not.toContain("take-1.wav");
+		expect(build.archives).toEqual(["builds/1.2.3/web/ship-test-1.2.3-web.zip"]);
+		expect(execFileSync("python3", ["-m", "zipfile", "-l", join(root, build.archives[0])], { encoding: "utf8" })).toMatch(/^index\.html\s/m);
 	}, 300_000);
 
 	const wine = ["/usr/bin/wine"].find((p) => existsSync(p));
