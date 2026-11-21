@@ -404,6 +404,76 @@ export function studioTools(ctx: StudioToolContext) {
 			},
 		}),
 		defineTool({
+			name: "preview_effect",
+			label: "Preview an effect",
+			description:
+				"See an effect file (assets/effects/<name>.json) in the game's own engine at chosen moments: each frame plays it afresh and simulates it ahead " +
+				"to that time with a fixed seed, so a burst unfolds as a sequence (default 0.1, 0.3, 0.6, 1, 1.6 s; give your own times: close together to " +
+				"judge speed, spread out to see it build and fade). On a dark ground (default; glows read best) or a light one, with a little bloom, or in " +
+				"one of the game's scenes at a position. The camera frames the particles unless you give a view. Returns the frames (640x360) with their " +
+				"particle counts, the effect's bounds in metres, and problems in the file (each saying where it is).",
+			parameters: Type.Object({
+				effect: Type.String({ description: "The effect's name: 'sparks' for assets/effects/sparks.json" }),
+				times: Type.Optional(Type.Array(Type.Number(), { description: "Seconds into the effect, at most 8" })),
+				background: Type.Optional(Type.Union([Type.Literal("dark"), Type.Literal("light")])),
+				scene: Type.Optional(Type.String({ description: "Play it in this scene instead, e.g. 'assets/scenes/clearing.json'" })),
+				position: Type.Optional(Type.Array(Type.Number(), { description: "Where to play it [x, y, z] (default the origin)" })),
+				view: Type.Optional(Type.Object({ position: Type.Array(Type.Number()), target: Type.Array(Type.Number()) })),
+				post: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: "Post-processing for the plain ground (default {\"bloom\": 0.6})" })),
+				seed: Type.Optional(Type.Number()),
+			}),
+			async execute(_id, params, signal, onUpdate) {
+				const { frames, ...rest } = (await ctx.request("preview_effect", params, signal, progressTo(onUpdate))) as { frames: { time: number; particles: number; image: string }[] };
+				const text = `${JSON.stringify(rest, null, 2)}\nFrames, in order: ${frames.map((f) => `t = ${f.time} s (${f.particles} particles)`).join("; ")}`;
+				return { content: [{ type: "text" as const, text }, ...frames.flatMap((f) => image(f.image))], details: {} };
+			},
+		}),
+		defineTool({
+			name: "generate_particle_texture",
+			label: "Generate particle texture candidates",
+			description:
+				"Generate candidates for a particle sprite with a local image model (about 4 s each), cut out ready for effects, into " +
+				"assets/effects/textures/<name>/candidates/. mode 'glow' for light (sparks, embers, flames, magic: generated on black, so the brightness " +
+				"becomes the shape) or 'solid' for things (leaves, coins, petals, debris: on white, keyed out). Prompt one element and the game's style. " +
+				"Returns a sheet of the candidates over dark and light: pick one with make_particle_texture. For soft basics (dots, smoke and dust puffs, " +
+				"sparks, rings) and any flipbook, skip this: make_particle_texture makes them procedurally.",
+			parameters: Type.Object({
+				name: Type.String({ description: "Under assets/effects/textures/, lower-kebab-case: e.g. 'spark', 'leaves/maple'" }),
+				mode: Type.Union([Type.Literal("glow"), Type.Literal("solid")]),
+				prompt: Type.String({ description: "One element: 'a bright four-pointed star sparkle', 'a single small autumn leaf'" }),
+				style: Type.Optional(Type.String({ description: "The game's art style, e.g. 'stylised hand-painted'" })),
+				count: Type.Optional(Type.Number({ description: "Candidates (1-4, default 3)" })),
+				seed: Type.Optional(Type.Number()),
+			}),
+			async execute(_id, params, signal, onUpdate) {
+				return pictured(await ctx.request("generate_particle_texture", params, signal, progressTo(onUpdate)), "sheet", "The candidates over dark and light, in the order above:");
+			},
+		}),
+		defineTool({
+			name: "make_particle_texture",
+			label: "Make a particle texture",
+			description:
+				"Make a particle texture: from a generated candidate (source), or procedurally from a recipe (no GPU, instant, white so the effect colours it): " +
+				"shape dot, soft, smoke, dust, spark, star, ember, streak or ring; smoke, dust and ring can be a flipbook [columns, rows] (smoke and dust grow " +
+				"and thin, a ring spreads: ripples, shockwaves). Returns the path effects use as texture (e.g. 'effects/textures/smoke/smoke.png'), its " +
+				"flipbook (set the same flipbook in the effect) and a preview.",
+			parameters: Type.Object({
+				name: Type.String(),
+				source: Type.Optional(Type.String({ description: "A generated candidate, e.g. 'candidates/spark-1002.png'" })),
+				recipe: Type.Optional(
+					Type.Object({
+						shape: Type.String({ description: "dot, soft, smoke, dust, spark, star, ember, streak, ring" }),
+						flipbook: Type.Optional(Type.Array(Type.Integer({ minimum: 1, maximum: 8 }), { minItems: 2, maxItems: 2 })),
+						seed: Type.Optional(Type.Number()),
+					}),
+				),
+				notes: Type.Optional(Type.String()),
+			}),
+			async execute(_id, params, signal, onUpdate) {
+				return pictured(await ctx.request("make_particle_texture", params, signal, progressTo(onUpdate)), "preview", "As effects will use it, over dark and light:");
+			},
+		}),
+		defineTool({
 			name: "move_asset",
 			label: "Move asset",
 			description:

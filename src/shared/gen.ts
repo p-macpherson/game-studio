@@ -6,7 +6,7 @@ export type GenFamily = "image" | "hunyuan3d" | "unirig" | "stable-audio" | "sur
 /** Families that never touch the GPU: their worker runs beside whichever one holds it, and is gone when its job is. */
 export const CPU_FAMILIES: readonly GenFamily[] = ["surface"];
 
-export type GenJobKind = "image" | "surface" | "surface_make" | "ui_cut" | "ui_make" | "shape" | "texture" | "rig" | "sound" | BlenderJobKind;
+export type GenJobKind = "image" | "surface" | "surface_make" | "ui_cut" | "ui_make" | "particle_cut" | "particle_make" | "shape" | "texture" | "rig" | "sound" | BlenderJobKind;
 
 /** Jobs that run a script in gen/blender/ (on the CPU, beside the GPU queue's model workers). */
 export type BlenderJobKind = "finalize" | "animate" | "rig_prop" | "retarget";
@@ -121,6 +121,9 @@ export const FAMILY_OF: Record<Exclude<GenJobKind, BlenderJobKind>, { family: Ge
 	// UI art (M10): generated with "image", then cut out, mirrored and sliced on the CPU.
 	ui_cut: { family: "surface", op: "ui_cut" },
 	ui_make: { family: "surface", op: "ui_make" },
+	// Particle textures (M12): sprites generated with "image" and cut out, or made procedurally, on the CPU.
+	particle_cut: { family: "surface", op: "particle_cut" },
+	particle_make: { family: "surface", op: "particle_make" },
 	shape: { family: "hunyuan3d", op: "shape" },
 	texture: { family: "hunyuan3d", op: "texture" },
 	rig: { family: "unirig", op: "rig" },

@@ -20,6 +20,7 @@ import { sceneRequests } from "./scenes";
 import { SoundPipeline, soundRequests, soundUsages } from "./sounds";
 import { studioRequests } from "./studio-requests";
 import { TexturePipeline, textureRequests } from "./textures";
+import { effectRequests, ParticleTexturePipeline } from "./effects";
 import { shaderRequests } from "./shaders";
 import { UiArtPipeline, uiRequests } from "./ui";
 import { texturePaths } from "../modules/textures/info";
@@ -97,6 +98,7 @@ async function main(): Promise<void> {
 		sceneRequests((sessionId, p) => runner.previewScene(sessionId, String(p.scene), p.views as SceneView[] | undefined)),
 		uiRequests(uiArt, (sessionId, p) => runner.previewUi(sessionId, p.screen, p.values)),
 		shaderRequests({ check: (sessionId, name) => runner.checkShader(sessionId, name), preview: (sessionId, p) => runner.previewShader(sessionId, p) }),
+		effectRequests(new ParticleTexturePipeline(gen), (sessionId, p) => runner.previewEffect(sessionId, p)),
 		assetRequests(moduleInfos),
 		designDocRequests(),
 	);

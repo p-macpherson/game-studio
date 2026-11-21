@@ -104,6 +104,32 @@ def ui_make(job: Job, p: dict) -> dict:
     return {"file": f, "slice": s, "preview": preview}
 
 
+def particle_cut(job: Job, p: dict) -> dict:
+    step(job, "particle_cut", p)
+    os.makedirs(p["out_dir"], exist_ok=True)
+    out = []
+    for src in p["images"]:
+        f = os.path.join(p["out_dir"], os.path.splitext(os.path.basename(src))[0] + ".png")
+        shutil.copyfile(src, f)
+        out.append({"file": f})
+    fd, sheet = tempfile.mkstemp(prefix="gs-particles-", suffix=".png")
+    os.close(fd)
+    shutil.copyfile(os.path.join(FIXTURES, "concept.png"), sheet)
+    return {"candidates": out, "sheet": sheet}
+
+
+def particle_make(job: Job, p: dict) -> dict:
+    step(job, "particle_make", p)
+    os.makedirs(p["out_dir"], exist_ok=True)
+    f = os.path.join(p["out_dir"], f"{p['name']}.png")
+    shutil.copyfile(p.get("source") or os.path.join(FIXTURES, "concept.png"), f)
+    fd, preview = tempfile.mkstemp(prefix="gs-particles-", suffix=".png")
+    os.close(fd)
+    shutil.copyfile(os.path.join(FIXTURES, "concept.png"), preview)
+    fb = (p.get("recipe") or {}).get("flipbook") or [1, 1]
+    return {"file": f, "flipbook": fb, "preview": preview}
+
+
 def shape(job: Job, p: dict) -> dict:
     step(job, "shape", p)
     return {"mesh": copy("cube.glb", p["out"]), "faces": 12, "vertices": 24, "seed": int(p.get("seed") or 1), "model": "fake"}
@@ -147,4 +173,4 @@ def rig(job: Job, p: dict) -> dict:
 
 
 if __name__ == "__main__":
-    serve({"image": image, "surface": surface, "surface_make": surface_make, "ui_cut": ui_cut, "ui_make": ui_make, "shape": shape, "texture": texture, "rig": rig, "sound": sound})
+    serve({"image": image, "surface": surface, "surface_make": surface_make, "ui_cut": ui_cut, "ui_make": ui_make, "particle_cut": particle_cut, "particle_make": particle_make, "shape": shape, "texture": texture, "rig": rig, "sound": sound})

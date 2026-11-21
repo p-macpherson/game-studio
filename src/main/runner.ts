@@ -19,6 +19,7 @@ import {
 } from "../shared/run";
 import { parseScene, type SceneEntity, validateScene } from "../shared/scene";
 import { safeJoin, walk } from "./assets";
+import { effectTextures, parseEffect } from "../shared/effect";
 import { parseShader, type ShaderInfo, shaderPath, validateShaderParams } from "../shared/shader";
 import { normalizeSceneFile, shaderProblems } from "./scenes";
 import { readScreen } from "./ui";
@@ -89,6 +90,21 @@ interface ExecResult {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** What preview_effect shows: an effect (by name) at some moments, on a plain ground or in a scene. */
+export interface EffectPreview {
+	effect: string;
+	/** Seconds into the effect (default 0.1, 0.3, 0.6, 1, 1.6; at most 8). */
+	times?: number[];
+	/** The plain ground's light (default dark: glows read best at night). */
+	background?: "dark" | "light";
+	/** Play it in this scene (repo-relative) instead, at `position`. */
+	scene?: string;
+	position?: number[];
+	view?: { position: number[]; target: number[] };
+	post?: Record<string, unknown>;
+	seed?: number;
+}
 
 /** What preview_shader shows: a shader (by name) on a mesh, or in a scene, at some moments. */
 export interface ShaderPreview {
@@ -492,6 +508,97 @@ export class RunService {
 			});
 		} finally {
 			if (dir) rmSync(dir, { recursive: true, force: true });
+		}
+	}
+
+	/**
+	 * An effect file in the game's engine at chosen moments (each played afresh and simulated ahead to its time, with a
+	 * fixed seed), so a burst unfolds as a sequence: on a dark or light ground with a little bloom (a temp scene
+	 * outside the checkout), or in one of the game's scenes. The camera frames the effect's particles unless `view` is
+	 * given. Returns the frames with their particle counts, the effect's bounds and problems.
+	 */
+	async previewEffect(sessionId: CheckoutId, p: EffectPreview) {
+		const co = this.checkout(sessionId);
+		const path = `effects/${p.effect.replace(/^(assets\/)?effects\//, "").replace(/\.json$/, "")}.json`;
+		const file = safeJoin(co.cwd, `assets/${path}`);
+		if (!existsSync(file)) throw new Error(`No assets/${path} in this checkout`);
+		const { effect, problems } = parseEffect(readFileSync(file, "utf8"));
+		for (const t of effect ? effectTextures(effect) : []) if (!existsSync(safeJoin(co.cwd, `assets/${t}`))) problems.push(`texture ${t} not found`);
+		const times = (p.times?.length ? p.times : [0.1, 0.3, 0.6, 1, 1.6]).slice(0, 8);
+		const at = p.position ?? [0, 0, 0];
+		let scene: string;
+		let dir: string | undefined;
+		if (p.scene) {
+			if (!existsSync(safeJoin(co.cwd, p.scene))) throw new Error(`No ${p.scene} in this checkout`);
+			scene = p.scene.replace(/^assets\//, "");
+		} else {
+			const dark = (p.background ?? "dark") === "dark";
+			const environment = dark
+				? { sky_zenith: [0.03, 0.04, 0.08], sky_horizon: [0.1, 0.11, 0.16], exposure: 0.9, post: p.post ?? { bloom: 0.6 } }
+				: { sky_zenith: [0.3, 0.5, 0.8], sky_horizon: [0.75, 0.82, 0.9], post: p.post ?? { bloom: 0.6 } };
+			const entities = [
+				{ id: 1, Name: "Sun", Transform: { rotation: [40, 35, 0] }, Light: { kind: "Directional", intensity: dark ? 0.15 : 1.1, shadows: true } },
+				{ id: 2, Name: "Ground", Transform: { position: [0, -0.5, 0], scale: [30, 1, 30] }, Mesh_Renderer: { mesh: "cube", material: { color: dark ? [0.12, 0.12, 0.14, 1] : [0.5, 0.5, 0.48, 1], roughness: 0.9 } } },
+			];
+			dir = mkdtempSync(join(tmpdir(), "gs-effect-"));
+			scene = join(dir, "preview.json");
+			writeFileSync(scene, JSON.stringify({ environment, entities }));
+		}
+		try {
+			return await this.withEngine(co, ["--mode=hidden", "--width=640", "--height=360", "--fps=60", "--paused", `--scene=${scene}`], async (client) => {
+				await client.call("debug", { game_ui: false });
+				if (p.scene && p.post) await client.call("environment", { value: { post: p.post } });
+				const seed = p.seed ?? 7;
+				const play = async (time: number) => {
+					await this.effectCall(client, "effect_stop", { clear: true });
+					await client.call("wait", { frames: 1 });
+					const r = (await this.effectCall(client, "effect_play", { path, position: at, time, seed })) as { handle: number; problems: string[] };
+					await client.call("wait", { frames: 2 });
+					const state = (await client.call("effects")) as { playing: { handle: number; particles: number; bounds?: number[][] }[] };
+					const live = state.playing.find((x) => x.handle === r.handle);
+					return { handle: r.handle, particles: live?.particles ?? 0, bounds: live?.bounds };
+				};
+				// Frame the camera on where the particles are at the last moment (or the whole run's largest).
+				let bounds: number[][] | undefined;
+				for (const t of [...times].sort((a, b) => b - a).slice(0, 2)) {
+					const b = (await play(t)).bounds;
+					if (b) bounds = bounds ? [b[0].map((v, i) => Math.min(v, bounds![0][i])), b[1].map((v, i) => Math.max(v, bounds![1][i]))] : b;
+				}
+				let camera = p.view;
+				if (!camera) {
+					const c = bounds ? bounds[0].map((v, i) => (v + bounds![1][i]) / 2) : [at[0], at[1] + 0.5, at[2]];
+					const e = bounds ? Math.max(...bounds[1].map((v, i) => v - bounds![0][i]), 0.5) : 1.5;
+					camera = { position: [c[0] + e * 0.35, c[1] + e * 0.45, c[2] - (e * 1.3 + 1.2)], target: c };
+				}
+				await client.call("camera", { ...camera, fov: 50 });
+				const frames: { time: number; particles: number; image: string }[] = [];
+				for (const time of times) {
+					const r = await play(time);
+					const shot = (await client.call("screenshot", { inline: true, format: "jpeg", quality: 85 })) as { jpeg_base64: string };
+					frames.push({ time, particles: r.particles, image: `data:image/jpeg;base64,${shot.jpeg_base64}` });
+				}
+				const state = (await client.call("effects")) as { loaded: { path: string; problems: string[] }[] };
+				const engineProblems = state.loaded.find((l) => l.path === path)?.problems ?? [];
+				const logs = (await client.call("logs")) as { level: string; text: string }[];
+				return {
+					frames,
+					bounds,
+					problems: [...new Set([...problems, ...engineProblems])],
+					warnings: logs.filter((l) => ["warn", "error"].includes(l.level.trim()) && !/u32 to u16|^effect /.test(l.text)).map((l) => l.text),
+				};
+			});
+		} finally {
+			if (dir) rmSync(dir, { recursive: true, force: true });
+		}
+	}
+
+	/** An effects command, with a clear error from an engine older than effects. */
+	private async effectCall(client: EngineClient, cmd: string, args: Record<string, unknown>): Promise<unknown> {
+		try {
+			return await client.call(cmd, args);
+		} catch (e) {
+			if (/unknown command/i.test(String(e))) throw new Error(`This game's engine predates effect files: update the engine (Game Code → Update engine) first`);
+			throw e;
 		}
 	}
 

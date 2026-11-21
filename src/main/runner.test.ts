@@ -179,6 +179,26 @@ describe.skipIf(!existsSync(join(engineRepo, "third_party/lib")))("RunService", 
 		}
 	}, 90_000);
 
+	it("previews an effect over time in the game's engine: frames, counts, bounds, problems", async () => {
+		const dir = join(project, "assets/effects");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(
+			join(dir, "burst.json"),
+			JSON.stringify({ emitters: [{ burst: [{ at: 0, count: 40 }], life: 1, speed: [1, 2], gravity: 3, shape: { kind: "cone", angle: 30 }, color: [[0, "#ffd080", 1, 4], [1, "#ff6020", 0]], blend: "additive", texture: "effects/textures/nothing.png" }] }),
+		);
+		try {
+			const r = await runner.previewEffect(null, { effect: "burst", times: [0.1, 0.5, 1.5] });
+			expect(r.frames.map((f) => [f.time, f.particles])).toEqual([[0.1, 40], [0.5, 40], [1.5, 0]]);
+			expect(r.frames[0].image).toMatch(/^data:image\/jpeg;base64,/);
+			// Paused: only the replay at another time changes the picture (each a fresh play: an older one must be gone).
+			expect(new Set(r.frames.map((f) => f.image)).size).toBe(3);
+			expect(r.bounds?.[1][1]).toBeGreaterThan(0.3); // they rose
+			expect(r.problems).toEqual(["texture effects/textures/nothing.png not found"]);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	}, 90_000);
+
 	it("checks a material shader and previews it over time in the game's engine", async () => {
 		const dir = join(project, "assets/shaders");
 		mkdirSync(dir, { recursive: true });
