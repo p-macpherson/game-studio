@@ -315,7 +315,8 @@ export class RunService {
 			client = await EngineClient.connect(port, () => proc.exitCode === null);
 			await client.call("wait", { frames: 2 });
 			await client.call("ui_hide", { all: true });
-			if (Object.keys(values).length) await client.call("ui_set", { values });
+			// Pinned: a game that sets its values every frame (from its real state) mustn't overwrite the samples.
+			if (Object.keys(values).length) await client.call("ui_set", { values, pin: true });
 			await client.call("ui_show", { screen });
 			await client.call("wait", { frames: 4 });
 			const shot = (await client.call("screenshot", { inline: true, format: "jpeg", quality: 88 })) as { jpeg_base64: string };

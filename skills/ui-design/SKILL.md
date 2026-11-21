@@ -59,7 +59,8 @@ screens over the game (bottom to top) and reloads a file when it changes.
 ## Checking
 `preview_ui` shows a screen in the game's engine with `values` for its bindings, and returns where every element
 landed (`rect` [x, y, w, h] in UI units), the bindings it reads, the actions it reports, bindings you didn't give and
-problems in the file. Check with realistic values **and** the extremes (0, 99999, the longest text), and look at the
+problems in the file. The values are pinned for the preview (the game's own `ui_set` calls don't overwrite them).
+Check with realistic values **and** the extremes (0, 99999, the longest text), and look at the
 image every time: overlaps, text spilling out of frames, unreadable colours.
 
 ## Wiring it into the game (for the code)
@@ -67,7 +68,8 @@ image every time: overlaps, text spilling out of frames, unreadable colours.
 // init: the title over the scene; the HUD under everything once playing.
 engine.ui_show("title")
 
-// update: values every frame (cheap), then actions from the last frame.
+// draw_ui (it runs every frame; update stops while a pausing screen is shown, so a Resume handled there never
+// fires): values every frame (cheap), then the actions from the last frame.
 engine.ui_set("gold", game.gold)
 engine.ui_set("chests_left", chests_left)
 for a in engine.ui_actions() {
@@ -80,8 +82,8 @@ for a in engine.ui_actions() {
 	}
 }
 if input.key_pressed(.ESCAPE) && engine.ui_shown("hud") && !engine.ui_shown("pause") do engine.ui_show("pause")
-if engine.ui_blocking() do return // a menu is up: no gameplay input
+// In update: if engine.ui_blocking() do return (a menu is up: no gameplay input)
 ```
-A screen with `pauses: true` freezes the simulation while shown (`update` still runs, so menus work). A scripted test
+A screen with `pauses: true` freezes the simulation while shown: `update` and physics stop; `draw_ui` keeps running. A scripted test
 can click buttons by label (`{"cmd": "ui_click", "label": "Resume"}`), read `ui_tree` and `ui_actions`, and set values
 with `ui_set`.

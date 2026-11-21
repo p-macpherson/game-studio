@@ -146,7 +146,7 @@ function ScreenDetail({ asset, text, checkout: shownCheckout, onNewArt }: AssetC
 		if (!live) return;
 		shown.current = text;
 		void (async () => {
-			if (Object.keys(values).length) await call("run.call", "ui_set", { values });
+			if (Object.keys(values).length) await call("run.call", "ui_set", { values, pin: true });
 			await refreshTree();
 		})().catch(showError);
 		// eslint-disable-next-line react-hooks/exhaustive-deps
@@ -186,7 +186,7 @@ function ScreenDetail({ asset, text, checkout: shownCheckout, onNewArt }: AssetC
 		setValuesState(next);
 		localStorage.setItem(valuesKey(project?.path ?? "", name), JSON.stringify(next));
 		if (live) void (async () => {
-			await call("run.call", "ui_set", { values: next });
+			await call("run.call", "ui_set", { values: next, pin: true });
 			await refreshTree();
 		})().catch(showError);
 	};
