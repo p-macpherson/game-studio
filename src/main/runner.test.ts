@@ -131,6 +131,33 @@ describe.skipIf(!existsSync(join(engineRepo, "third_party/lib")))("RunService", 
 		}
 	}, 60_000);
 
+	it("previews a UI screen in the game's engine with sample values: layout, text, unset bindings, problems", async () => {
+		mkdirSync(join(project, "assets/ui"), { recursive: true });
+		writeFileSync(
+			join(project, "assets/ui/hud.json"),
+			JSON.stringify({
+				elements: [
+					{ id: "box", type: "panel", anchor: "top_left", offset: [16, 16], size: [260, 90], padding: 12, children: [
+						{ id: "gold", type: "text", text: "Gold: {gold}" },
+						{ id: "map", type: "text", text: "Map found", visible: "has_map", anchor: "bottom_left" },
+					] },
+					{ id: "logo", type: "image", image: "ui/missing.png", size: [64, 64], anchor: "top_right" },
+				],
+			}),
+		);
+		try {
+			const r = await runner.previewUi(null, "hud", { gold: 250 });
+			expect(r.image).toMatch(/^data:image\/jpeg;base64,/);
+			expect(r.elements.find((e) => e.id === "gold")).toMatchObject({ text: "Gold: 250", rect: [28, 28, expect.any(Number), expect.any(Number)] });
+			expect(r.elements.find((e) => e.id === "map")).toMatchObject({ visible: false });
+			expect(r.bindings).toEqual(["gold", "has_map"]);
+			expect(r.unset).toEqual(["has_map"]);
+			expect(r.warnings).toContain("elements.logo.image: No assets/ui/missing.png");
+		} finally {
+			rmSync(join(project, "assets/ui"), { recursive: true, force: true });
+		}
+	}, 60_000);
+
 	it("opens a scene paused for the Scenes editor, with file ids and picking", async () => {
 		const run = await runner.start(null, "hidden", { scene: "scenes/main.json" });
 		expect(run).toMatchObject({ state: "running", scene: "scenes/main.json" });

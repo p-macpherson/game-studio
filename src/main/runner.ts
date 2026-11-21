@@ -20,6 +20,8 @@ import {
 import { parseScene, type SceneEntity, validateScene } from "../shared/scene";
 import { safeJoin, walk } from "./assets";
 import { normalizeSceneFile } from "./scenes";
+import { readScreen } from "./ui";
+import { screenInterface } from "../shared/ui-screen";
 import { EngineClient, freePort } from "./engine-client";
 import type { SessionService } from "./sessions";
 
@@ -286,6 +288,47 @@ export class RunService {
 			throw new Error(`The game doesn't build, so it can't show the scene:\n${(built.stdout + built.stderr).trim().split("\n").slice(-12).join("\n")}`);
 		}
 		return this.shoot(co, path.replace(/^assets\//, ""), scene?.entities ?? [], views, problems);
+	}
+
+	/**
+	 * A UI screen in the game's own engine over its default scene, paused, with sample `values` for its bindings: a
+	 * screenshot, every element as laid out (id, type, rect in UI units, text with values filled in), the file's
+	 * problems and engine warnings, and the bindings it reads that got no value.
+	 */
+	async previewUi(sessionId: CheckoutId, screen: string, values: Record<string, unknown> = {}) {
+		const co = this.checkout(sessionId);
+		const { screen: parsed, problems } = readScreen(co.cwd, screen);
+		const built = await this.exec(co, ["build"]);
+		if (built.code !== 0) throw new Error(`The game doesn't build, so it can't show the screen:\n${(built.stdout + built.stderr).trim().split("\n").slice(-12).join("\n")}`);
+		const port = await freePort();
+		const proc = await this.launch(co, ["--mode=hidden", `--control=${port}`, "--fps=60", "--paused"]);
+		let client: EngineClient | undefined;
+		try {
+			client = await EngineClient.connect(port, () => proc.exitCode === null);
+			await client.call("wait", { frames: 2 });
+			await client.call("ui_hide", { all: true });
+			if (Object.keys(values).length) await client.call("ui_set", { values });
+			await client.call("ui_show", { screen });
+			await client.call("wait", { frames: 4 });
+			const shot = (await client.call("screenshot", { inline: true, format: "jpeg", quality: 88 })) as { jpeg_base64: string };
+			const tree = ((await client.call("ui_tree")) as { screen: string; id: string; type: string; depth: number; rect: number[]; text: string; visible: boolean }[]).filter((n) => n.screen === screen);
+			const state = (await client.call("ui_screens")) as { screens: Record<string, { error: string }> };
+			const logs = (await client.call("logs")) as { level: string; text: string }[];
+			const engineError = state.screens[screen]?.error;
+			const reads = parsed ? screenInterface(parsed) : { bindings: [], actions: [] };
+			return {
+				image: `data:image/jpeg;base64,${shot.jpeg_base64}`,
+				elements: tree.map((n) => ({ id: n.id, type: n.type, depth: n.depth, rect: n.rect, ...(n.text ? { text: n.text } : {}), ...(n.visible ? {} : { visible: false }) })),
+				bindings: reads.bindings,
+				actions: reads.actions,
+				unset: reads.bindings.filter((b) => !(b in values)),
+				warnings: [...problems, ...(engineError ? [engineError] : []), ...logs.filter((l) => ["warn", "error"].includes(l.level.trim())).map((l) => l.text)],
+			};
+		} finally {
+			await client?.call("quit").catch(() => {});
+			client?.close();
+			setTimeout(() => proc.exitCode === null && proc.kill("SIGKILL"), 2000);
+		}
 	}
 
 	/**

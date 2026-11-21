@@ -306,6 +306,61 @@ export function studioTools(ctx: StudioToolContext) {
 			},
 		}),
 		defineTool({
+			name: "generate_ui_art",
+			label: "Generate UI art candidates",
+			description:
+				"Generate candidates for a piece of game UI art in assets/ui/art/<name>/candidates/: a 'frame' (a panel's stretchable border), a 'button' or an " +
+				"'icon'. The prompt is the subject and its look, e.g. 'a carved dark wooden border with small gold rivets, a plain parchment inside' or 'a gold " +
+				"coin with a goblin face'; pass the game's art direction as style. The studio adds the kind's framing and a plain background, then cuts each out " +
+				"and (frames, buttons) mirrors it exactly symmetric and finds its slice insets (the corners that don't stretch). Returns each candidate's source, " +
+				"seed and slice, and a sheet showing each the way screens use it (frames and buttons stretched to several shapes, icons at 48 and 96 px): look for " +
+				"stretched ornaments, squashed round ends, ragged cut-out edges, and icons that don't read small.",
+			parameters: Type.Object({
+				name: Type.String({ description: "The art's folder under assets/ui/art/, lower-kebab-case, '/' for folders: e.g. 'panel', 'buttons/wood', 'icons/coin'" }),
+				kind: Type.Union([Type.Literal("frame"), Type.Literal("button"), Type.Literal("icon")]),
+				prompt: Type.String(),
+				style: Type.Optional(Type.String({ description: "The game's art direction, e.g. 'whimsical hand-painted fantasy, warm colours'" })),
+				count: Type.Optional(Type.Number({ description: "Candidates (1-4, default 3)" })),
+				seed: Type.Optional(Type.Number()),
+			}),
+			async execute(_id, params, signal, onUpdate) {
+				return pictured(await ctx.request("generate_ui_art", params, signal, progressTo(onUpdate)), "sheet", "Each candidate as screens will use it, in the order above:");
+			},
+		}),
+		defineTool({
+			name: "make_ui_art",
+			label: "Make UI art",
+			description:
+				"Make (or remake) a piece of UI art from a chosen candidate: writes <leaf>.png beside <leaf>.json, whose slice the engine uses to stretch frames and " +
+				"buttons. Returns the path screens use (frame or image, e.g. 'ui/art/panel/panel.png'), the slice and a preview. Pass slice to correct the " +
+				"detected insets ([left, top, right, bottom] in pixels: everything that mustn't stretch, such as corner ornaments and round ends, must be inside).",
+			parameters: Type.Object({
+				name: Type.String(),
+				source: Type.Optional(Type.String({ description: "The chosen candidate, e.g. 'candidates/panel-1001.png' (default: the current one)" })),
+				slice: Type.Optional(Type.Array(Type.Integer({ minimum: 0 }), { minItems: 4, maxItems: 4 })),
+				notes: Type.Optional(Type.String()),
+			}),
+			async execute(_id, params, signal, onUpdate) {
+				return pictured(await ctx.request("make_ui_art", params, signal, progressTo(onUpdate)), "preview", "As screens will use it:");
+			},
+		}),
+		defineTool({
+			name: "preview_ui",
+			label: "Preview a UI screen in engine",
+			description:
+				"Show a UI screen (assets/ui/<screen>.json) in the game's own engine, over its scene and paused, with sample values for its bindings, and see it. " +
+				"Returns a screenshot, every element as laid out (id, type, rect [x, y, w, h] in UI units on a 720-tall screen, text with the values filled in), " +
+				"the bindings it reads, the actions it reports, bindings you gave no value, and problems in the file. Use it after every change to a screen, with " +
+				"realistic values (e.g. {\"gold\": 250, \"chests_left\": 3}), and look at the image: overlaps, text spilling out of frames, unreadable colours.",
+			parameters: Type.Object({
+				screen: Type.String({ description: "The screen's name: 'pause' for assets/ui/pause.json" }),
+				values: Type.Optional(Type.Record(Type.String(), Type.Union([Type.String(), Type.Number(), Type.Boolean()]))),
+			}),
+			async execute(_id, params, signal, onUpdate) {
+				return pictured(await ctx.request("preview_ui", params, signal, progressTo(onUpdate)), "image", "The screen in the engine:");
+			},
+		}),
+		defineTool({
 			name: "move_asset",
 			label: "Move asset",
 			description:

@@ -79,6 +79,31 @@ def surface_make(job: Job, p: dict) -> dict:
     return {"files": files, "preview": preview}
 
 
+def ui_cut(job: Job, p: dict) -> dict:
+    step(job, "ui_cut", p)
+    os.makedirs(p["out_dir"], exist_ok=True)
+    out = []
+    for src in p["images"]:
+        f = os.path.join(p["out_dir"], os.path.basename(src))
+        shutil.copyfile(src, f)
+        out.append({"file": f, "slice": [] if p["kind"] == "icon" else [10, 10, 10, 10]})
+    fd, sheet = tempfile.mkstemp(prefix="gs-ui-", suffix=".png")
+    os.close(fd)
+    shutil.copyfile(os.path.join(FIXTURES, "concept.png"), sheet)
+    return {"candidates": out, "sheet": sheet}
+
+
+def ui_make(job: Job, p: dict) -> dict:
+    step(job, "ui_make", p)
+    f = os.path.join(p["out_dir"], f"{p['name']}.png")
+    shutil.copyfile(p["source"], f)
+    fd, preview = tempfile.mkstemp(prefix="gs-ui-", suffix=".png")
+    os.close(fd)
+    shutil.copyfile(os.path.join(FIXTURES, "concept.png"), preview)
+    s = [int(v) for v in p["slice"]] if p.get("slice") else ([] if p["kind"] == "icon" else [10, 10, 10, 10])
+    return {"file": f, "slice": s, "preview": preview}
+
+
 def shape(job: Job, p: dict) -> dict:
     step(job, "shape", p)
     return {"mesh": copy("cube.glb", p["out"]), "faces": 12, "vertices": 24, "seed": int(p.get("seed") or 1), "model": "fake"}
@@ -122,4 +147,4 @@ def rig(job: Job, p: dict) -> dict:
 
 
 if __name__ == "__main__":
-    serve({"image": image, "surface": surface, "surface_make": surface_make, "shape": shape, "texture": texture, "rig": rig, "sound": sound})
+    serve({"image": image, "surface": surface, "surface_make": surface_make, "ui_cut": ui_cut, "ui_make": ui_make, "shape": shape, "texture": texture, "rig": rig, "sound": sound})

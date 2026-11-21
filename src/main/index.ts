@@ -19,6 +19,7 @@ import { sceneRequests } from "./scenes";
 import { SoundPipeline, soundRequests, soundUsages } from "./sounds";
 import { studioRequests } from "./studio-requests";
 import { TexturePipeline, textureRequests } from "./textures";
+import { UiArtPipeline, uiRequests } from "./ui";
 import { texturePaths } from "../modules/textures/info";
 import { RunService, type SceneView } from "./runner";
 import { SessionService } from "./sessions";
@@ -82,6 +83,7 @@ async function main(): Promise<void> {
 	const music = new MusicPipeline({ soundfont: () => soundfontPath(genRoot), audio });
 	const sounds = new SoundPipeline({ gen, audio });
 	const textures = new TexturePipeline(gen);
+	const uiArt = new UiArtPipeline(gen);
 	// Every part of the studio brings its own requests: a new section adds a line here.
 	const moduleInfos = MODULES.map((m) => m.info);
 	const requests = studioRequests(
@@ -91,6 +93,7 @@ async function main(): Promise<void> {
 		soundRequests(sounds),
 		textureRequests(textures),
 		sceneRequests((sessionId, p) => runner.previewScene(sessionId, String(p.scene), p.views as SceneView[] | undefined)),
+		uiRequests(uiArt, (sessionId, p) => runner.previewUi(sessionId, p.screen, p.values)),
 		assetRequests(moduleInfos),
 	);
 	const sessions = new SessionService({
