@@ -47,7 +47,11 @@ const app = await electron.launch({
 	env: {
 		// Without the shell's provider credentials: with one set (say GEMINI_API_KEY), Pi lists that provider's models, the
 		// New Session dialog picks the first of them instead of faux/echo, and the run talks to a real API.
-		...Object.fromEntries(Object.entries(process.env).filter(([name]) => !/_API_KEY$|_AUTH_TOKEN$|^AWS_|^GOOGLE_APPLICATION_CREDENTIALS$/.test(name))),
+		// Nor the dev server of a studio run with `npm run dev` (a studio-engineer session inherits its environment): the
+		// app would load that studio's renderer instead of the one just built.
+		...Object.fromEntries(
+			Object.entries(process.env).filter(([name]) => !/_API_KEY$|_AUTH_TOKEN$|^AWS_|^GOOGLE_APPLICATION_CREDENTIALS$|^ELECTRON_RENDERER_URL$/.test(name)),
+		),
 		GAME_STUDIO_USER_DATA: userData,
 		GAME_STUDIO_FAUX: "1",
 		GAME_STUDIO_GEN_FAKE: "1",
