@@ -40,6 +40,14 @@ export function assetTree(info: ModuleInfo, assets: AssetSummary[]): TreeNode[] 
 		if (!root) continue;
 		const segments = asset.path.slice(root.length + 1).split("/");
 		if (manifest) segments.pop();
+		// A folder-shaped asset named after its folder (assets/ui/art/panel/panel.json): the folder is the leaf.
+		else if (segments.length >= 2 && info.folderAssets?.some((f) => asset.path.startsWith(`${f}/`))) {
+			const stem = segments.at(-1)!.replace(/\.[^.]+$/, "");
+			if (stem === segments.at(-2)) {
+				segments.pop();
+				segments[segments.length - 1] = `${stem}${info.extensions[0] ?? ""}`;
+			}
+		}
 		let at = top;
 		let key = root;
 		if (roots.size) at = roots.get(root)!;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { assetTree, type TreeNode, treeLeaves } from "./asset-tree";
-import type { AssetSummary, ModuleInfo } from "./modules";
+import { type AssetSummary, type ModuleInfo, moduleOwns } from "./modules";
 
 const module = (roots: string[], extensions: string[]): ModuleInfo => ({ id: "m", name: "M", icon: "", roots, extensions, agentType: "x", noun: "x" });
 const asset = (path: string, change?: AssetSummary["change"]): AssetSummary => ({ path, title: path, excerpt: "", inMain: true, ...(change ? { change } : {}) });
@@ -13,6 +13,15 @@ const show = (nodes: TreeNode[], depth = 0): string[] =>
 	);
 
 describe("assetTree", () => {
+	it("shows a folder-shaped asset named after its folder as one leaf, and leaves out excluded files", () => {
+		const ui: ModuleInfo = { ...module(["assets/ui"], [".json"]), exclude: ["/candidates/"], folderAssets: ["assets/ui/art"] };
+		const files = ["assets/ui/pause.json", "assets/ui/art/panel/panel.json", "assets/ui/art/icons/coin/coin.json", "assets/ui/art/panel/candidates/candidates.json"];
+		const owned = files.filter((f) => moduleOwns(ui, f));
+		expect(owned).toEqual(files.slice(0, 3));
+		expect(show(assetTree(ui, owned.map((p) => asset(p))))).toEqual(["art/ 0+0~0-", "  icons/ 0+0~0-", "    coin", "  panel", "pause"]);
+	});
+
+
 	it("makes a folder-shaped asset one leaf, nests subfolders first, and rolls changes up", () => {
 		const tree = assetTree(module(["assets/models"], ["/model.json"]), [
 			asset("assets/models/rock/model.json"),

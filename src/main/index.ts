@@ -297,6 +297,8 @@ async function main(): Promise<void> {
 				.map(([f, r]) => ({ source: `candidates/${f}`, ...r }))
 				.sort((a, b) => b.at.localeCompare(a.at) || a.source.localeCompare(b.source));
 		},
+		"ui.artCandidates": async (checkout, name) =>
+			Object.entries(uiArt.candidateRecords(checkoutRoot(checkout), name) as Record<string, { slice?: number[] }>).map(([file, r]) => ({ source: `candidates/${file}`, slice: r.slice ?? [] })),
 		"textures.preview": async (checkout, name) => {
 			const t = textures.read(checkoutRoot(checkout), name);
 			return runner.previewTexture(checkout, texturePaths(name), t?.tile ?? 2);

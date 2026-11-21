@@ -145,6 +145,7 @@ export class RunService {
 				diagnostics: [],
 				startedAt: new Date().toISOString(),
 				scene: options.scene,
+				screen: options.screen,
 			},
 		};
 		this.run = run;
@@ -169,6 +170,7 @@ export class RunService {
 		const args = [`--mode=${mode}`, `--control=${port}`];
 		if (mode === "hidden") args.push("--fps=60");
 		if (options.scene) args.push("--paused", `--scene=${options.scene}`);
+		else if (options.screen) args.push("--paused");
 		const proc = await this.launch(co, args);
 		run.proc = proc;
 		run.info.port = port;
@@ -193,6 +195,12 @@ export class RunService {
 		}
 		if (run.info.state !== "starting") return run.info;
 		if (options.scene) await run.client.call("debug", { game_ui: false }).catch(() => {});
+		if (options.screen) {
+			// The game's own screens (a title it shows at start) make way for the one being edited.
+			await run.client.call("wait", { frames: 2 }).catch(() => {});
+			await run.client.call("ui_hide", { all: true }).catch(() => {});
+			await run.client.call("ui_show", { screen: options.screen }).catch(() => {});
+		}
 		run.info.state = "running";
 		this.changed(run);
 		if (mode === "hidden") void this.pumpFrames(run);

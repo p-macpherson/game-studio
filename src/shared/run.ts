@@ -40,11 +40,15 @@ export interface RunInfo {
 	startedAt: string;
 	/** Set for the Scenes editor's run: the scene (assets-relative) shown paused, with the game's UI hidden. */
 	scene?: string;
+	/** Set for the UI section's run: the screen (assets/ui/<screen>.json) shown alone over the game, paused. */
+	screen?: string;
 }
 
 export interface RunOptions {
 	/** Open this scene or prefab (assets-relative) paused, as the Scenes editor's live view. */
 	scene?: string;
+	/** Open the game paused with only this UI screen shown (the UI section's live view). */
+	screen?: string;
 }
 
 export interface TestStep {

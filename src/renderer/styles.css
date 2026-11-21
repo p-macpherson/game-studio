@@ -2401,3 +2401,150 @@ textarea {
 .worktree-note {
 	padding: 0 10px 4px;
 }
+
+/* UI section: screens over a live engine view, and UI art */
+.ui-overlay {
+	position: absolute;
+	inset: 0;
+	cursor: default;
+	/* A drag must never select the labels (Chromium then starts a native drag of the selection and cancels the
+	   pointer: the next drag of the resize handle never ended). */
+	user-select: none;
+	-webkit-user-select: none;
+	touch-action: none;
+}
+.ui-node {
+	position: absolute;
+	outline: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+	pointer-events: none;
+}
+.ui-node.selected {
+	outline: 2px solid var(--accent);
+	cursor: move;
+}
+.ui-node.ghost {
+	outline: 2px dashed var(--yellow);
+	background: color-mix(in srgb, var(--yellow) 12%, transparent);
+}
+.ui-node-label {
+	position: absolute;
+	top: -18px;
+	left: -2px;
+	padding: 0 4px;
+	font-size: 11px;
+	background: var(--accent);
+	color: var(--on-accent);
+	border-radius: 3px;
+	white-space: nowrap;
+}
+.ui-handle {
+	position: absolute;
+	right: -6px;
+	bottom: -6px;
+	width: 12px;
+	height: 12px;
+	background: var(--accent);
+	border: 2px solid var(--on-accent);
+	border-radius: 3px;
+	cursor: nwse-resize;
+	pointer-events: auto;
+}
+.ui-type-icon {
+	width: 18px;
+	text-align: center;
+	flex: none;
+	color: var(--muted);
+}
+.ui-add-menu {
+	position: absolute;
+	right: 0;
+	top: 100%;
+	z-index: 10;
+	display: flex;
+	flex-direction: column;
+	min-width: 170px;
+	padding: 6px;
+}
+.ui-inspector {
+	gap: 8px;
+}
+.ui-field > span {
+	font-size: 12px;
+}
+.ui-num {
+	width: 64px;
+}
+.ui-values-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+	gap: 6px 14px;
+}
+.ui-values-grid code {
+	min-width: 80px;
+}
+.ui-art-thumb {
+	width: 18px;
+	height: 18px;
+	object-fit: contain;
+}
+.ui-art-detail {
+	gap: 12px;
+	padding: 12px;
+}
+.ui-nine-row {
+	gap: 18px;
+	flex-wrap: wrap;
+	align-items: flex-start;
+	padding: 14px;
+	background: var(--sunken);
+	border-radius: 8px;
+}
+.ui-nine {
+	box-sizing: border-box;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: #fff3d6;
+	font-size: 18px;
+}
+.ui-icon-preview {
+	gap: 18px;
+	padding: 14px;
+	background: var(--sunken);
+	border-radius: 8px;
+	align-items: center;
+}
+.ui-candidates {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+	gap: 10px;
+}
+.ui-candidate img {
+	width: 100%;
+	height: 140px;
+	object-fit: contain;
+	background: repeating-conic-gradient(var(--panel-2) 0% 25%, var(--sunken) 0% 50%) 50% / 16px 16px;
+	border-radius: 6px;
+}
+.ui-candidate.on {
+	outline: 2px solid var(--accent);
+}
+.ui-viewport {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+/* Exactly the frame's shape, so the overlay's percentages line up with the engine's pixels. */
+.ui-frame {
+	position: relative;
+	width: 100%;
+	max-height: 100%;
+}
+.ui-frame img {
+	display: block;
+	width: 100%;
+	height: 100%;
+}
+.ui-values {
+	gap: 6px;
+}

@@ -100,6 +100,8 @@ export interface StudioApi {
 	/** Where the game refers to a sound (`sounds/<name>/` in game code, scenes and prefabs) in a checkout. */
 	/** A texture's generated candidates (newest first) and how each was made. */
 	"textures.candidates"(checkout: string | null, name: string): Promise<({ source: string } & CandidateRecord)[]>;
+	/** A piece of UI art's candidates (candidates/<file>.png) and the slice insets found for each. */
+	"ui.artCandidates"(checkout: string | null, name: string): Promise<{ source: string; slice: number[] }[]>;
 	/** A made texture on a plane and a sphere in the game's engine. */
 	"textures.preview"(checkout: string | null, name: string): Promise<{ images: { view: string; image: string }[]; warnings: string[] }>;
 	"sounds.usages"(checkout: string | null, name: string): Promise<{ path: string; line: number; text: string }[]>;

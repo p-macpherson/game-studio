@@ -621,6 +621,83 @@ try {
 	await page.waitForTimeout(1500);
 	await step("47-scene-texture", page);
 
+	// UI: a new screen (from main, so in a worktree "UI: hud") opens over the live game. A text added to its panel and
+	// bound to {gold} shows the sample value; dragging the panel sets its offset in the file, its corner its size.
+	/** A file in the worktree labelled `label`, once `ok` holds (polled from here: the IPC is async). */
+	const fileIn = async (label: string, path: string, ok: (t: string) => boolean): Promise<string> => {
+		for (const until = Date.now() + 30_000; Date.now() < until; await page.waitForTimeout(300)) {
+			const text = (await page.evaluate(
+				async ([l, p]) => {
+					const w = ((await window.studio.call("worktrees.list")) as { id: string; label: string; status: string }[]).find((x) => x.label === l && x.status === "active");
+					return w ? ((await window.studio.call("assets.read", p, w.id).catch(() => "")) as string) : "";
+				},
+				[label, path],
+			)) as string;
+			if (ok(text)) return text;
+		}
+		throw new Error(`${path} in “${label}” never matched; it reads:\n${(await page.evaluate(async ([l, p]) => { const w = ((await window.studio.call("worktrees.list")) as { id: string; label: string; status: string }[]).find((x) => x.label === l && x.status === "active"); return w ? ((await window.studio.call("assets.read", p, w.id).catch(() => "")) as string) : "(no worktree)"; }, [label, path])) as string}`);
+	};
+	await selectMain(page);
+	await nav.getByRole("button", { name: "UI", exact: true }).click();
+	await page.getByRole("button", { name: "+ New…" }).click();
+	await page.getByTestId("ui-new-choose-screen").click();
+	await page.getByTestId("ui-new-screen-name").fill("hud");
+	await page.getByTestId("ui-new-screen-create").click();
+	await page.getByTestId("ui-viewport").locator("img").waitFor({ timeout: 90_000 });
+	await page.getByTestId("ui-outline-item").filter({ hasText: "panel" }).click();
+	await page.getByTestId("ui-selected").waitFor({ timeout: 15_000 });
+	await page.getByTestId("ui-add").click();
+	await page.getByTestId("ui-add-type").filter({ hasText: "text" }).click();
+	await page.getByTestId("ui-text").fill("Gold: {gold}");
+	await page.getByTestId("ui-text").press("Enter");
+	await page.getByTestId("ui-value-gold").fill("250");
+	for (let tries = 0; ; tries++) {
+		const tree = (await page.evaluate(() => window.studio.call("run.call", "ui_tree"))) as { id: string; text: string }[];
+		if (tree.some((n) => n.text === "Gold: 250")) break;
+		if (tries > 60) throw new Error(`the bound text never showed: ${JSON.stringify(tree)}`);
+		await page.waitForTimeout(300);
+	}
+	await page.getByTestId("ui-outline-item").filter({ hasText: "panel" }).click();
+	const panelBox = (await page.getByTestId("ui-selected").boundingBox())!;
+	await page.mouse.move(panelBox.x + panelBox.width / 2, panelBox.y + panelBox.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(panelBox.x + panelBox.width / 2 + 40, panelBox.y + panelBox.height / 2 + 20, { steps: 5 });
+	await page.mouse.up();
+	await fileIn("UI: hud", "assets/ui/hud.json", (t) => /"offset": \[[1-9]\d*, [1-9]\d*\]/.test(t));
+	// The live view re-reads the file and lays the panel out where it now is before the next drag.
+	for (let tries = 0; ; tries++) {
+		const b = (await page.getByTestId("ui-selected").boundingBox())!;
+		if (Math.abs(b.x - panelBox.x) > 10) break;
+		if (tries > 50) throw new Error("the panel never moved in the live view");
+		await page.waitForTimeout(200);
+	}
+	const handle = (await page.getByTestId("ui-resize").boundingBox())!;
+	await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(handle.x + 40, handle.y + 30, { steps: 5 });
+	await page.mouse.up();
+	await fileIn("UI: hud", "assets/ui/hud.json", (t) => {
+		const m = /"size": \[(\d+), (\d+)\]/.exec(t);
+		return !!m && Number(m[1]) > 400 && Number(m[2]) > 320;
+	});
+	await page.waitForTimeout(800);
+	await step("52-ui-editor", page);
+
+	// UI art (fake worker): candidates, one used makes the piece, previewed stretched; the panel takes it as its frame.
+	await page.getByRole("button", { name: "+ New…" }).click();
+	await page.getByTestId("ui-new-choose-art").click();
+	await page.getByTestId("ui-new-art-name").fill("wood-frame");
+	await page.getByTestId("ui-new-art-prompt").fill("a carved wooden border with gold rivets");
+	await page.getByTestId("ui-new-art-create").click();
+	await page.getByTestId("ui-candidate").nth(2).waitFor({ timeout: 30_000 });
+	await page.getByTestId("ui-candidate-use").first().click();
+	await page.getByTestId("ui-nine").waitFor({ timeout: 30_000 });
+	await step("53-ui-art", page);
+	await page.getByTestId("asset-item").filter({ hasText: "hud" }).click();
+	await page.getByTestId("ui-outline-item").filter({ hasText: "panel" }).click();
+	await page.getByTestId("ui-frame").selectOption("ui/art/wood-frame/wood-frame.png");
+	await fileIn("UI: hud", "assets/ui/hud.json", (t) => t.includes('"frame": "ui/art/wood-frame/wood-frame.png"'));
+
 	// The menu collapses to an icon rail; its buttons keep their names (as tooltips).
 	await page.getByTestId("sidebar-toggle").click();
 	await nav.getByRole("button", { name: "Scenes" }).click();

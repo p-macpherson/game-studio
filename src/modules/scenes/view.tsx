@@ -129,7 +129,7 @@ function SceneDetail({ asset, text, checkout: shownCheckout, assets }: AssetCont
 	const checkout = shownCheckout ?? null;
 	const ours = !!run && run.scene === scenePath && run.sessionId === checkout;
 	const live = ours && run.state === "running";
-	const otherGame = !!run && !ours && !run.scene && ["building", "starting", "running"].includes(run.state);
+	const otherGame = !!run && !ours && !run.scene && !run.screen && ["building", "starting", "running"].includes(run.state);
 
 	const [schemas, setSchemas] = useState<ComponentSchema[] | null>(null);
 	const ids = useRef(new Map<number, number>());

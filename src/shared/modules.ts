@@ -11,11 +11,19 @@ export interface ModuleInfo {
 	agentType: string;
 	/** Singular noun for UI text, e.g. "doc". */
 	noun: string;
+	/** Paths containing any of these aren't assets (e.g. "/candidates/": generation records inside an asset's folder). */
+	exclude?: string[];
+	/** Roots (repo-relative) under which `<name>/<name>.<ext>` is a folder-shaped asset: one leaf named <name>. */
+	folderAssets?: string[];
 }
 
 /** True if `path` (repo-relative) is one of this module's assets. */
 export function moduleOwns(info: ModuleInfo, path: string): boolean {
-	return info.roots.some((r) => path.startsWith(`${r}/`)) && info.extensions.some((e) => path.toLowerCase().endsWith(e));
+	return (
+		info.roots.some((r) => path.startsWith(`${r}/`)) &&
+		info.extensions.some((e) => path.toLowerCase().endsWith(e)) &&
+		!(info.exclude ?? []).some((x) => path.includes(x))
+	);
 }
 
 export interface AssetSummary {
