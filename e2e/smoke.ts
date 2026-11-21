@@ -767,6 +767,38 @@ try {
 	await page.waitForTimeout(800);
 	await step("56-scene-post", page);
 
+	// Effects: a new burst plays in its live view (particles counted); raising a colour stop's intensity rewrites the
+	// file; a procedural smoke flipbook texture is made and picked for the emitter, bringing its flipbook along.
+	await selectMain(page);
+	await nav.getByRole("button", { name: "Effects", exact: true }).click();
+	await page.getByRole("button", { name: "+ New…" }).click();
+	await page.getByTestId("effect-new-name").fill("chest-burst");
+	await page.getByTestId("effect-new-create").click();
+	await page.getByTestId("effect-viewport").locator("img").waitFor({ timeout: 90_000 });
+	for (let tries = 0; ; tries++) {
+		const s = (await page.getByTestId("effect-stats").textContent()) ?? "";
+		if (/^[1-9]\d* particles/.test(s)) break;
+		if (tries > 60) throw new Error(`the effect never played: ${s}`);
+		await page.waitForTimeout(250);
+	}
+	await page.getByTestId("gradient-intensity").fill("9");
+	await page.getByTestId("gradient-intensity").blur();
+	await fileIn("Effect: chest-burst", "assets/effects/chest-burst.json", (t) => t.includes('[0,"#fff0b0",1,9]'));
+	await page.waitForTimeout(600);
+	await step("57-effect-editor", page);
+	await page.getByTestId("effect-json-tab").click();
+	await page.getByTestId("effect-json").waitFor();
+	await page.getByRole("button", { name: "+ New…" }).click();
+	await page.getByTestId("effect-new-procedural").click();
+	await page.getByTestId("effect-new-name").fill("smoke");
+	await page.getByTestId("effect-new-create").click();
+	await page.getByTestId("particle-texture").waitFor({ timeout: 30_000 });
+	await step("58-particle-texture", page);
+	await page.getByTestId("asset-item").filter({ hasText: "chest-burst" }).click();
+	await page.getByTestId("effect-emitter-tab").first().click();
+	await page.getByTestId("effect-texture").selectOption("effects/textures/smoke/smoke.png");
+	await fileIn("Effect: chest-burst", "assets/effects/chest-burst.json", (t) => t.includes('"texture": "effects/textures/smoke/smoke.png"') && t.includes('"flipbook": [4,4]'));
+
 	// The menu collapses to an icon rail; its buttons keep their names (as tooltips).
 	await page.getByTestId("sidebar-toggle").click();
 	await nav.getByRole("button", { name: "Scenes" }).click();

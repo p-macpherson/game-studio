@@ -44,10 +44,12 @@ export interface RunInfo {
 	screen?: string;
 	/** Set for the Shaders section's run: the shader's name (assets/shaders/<name>.glsl), shown on a preview mesh. */
 	shader?: string;
+	/** Set for the Effects section's run: the effect's name (assets/effects/<name>.json), played on a plain ground. */
+	effect?: string;
 }
 
 /** A section's live view (Scenes, UI, Shaders) rather than the game run from Play & Test: other sections may take it over. */
-export const isEditorRun = (run: { scene?: string; screen?: string; shader?: string }) => !!(run.scene || run.screen || run.shader);
+export const isEditorRun = (run: { scene?: string; screen?: string; shader?: string; effect?: string }) => !!(run.scene || run.screen || run.shader || run.effect);
 
 export interface RunOptions {
 	/** Open this scene or prefab (assets-relative) paused, as the Scenes editor's live view. */
@@ -56,6 +58,8 @@ export interface RunOptions {
 	screen?: string;
 	/** Open a material shader on a mesh beside a stone, its time running (the Shaders section's live view). */
 	shader?: { name: string; mesh?: string };
+	/** Open a plain ground (dark or light, a little bloom) for an effect: the Effects section's live view plays it. */
+	effect?: { name: string; background?: "dark" | "light" };
 }
 
 export interface TestStep {

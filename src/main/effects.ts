@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { ASSET_NAME, leafName } from "../shared/asset-names";
-import { PARTICLE_FRAMING, PARTICLE_TEXTURE_DIR, type ParticleMode, type ParticleRecipe, type ParticleTextureFile, validateParticleTexture } from "../shared/effect";
+import { EFFECT_DIR, parseEffect, PARTICLE_FRAMING, PARTICLE_TEXTURE_DIR, type ParticleMode, type ParticleRecipe, type ParticleTextureFile, validateParticleTexture } from "../shared/effect";
 import type { GenJobKind } from "../shared/gen";
 import { safeJoin } from "./assets";
 import type { GenService } from "./gen";
@@ -126,12 +126,29 @@ export class ParticleTexturePipeline {
 	}
 }
 
+/** Writes an effect file (the Effects section's editor). The text must be an effect the engine can read; `create`: new. */
+export function writeEffect(cwd: string, p: { effect: string; source: string; create?: boolean }): { path: string; problems: string[] } {
+	if (!ASSET_NAME.test(p.effect) || p.effect === "textures" || p.effect.startsWith("textures/")) throw new Error(`Effect names are lower-kebab-case, with "/" for folders (e.g. "sparks", "chest/open"), and not under textures/: "${p.effect}"`);
+	const file = safeJoin(cwd, `${EFFECT_DIR}/${p.effect}.json`);
+	if (p.create && existsSync(file)) throw new Error(`${EFFECT_DIR}/${p.effect}.json already exists`);
+	if (!p.create && !existsSync(file)) throw new Error(`No ${EFFECT_DIR}/${p.effect}.json`);
+	const { effect, problems } = parseEffect(p.source);
+	if (!effect) throw new Error(`Not an effect: ${problems.join("; ")}`);
+	mkdirSync(join(file, ".."), { recursive: true });
+	writeFileSync(file, p.source.endsWith("\n") ? p.source : `${p.source}\n`);
+	return { path: `${EFFECT_DIR}/${p.effect}.json`, problems };
+}
+
 export type EffectPreviewer = (sessionId: string, p: EffectPreview) => Promise<unknown>;
 
 /** Particle textures (the Effects section's steps and agents' tools) and the effect preview (see studio-requests.ts). */
 export function effectRequests(textures: ParticleTexturePipeline, preview?: EffectPreviewer): StudioRequestHandlers {
 	const step = (name: string, what: string) => ({ label: `Particle texture ${name}: ${what}`, scopes: [{ path: `${PARTICLE_TEXTURE_DIR}/${name}` }] });
 	return {
+		write_effect: handler(
+			(ctx, p: { effect: string; source: string; create?: boolean }) => writeEffect(ctx.cwd, p),
+			(p) => ({ label: `Effect ${p.effect}: ${p.create ? "created" : "edited"}`, scopes: [{ path: `${EFFECT_DIR}/${p.effect}.json` }] }),
+		),
 		generate_particle_texture: handler(
 			(ctx, p: Parameters<ParticleTexturePipeline["candidates"]>[1]) => textures.candidates(ctx, p),
 			(p) => step(p.name, "new candidates"),

@@ -89,6 +89,7 @@ async function main(): Promise<void> {
 	const uiArt = new UiArtPipeline(gen);
 	// Every part of the studio brings its own requests: a new section adds a line here.
 	const moduleInfos = MODULES.map((m) => m.info);
+	const particles = new ParticleTexturePipeline(gen);
 	const requests = studioRequests(
 		gen,
 		modelRequests(pipeline, (sessionId, name) => previewModel(sessionId, name)),
@@ -98,7 +99,7 @@ async function main(): Promise<void> {
 		sceneRequests((sessionId, p) => runner.previewScene(sessionId, String(p.scene), p.views as SceneView[] | undefined)),
 		uiRequests(uiArt, (sessionId, p) => runner.previewUi(sessionId, p.screen, p.values)),
 		shaderRequests({ check: (sessionId, name) => runner.checkShader(sessionId, name), preview: (sessionId, p) => runner.previewShader(sessionId, p) }),
-		effectRequests(new ParticleTexturePipeline(gen), (sessionId, p) => runner.previewEffect(sessionId, p)),
+		effectRequests(particles, (sessionId, p) => runner.previewEffect(sessionId, p)),
 		assetRequests(moduleInfos),
 		designDocRequests(),
 	);
@@ -303,6 +304,8 @@ async function main(): Promise<void> {
 				.map(([f, r]) => ({ source: `candidates/${f}`, ...r }))
 				.sort((a, b) => b.at.localeCompare(a.at) || a.source.localeCompare(b.source));
 		},
+		"effects.textureCandidates": async (checkout, name) =>
+			Object.entries(particles.candidateRecords(checkoutRoot(checkout), name) as Record<string, { seed?: number }>).map(([file, r]) => ({ source: `candidates/${file}`, seed: r.seed })),
 		"ui.artCandidates": async (checkout, name) =>
 			Object.entries(uiArt.candidateRecords(checkoutRoot(checkout), name) as Record<string, { slice?: number[] }>).map(([file, r]) => ({ source: `candidates/${file}`, slice: r.slice ?? [] })),
 		"textures.preview": async (checkout, name) => {

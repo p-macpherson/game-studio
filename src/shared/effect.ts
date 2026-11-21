@@ -197,3 +197,140 @@ export function validateParticleTexture(v: unknown): string[] {
 	}
 	return out;
 }
+
+// --- Editing ---------------------------------------------------------------------------------------------------------
+
+/** The file as the studio writes it: one field per line, short arrays (vectors, keys) on one line. */
+export function formatEffect(effect: EffectFile): string {
+	const compact = (v: unknown) => JSON.stringify(v);
+	const field = (k: string, v: unknown, pad: string): string => {
+		if (Array.isArray(v) && Array.isArray(v[0]) && compact(v).length > 100) return `${pad}"${k}": [\n${v.map((x) => `${pad}\t${compact(x)}`).join(",\n")}\n${pad}]`;
+		if (isObject(v) && compact(v).length > 100) return `${pad}"${k}": {\n${Object.entries(v).map(([kk, vv]) => field(kk, vv, `${pad}\t`)).join(",\n")}\n${pad}}`;
+		return `${pad}"${k}": ${compact(v)}`;
+	};
+	const top = Object.entries(effect).filter(([k]) => k !== "emitters").map(([k, v]) => field(k, v, "\t"));
+	const emitters = effect.emitters.map((e) => `\t\t{\n${Object.entries(e).map(([k, v]) => field(k, v, "\t\t\t")).join(",\n")}\n\t\t}`);
+	return `{\n${[...top, `\t"emitters": [\n${emitters.join(",\n")}\n\t]`].join(",\n")}\n}\n`;
+}
+
+/** Sets (or, with null, removes) a field of the effect or of one emitter. */
+export function setEffectField(effect: EffectFile, emitter: number | null, key: string, value: unknown): EffectFile {
+	const set = (o: Record<string, unknown>) => {
+		const next = { ...o };
+		if (value === null || value === undefined) delete next[key];
+		else next[key] = value;
+		return next;
+	};
+	if (emitter === null) return { ...(set(effect as unknown as Record<string, unknown>) as unknown as EffectFile), emitters: effect.emitters };
+	return { ...effect, emitters: effect.emitters.map((e, i) => (i === emitter ? (set(e) as Emitter) : e)) };
+}
+
+export function addEmitter(effect: EffectFile, emitter: Emitter): EffectFile {
+	return { ...effect, emitters: [...effect.emitters, emitter] };
+}
+
+export function removeEmitter(effect: EffectFile, index: number): EffectFile {
+	return { ...effect, emitters: effect.emitters.filter((_, i) => i !== index) };
+}
+
+/** How long the effect takes to play out once (for looping the preview and the time scrubber), in seconds. */
+export function effectLength(effect: EffectFile): number {
+	if (isNum(effect.duration) && effect.duration > 0) {
+		const life = Math.max(0, ...effect.emitters.map((e) => rangeMax(e.life, 1)));
+		return effect.loop ? effect.duration : effect.duration + life;
+	}
+	let end = 0;
+	for (const e of effect.emitters) {
+		const life = rangeMax(e.life, 1);
+		const delay = isNum(e.delay) ? e.delay : 0;
+		const bursts = isNum(e.burst) ? [0] : Array.isArray(e.burst) ? (e.burst as { at?: number }[]).map((b) => (isNum(b?.at) ? b.at : 0)) : [];
+		const continuous = e.sim === "gpu" || (isNum(e.rate) && e.rate > 0);
+		end = Math.max(end, delay + (continuous ? (isNum(e.duration) && e.duration > 0 ? e.duration : 3) : Math.max(0, ...bursts)) + life);
+	}
+	return Math.max(end, 0.5);
+}
+
+function rangeMax(v: unknown, def: number): number {
+	if (isNum(v)) return v;
+	if (Array.isArray(v) && v.length === 2 && v.every(isNum)) return Math.max(v[0], v[1]);
+	return def;
+}
+
+/** A curve as keys [[t, value], ...] (a plain number becomes one key). */
+export function curveKeys(v: unknown, def: number): [number, number][] {
+	if (isNum(v)) return [[0, v]];
+	if (Array.isArray(v) && v.length && v.every((p) => Array.isArray(p) && p.length === 2 && p.every(isNum))) return v as [number, number][];
+	return [[0, def]];
+}
+
+/** Keys back to the file's form: one key is a plain number. */
+export function curveValue(keys: [number, number][]): number | [number, number][] {
+	const sorted = [...keys].sort((a, b) => a[0] - b[0]).map(([t, v]) => [round3(t), round3(v)] as [number, number]);
+	return sorted.length === 1 ? sorted[0][1] : sorted;
+}
+
+export interface ColorStop {
+	t: number;
+	color: string;
+	alpha: number;
+	intensity: number;
+}
+
+export function gradientStops(v: unknown): ColorStop[] {
+	if (typeof v === "string" && HEX.test(v)) return [{ t: 0, color: v.toLowerCase(), alpha: 1, intensity: 1 }];
+	if (Array.isArray(v) && v.length) {
+		return v.map((k) => {
+			const a = Array.isArray(k) ? k : [];
+			return { t: isNum(a[0]) ? a[0] : 0, color: typeof a[1] === "string" && HEX.test(a[1]) ? a[1].toLowerCase() : "#ffffff", alpha: isNum(a[2]) ? a[2] : 1, intensity: isNum(a[3]) ? a[3] : 1 };
+		});
+	}
+	return [{ t: 0, color: "#ffffff", alpha: 1, intensity: 1 }];
+}
+
+/** Stops back to the file's form: one plain opaque stop is "#rrggbb"; keys leave out alpha and intensity at 1. */
+export function gradientValue(stops: ColorStop[]): string | (string | number)[][] {
+	const sorted = [...stops].sort((a, b) => a.t - b.t);
+	if (sorted.length === 1 && sorted[0].alpha === 1 && sorted[0].intensity === 1) return sorted[0].color;
+	return sorted.map((s) => {
+		const key: (string | number)[] = [round3(s.t), s.color];
+		if (s.alpha !== 1 || s.intensity !== 1) key.push(round3(s.alpha));
+		if (s.intensity !== 1) key.push(round3(s.intensity));
+		return key;
+	});
+}
+
+const round3 = (n: number) => Math.round(n * 1000) / 1000;
+
+/** Starting points for a new effect. */
+export const EFFECT_TEMPLATES: { id: string; label: string; effect: EffectFile }[] = [
+	{
+		id: "burst",
+		label: "Burst (sparks, a hit, an opened chest)",
+		effect: {
+			notes: "What it is and when it plays.",
+			emitters: [
+				{ name: "sparks", max: 120, burst: [{ at: 0, count: [60, 80] }], shape: { kind: "cone", angle: 35, radius: 0.1 }, life: [0.5, 1], speed: [2.5, 4.5], gravity: 5, drag: 1, align: "velocity", stretch: 0.08, size: [[0, 0.06], [1, 0.02]], color: [[0, "#fff0b0", 1, 6], [0.5, "#ffb040", 1, 3], [1, "#ff5010", 0]], blend: "additive" },
+			],
+		},
+	},
+	{
+		id: "smoke",
+		label: "Continuous (smoke, steam, embers)",
+		effect: {
+			notes: "What it is and where it plays.",
+			emitters: [
+				{ name: "smoke", max: 120, rate: 14, shape: { kind: "cone", angle: 10, radius: 0.15 }, life: [2.5, 4], speed: [0.5, 0.8], gravity: -0.1, drag: 0.3, noise: 0.3, rotation: [0, 360], rotation_speed: [-20, 20], size: [[0, 0.2], [1, 1.2]], color: [[0, "#9a9590", 0], [0.15, "#8a8580", 0.5], [1, "#b0aca8", 0]], soft: 0.3 },
+			],
+		},
+	},
+	{
+		id: "field",
+		label: "Field on the GPU (rain, snow, fireflies)",
+		effect: {
+			notes: "What fills the area, and how big the area is.",
+			emitters: [
+				{ name: "motes", sim: "gpu", max: 2000, shape: { kind: "box", size: [8, 2, 8] }, offset: [0, 1, 0], life: [3, 6], speed: [0.02, 0.1], noise: 0.25, drag: 1, size: [[0, 0], [0.2, 0.04], [0.8, 0.04], [1, 0]], color: [[0, "#fff0c0", 1, 2], [1, "#fff0c0", 1, 2]], blend: "additive" },
+			],
+		},
+	},
+];

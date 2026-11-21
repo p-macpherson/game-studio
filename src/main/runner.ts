@@ -146,6 +146,19 @@ export function shaderPreviewScene(info: ShaderInfo, p: { shader: string; params
 	return { entities, camera };
 }
 
+/** The plain ground effects are previewed on: dark (night, glows read best) or light (day), with a little bloom. */
+export function effectGroundScene(background: "dark" | "light", post?: Record<string, unknown>) {
+	const dark = background === "dark";
+	const environment = dark
+		? { sky_zenith: [0.03, 0.04, 0.08], sky_horizon: [0.1, 0.11, 0.16], exposure: 0.9, post: post ?? { bloom: 0.6 } }
+		: { sky_zenith: [0.3, 0.5, 0.8], sky_horizon: [0.75, 0.82, 0.9], post: post ?? { bloom: 0.6 } };
+	const entities = [
+		{ id: 1, Name: "Sun", Transform: { rotation: [40, 35, 0] }, Light: { kind: "Directional", intensity: dark ? 0.15 : 1.1, shadows: true } },
+		{ id: 2, Name: "Ground", Transform: { position: [0, -0.5, 0], scale: [30, 1, 30] }, Mesh_Renderer: { mesh: "cube", material: { color: dark ? [0.12, 0.12, 0.14, 1] : [0.5, 0.5, 0.48, 1], roughness: 0.9 } } },
+	];
+	return { environment, entities };
+}
+
 const hooks = (info: ShaderInfo) => ({ vertex: info.hasVertex, surface: info.hasSurface, depth_fade: info.usesDepth, bounds: info.bounds });
 
 export class RunService {
@@ -208,6 +221,7 @@ export class RunService {
 				scene: options.scene,
 				screen: options.screen,
 				shader: options.shader?.name,
+				effect: options.effect?.name,
 			},
 		};
 		this.run = run;
@@ -241,6 +255,11 @@ export class RunService {
 			run.cleanup = () => rmSync(dir, { recursive: true, force: true });
 			shaderCamera = built.camera;
 			args.push("--paused", `--scene=${join(dir, "preview.json")}`);
+		} else if (options.effect) {
+			const dir = mkdtempSync(join(tmpdir(), "gs-effect-live-"));
+			writeFileSync(join(dir, "ground.json"), JSON.stringify(effectGroundScene(options.effect.background ?? "dark")));
+			run.cleanup = () => rmSync(dir, { recursive: true, force: true });
+			args.push("--paused", `--scene=${join(dir, "ground.json")}`);
 		} else if (options.scene) args.push("--paused", `--scene=${options.scene}`);
 		else if (options.screen) args.push("--paused");
 		const proc = await this.launch(co, args);
@@ -267,7 +286,7 @@ export class RunService {
 			return run.info;
 		}
 		if (run.info.state !== "starting") return run.info;
-		if (options.scene || options.shader) await run.client.call("debug", { game_ui: false }).catch(() => {});
+		if (options.scene || options.shader || options.effect) await run.client.call("debug", { game_ui: false }).catch(() => {});
 		if (shaderCamera) {
 			await run.client.call("camera", { ...shaderCamera, fov: 50 }).catch(() => {});
 			// Paused, so the game stands still; the shader's own time runs.
@@ -532,17 +551,9 @@ export class RunService {
 			if (!existsSync(safeJoin(co.cwd, p.scene))) throw new Error(`No ${p.scene} in this checkout`);
 			scene = p.scene.replace(/^assets\//, "");
 		} else {
-			const dark = (p.background ?? "dark") === "dark";
-			const environment = dark
-				? { sky_zenith: [0.03, 0.04, 0.08], sky_horizon: [0.1, 0.11, 0.16], exposure: 0.9, post: p.post ?? { bloom: 0.6 } }
-				: { sky_zenith: [0.3, 0.5, 0.8], sky_horizon: [0.75, 0.82, 0.9], post: p.post ?? { bloom: 0.6 } };
-			const entities = [
-				{ id: 1, Name: "Sun", Transform: { rotation: [40, 35, 0] }, Light: { kind: "Directional", intensity: dark ? 0.15 : 1.1, shadows: true } },
-				{ id: 2, Name: "Ground", Transform: { position: [0, -0.5, 0], scale: [30, 1, 30] }, Mesh_Renderer: { mesh: "cube", material: { color: dark ? [0.12, 0.12, 0.14, 1] : [0.5, 0.5, 0.48, 1], roughness: 0.9 } } },
-			];
 			dir = mkdtempSync(join(tmpdir(), "gs-effect-"));
 			scene = join(dir, "preview.json");
-			writeFileSync(scene, JSON.stringify({ environment, entities }));
+			writeFileSync(scene, JSON.stringify(effectGroundScene(p.background ?? "dark", p.post)));
 		}
 		try {
 			return await this.withEngine(co, ["--mode=hidden", "--width=640", "--height=360", "--fps=60", "--paused", `--scene=${scene}`], async (client) => {

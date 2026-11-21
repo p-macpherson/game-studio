@@ -102,6 +102,8 @@ export interface StudioApi {
 	"textures.candidates"(checkout: string | null, name: string): Promise<({ source: string } & CandidateRecord)[]>;
 	/** A piece of UI art's candidates (candidates/<file>.png) and the slice insets found for each. */
 	"ui.artCandidates"(checkout: string | null, name: string): Promise<{ source: string; slice: number[] }[]>;
+	/** A particle texture's generated candidates (assets/effects/textures/<name>/candidates/). */
+	"effects.textureCandidates"(checkout: string | null, name: string): Promise<{ source: string; seed?: number }[]>;
 	/** A made texture on a plane and a sphere in the game's engine. */
 	"textures.preview"(checkout: string | null, name: string): Promise<{ images: { view: string; image: string }[]; warnings: string[] }>;
 	"sounds.usages"(checkout: string | null, name: string): Promise<{ path: string; line: number; text: string }[]>;

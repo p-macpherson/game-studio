@@ -65,6 +65,7 @@ export type StudioRequestMethod =
 	| "generate_particle_texture"
 	| "make_particle_texture"
 	| "preview_effect"
+	| "write_effect"
 	| "write_shader"
 	| "preview_shader"
 	| "generate_concepts"

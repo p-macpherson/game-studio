@@ -2698,3 +2698,125 @@ textarea {
 	min-width: 38px;
 	text-align: right;
 }
+
+/* Effects: the live view beside the emitter inspector */
+.effect-editor {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 340px;
+	height: max(560px, calc(100vh - 150px));
+	border-bottom: 1px solid var(--border);
+}
+.emitter-tabs {
+	flex-wrap: wrap;
+	gap: 4px;
+}
+.emitter-tabs button.on {
+	border-color: var(--accent);
+	color: var(--accent);
+}
+.emitter-inspector {
+	gap: 4px;
+}
+.emitter-section {
+	margin-top: 8px;
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--muted);
+}
+.field-col {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	font-size: 12px;
+}
+svg.curve {
+	width: 100%;
+	height: 70px;
+	background: var(--sunken);
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	touch-action: none;
+}
+svg.curve polyline {
+	fill: none;
+	stroke: var(--accent);
+	stroke-width: 1.5;
+}
+svg.curve circle {
+	fill: var(--text);
+	stroke: var(--accent);
+	cursor: grab;
+}
+.gradient-bar {
+	position: relative;
+	height: 22px;
+	border-radius: 4px;
+	border: 1px solid var(--border);
+}
+.checker {
+	background:
+		var(--grad),
+		repeating-conic-gradient(color-mix(in srgb, var(--text) 18%, transparent) 0% 25%, transparent 0% 50%) 0 0 / 12px 12px;
+}
+.gradient-bar .stop {
+	position: absolute;
+	bottom: -7px;
+	width: 12px;
+	height: 12px;
+	margin-left: -6px;
+	padding: 0;
+	border-radius: 50%;
+	border: 2px solid var(--border);
+}
+.gradient-bar .stop.on {
+	border-color: var(--accent);
+}
+.gradient-stop {
+	margin-top: 6px;
+	gap: 6px;
+}
+.gradient-stop input[type="number"] {
+	width: 52px;
+}
+textarea.json-edit {
+	min-height: 300px;
+	font: 12px/1.5 var(--mono);
+	white-space: pre;
+	tab-size: 4;
+}
+.bad-text,
+input.bad {
+	color: var(--red);
+	border-color: var(--red);
+}
+.particle-previews {
+	gap: 12px;
+}
+.particle-tile {
+	position: relative;
+	width: 220px;
+	height: 220px;
+	border-radius: 6px;
+	border: 1px solid var(--border);
+	background-size: contain;
+	background-repeat: no-repeat;
+	background-position: center;
+}
+.particle-tile.dark {
+	background-color: #181c24;
+}
+.particle-tile.light {
+	background-color: #bec8cd;
+}
+.candidate .particle-tile {
+	width: 100%;
+	height: auto;
+	aspect-ratio: 1;
+}
+.flipbook-grid {
+	position: absolute;
+	inset: 0;
+	background-image: linear-gradient(to right, color-mix(in srgb, var(--accent) 40%, transparent) 1px, transparent 1px),
+		linear-gradient(to bottom, color-mix(in srgb, var(--accent) 40%, transparent) 1px, transparent 1px);
+}
