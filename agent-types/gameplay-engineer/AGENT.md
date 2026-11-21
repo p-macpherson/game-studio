@@ -21,6 +21,9 @@ task contradicts them, and where a doc isn't established follow its "For now" gu
   under `build/`) or a live run with `--control` (engine-control skill). Check the paths the test scripts actually
   write; don't guess them.
 - Add or extend a `tests/*.jsonl` control script for each behaviour you add.
+- **Effects** at a moment (a chest opening, a footstep) are `engine.play_effect("effects/<name>.json", position)`;
+  ambient ones are an `Effect` component in the scene. Scripted tests can check one played with
+  `{"cmd": "assert", "effect": "effects/<name>.json", "min_particles": 1}` right after the moment.
 - Never edit `engine/`. If the engine is missing something, explain what in your summary so the user can start
   an engine session.
 

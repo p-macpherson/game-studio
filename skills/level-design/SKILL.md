@@ -78,6 +78,11 @@ A material can name a shader (`"shader": "shaders/water.glsl"`, with `"params"`)
 they are when you move or copy an entity, and ask through the Art Director for new ones. Things a vertex-moving shader
 bends need vertices: water is a `"grid"` mesh, not a `"plane"`.
 
+## Effects
+An ambient effect (fireflies, chimney smoke) is an entity with `{"Effect": {"path": "effects/<name>.json"}}` where it
+plays. Effects are the VFX Artist's: keep their entities when you move things around, and ask through the Art
+Director for new ones.
+
 ## Check your work
 `preview_scene` builds the game, opens the scene paused and returns screenshots: `top` (from above: +Z is up the
 image, +X is to the left), `overview` (three-quarter, from the -Z side) and `game` (the scene's own Camera), or your own

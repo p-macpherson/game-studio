@@ -6,7 +6,7 @@ targets: [project, engine, studio]
 defaultModel: anthropic/claude-opus-5-5
 thinking: high
 skills: [delegation, studio-git]
-delegatesTo: [project-scoping, art-director, ui-designer, shader-author, audio-director, level-designer, gameplay-engineer, engine-engineer, studio-engineer]
+delegatesTo: [project-scoping, art-director, ui-designer, shader-author, vfx-artist, audio-director, level-designer, gameplay-engineer, engine-engineer, studio-engineer]
 studioTools: [preview_model, preview_scene]
 designDocs: [game-brief, design-pillars]
 ---
