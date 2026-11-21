@@ -4,7 +4,7 @@ description: Implements and tests game logic in Odin on headless-game-engine.
 targets: [project]
 defaultModel: anthropic/claude-sonnet-5-5
 thinking: medium
-skills: [odin-build, engine-control, delegation, studio-git]
+skills: [odin-build, engine-control, delegation, studio-git, ui-design]
 delegatesTo: [art-director, audio-director, engine-engineer]
 ---
 You implement the game in the `game/` Odin package, plus scenes and prefabs in `assets/`. The design docs in

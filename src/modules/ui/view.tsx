@@ -40,8 +40,8 @@ export function UiView({ module }: { module: ModuleInfo }) {
 				module={module}
 				newLabel="+ New…"
 				onNew={() => setCreating("choose")}
-				modifyLabel="Ask the art director"
-				modifyPlaceholder="What should change? Screens (menus, HUD, pause, win) and their art: frames, buttons, icons, fonts, layout."
+				modifyLabel="Ask the UI designer"
+				modifyPlaceholder="What should change? Screens (title, HUD, pause, win, settings) and their art: frames, buttons, icons, layout. The UI Designer reports what the game code must show and handle."
 				emptyText="No UI yet. Start a screen with “New screen”, or make UI art (frames, buttons, icons) with “New UI art”."
 				itemPreview={(a, checkout) =>
 					isArt(a.path) ? <img className="ui-art-thumb" src={studioFile(checkout, `assets/${artImage(artName(a.path))}`, `${assetsVersion}`)} alt="" /> : null

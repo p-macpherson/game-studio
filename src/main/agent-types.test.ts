@@ -35,8 +35,9 @@ describe("checkDelegation", () => {
 		expect(types.flatMap((t) => (t.problems ?? []).map((p) => `${t.id}: ${p}`))).toEqual([]);
 		expect(findAgentType(types, "general")?.id).toBe("chief-director");
 		const by = Object.fromEntries(types.map((t) => [t.id, t.delegatesTo]));
-		expect(by["chief-director"]).toEqual(["project-scoping", "art-director", "audio-director", "level-designer", "gameplay-engineer", "engine-engineer", "studio-engineer"]);
-		expect(by["art-director"]).toEqual(["concept-artist", "3d-modeller", "texture-artist"]);
+		expect(by["chief-director"]).toEqual(["project-scoping", "art-director", "ui-designer", "audio-director", "level-designer", "gameplay-engineer", "engine-engineer", "studio-engineer"]);
+		expect(by["art-director"]).toEqual(["concept-artist", "3d-modeller", "texture-artist", "ui-designer"]);
+		expect(by["ui-designer"] ?? []).toEqual([]);
 		expect(by["level-designer"]).toEqual(["art-director", "audio-director", "gameplay-engineer"]);
 	});
 });

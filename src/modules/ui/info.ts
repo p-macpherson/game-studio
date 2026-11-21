@@ -15,7 +15,7 @@ export const ui: ModuleInfo = {
 	extensions: [".json"],
 	exclude: ["/candidates/"],
 	folderAssets: ["assets/ui/art"],
-	agentType: "art-director",
+	agentType: "ui-designer",
 	noun: "screen",
 };
 
