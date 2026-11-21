@@ -97,6 +97,14 @@ export function AssetBrowser(props: AssetBrowserProps) {
 		})),
 	);
 	const [assets, setAssets] = useState<AssetSummary[] | null>(null);
+	// The list can fold away to a thin rail (remembered per section), giving the selected item the room.
+	const [listCollapsed, setListCollapsedState] = useState(() => localStorage.getItem(`asset-list-collapsed:${module.id}`) === "1");
+	const setListCollapsed = (v: boolean) => {
+		setListCollapsedState(v);
+		if (v) localStorage.setItem(`asset-list-collapsed:${module.id}`, "1");
+		else localStorage.removeItem(`asset-list-collapsed:${module.id}`);
+	};
+	useEffect(() => setListCollapsedState(localStorage.getItem(`asset-list-collapsed:${module.id}`) === "1"), [module.id]);
 	const [query, setQuery] = useState("");
 	const [hits, setHits] = useState<AssetSearchHit[]>([]);
 	// The text of one checkout's version of one asset: content views never see the previous asset's text.
@@ -308,10 +316,21 @@ export function AssetBrowser(props: AssetBrowserProps) {
 		openNewSession({ agentType: module.agentType, target: "project", linkedAsset: path, context: `About ${path}`, placeholder: props.modifyPlaceholder });
 
 	return (
-		<div className="sessions">
+		<div className={`sessions ${listCollapsed ? "list-collapsed" : ""}`}>
+			{listCollapsed && (
+				<div className="list-rail" data-testid="asset-list-rail">
+					<button className="ghost icon" onClick={() => setListCollapsed(false)} title={`Show the ${module.name} list`} data-testid="asset-list-expand">
+						»
+					</button>
+					<span className="list-rail-name">{module.name}</span>
+				</div>
+			)}
 			<div className="session-list">
 				<div className="toolbar">
 					<div className="row">
+						<button className="ghost icon" onClick={() => setListCollapsed(true)} title="Hide the list: more room for the selected item" data-testid="asset-list-collapse">
+							«
+						</button>
 						<h2 className="grow">{module.name}</h2>
 						<button className="primary" onClick={() => (props.onNew ? props.onNew() : props.newPreset && openNewSession(props.newPreset))}>
 							{props.newLabel}

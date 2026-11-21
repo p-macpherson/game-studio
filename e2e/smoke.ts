@@ -682,6 +682,16 @@ try {
 	});
 	await page.waitForTimeout(800);
 	await step("52-ui-editor", page);
+	// The list folds away to a rail, giving the live view the room; the rail brings it back.
+	const narrow = (await page.getByTestId("ui-viewport").boundingBox())!.width;
+	await page.getByTestId("asset-list-collapse").click();
+	await page.getByTestId("asset-list-rail").waitFor();
+	await page.waitForTimeout(300);
+	const wide = (await page.getByTestId("ui-viewport").boundingBox())!.width;
+	if (wide < narrow + 200) throw new Error(`folding the list didn't widen the view: ${narrow} → ${wide}`);
+	await step("52b-ui-list-collapsed", page);
+	await page.getByTestId("asset-list-expand").click();
+	await page.getByTestId("asset-list-collapse").waitFor();
 
 	// UI art (fake worker): candidates, one used makes the piece, previewed stretched; the panel takes it as its frame.
 	await page.getByRole("button", { name: "+ New…" }).click();
@@ -773,7 +783,7 @@ try {
 	await page.getByText("Available models").waitFor();
 	await step("07-accounts", page);
 	await page.getByRole("button", { name: "Agents", exact: true }).click();
-	await page.getByTestId("agent-type-card").filter({ hasText: "Delegates to: Game Designer, Art Director, Audio Director" }).waitFor();
+	await page.getByTestId("agent-type-card").filter({ hasText: "Delegates to: Game Designer, Art Director, UI Designer, Audio Director" }).waitFor();
 	await step("33-agent-types", page);
 
 	// Engine (and studio) worktrees are in the selector too, under their repo: selecting one shows its sessions,

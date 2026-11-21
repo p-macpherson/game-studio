@@ -2548,3 +2548,26 @@ textarea {
 .ui-values {
 	gap: 6px;
 }
+
+/* A section's asset list folded away to a rail */
+.sessions.list-collapsed {
+	grid-template-columns: 36px 1fr;
+}
+.sessions.list-collapsed > .session-list {
+	display: none;
+}
+.list-rail {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 10px;
+	padding: 10px 0;
+	border-right: 1px solid var(--border);
+	background: var(--panel);
+}
+.list-rail-name {
+	writing-mode: vertical-rl;
+	color: var(--muted);
+	font-size: 12px;
+	letter-spacing: 0.04em;
+}
