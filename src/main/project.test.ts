@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createProject, readProject } from "./project";
+import { createProject, publishProject, readProject } from "./project";
 import { makeRepo, sh, tempDir } from "./test-helpers";
 
 const templateDir = resolve("templates/game");
@@ -43,6 +43,40 @@ describe("createProject", () => {
 		sh(path, "commit", "-q", "-m", "texture");
 		expect(sh(path, "lfs", "ls-files", "--name-only")).toBe("assets/textures/brick.png\n");
 		expect(sh(path, "show", "HEAD:assets/textures/brick.png")).toContain("version https://git-lfs.github.com/spec/v1");
+	});
+
+	it("publishes a local-only project to a new remote once the engine commit it pins is on the engine's remote", async () => {
+		const root = tempDir();
+		const engineRepo = makeRepo(join(root, "engine"), { "engine/engine/app.odin": "package engine\n" });
+		const engineRemote = join(root, "engine.git");
+		sh(root, "init", "-q", "--bare", engineRemote);
+		sh(engineRepo, "remote", "add", "origin", engineRemote);
+		sh(engineRepo, "push", "-q", "origin", "HEAD:main");
+		writeFileSync(join(engineRepo, "new.odin"), "package engine\n");
+		sh(engineRepo, "add", "-A");
+		sh(engineRepo, "commit", "-q", "-m", "not pushed yet");
+		const path = join(root, "game");
+		mkdirSync(path);
+		sh(path, "init", "-q", "-b", "main");
+		sh(path, "config", "user.email", "test@example.com");
+		sh(path, "config", "user.name", "Test");
+		await createProject({ path, name: "Game", templateDir, engineRepo });
+		const gameRemote = join(root, "game.git");
+		sh(root, "init", "-q", "--bare", gameRemote);
+
+		// The game pins an engine commit only this machine has: nothing is added or pushed.
+		await expect(publishProject(path, gameRemote)).rejects.toThrow(/isn't on the engine's remote yet/);
+		expect(sh(path, "remote").trim()).toBe("");
+
+		// A failed push doesn't leave a half-set-up remote behind.
+		sh(engineRepo, "push", "-q", "origin", "HEAD:main");
+		await expect(publishProject(path, join(root, "missing.git"))).rejects.toThrow(/push failed/);
+		expect(sh(path, "remote").trim()).toBe("");
+
+		await publishProject(path, gameRemote);
+		expect(sh(path, "rev-parse", "--abbrev-ref", "main@{upstream}").trim()).toBe("origin/main");
+		expect(sh(gameRemote, "log", "--format=%s", "main")).toBe("Create Game with Game Studio\n");
+		await expect(publishProject(path, gameRemote)).rejects.toThrow(/already has a remote/);
 	});
 
 	it("refuses a folder that isn't empty", async () => {

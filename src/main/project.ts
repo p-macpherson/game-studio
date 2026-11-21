@@ -62,6 +62,36 @@ export async function createProject(opts: { path: string; name: string; template
 	return { path, name };
 }
 
+/**
+ * Gives a project that only exists on this machine a remote and pushes its branch there (Source Control → Publish).
+ * Refuses first if the engine commit the game pins isn't on the engine's remote: a clone of the game elsewhere
+ * couldn't fetch it. If the push fails, the remote isn't kept, so trying again starts clean.
+ */
+export async function publishProject(path: string, url: string): Promise<void> {
+	url = url.trim();
+	if (!url) throw new Error("Give the URL of an empty remote repository");
+	if ((await git(path, ["remote"])).trim()) throw new Error("This project already has a remote: use Push");
+	const branch = (await git(path, ["branch", "--show-current"])).trim();
+	if (!branch) throw new Error("The project isn't on a branch");
+	const engine = join(path, "engine");
+	if (existsSync(join(engine, ".git"))) {
+		const pinned = (await git(engine, ["rev-parse", "HEAD"])).trim();
+		await git(engine, ["fetch", "-q", "origin"]).catch((err: Error) => {
+			throw new Error(`Couldn't reach the engine's remote to check it has the engine this game uses: ${err.message}`);
+		});
+		if (!(await git(engine, ["branch", "-r", "--contains", pinned])).trim()) {
+			throw new Error(`The engine commit this game uses (${pinned.slice(0, 7)}) isn't on the engine's remote yet: push the engine first, or a copy of the game cloned elsewhere couldn't fetch it`);
+		}
+	}
+	await git(path, ["remote", "add", "origin", url]);
+	try {
+		await git(path, ["push", "-q", "-u", "origin", branch]);
+	} catch (err) {
+		await git(path, ["remote", "remove", "origin"]).catch(() => {});
+		throw new Error(`The push failed, so the remote wasn't kept: ${(err as Error).message}`);
+	}
+}
+
 function fillPlaceholders(dir: string, values: Record<string, string>): void {
 	for (const entry of readdirSync(dir)) {
 		const full = join(dir, entry);

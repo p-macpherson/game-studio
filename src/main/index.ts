@@ -10,7 +10,7 @@ import { loadAgentTypes } from "./agent-types";
 import { AssetService, MODULES } from "./assets";
 import * as g from "./git";
 import { utilityHostLink } from "./host-link";
-import { createProject, readProject } from "./project";
+import { createProject, readProject, publishProject } from "./project";
 import { GenService, soundfontPath } from "./gen";
 import { generationRequests, ModelPipeline } from "./models";
 import { MusicPipeline } from "./music";
@@ -188,6 +188,7 @@ async function main(): Promise<void> {
 		"git.log": (target, limit) => g.log(repo(target), limit),
 		"git.push": (target) => g.git(repo(target), ["push"]),
 		"git.pull": (target) => g.git(repo(target), ["pull", "--ff-only"]),
+		"git.publish": (url) => publishProject(repo("project"), url),
 		"git.engineInfo": engineInfo,
 		"git.updateEngine": async () => {
 			const info = await engineInfo();

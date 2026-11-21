@@ -44,6 +44,8 @@ export function SourceControl() {
 	const [message, setMessage] = useState("");
 	const [engine, setEngine] = useState<{ pinned: string; latest: string; behind: number } | null>(null);
 	const [busy, setBusy] = useState(false);
+	// The remote URL being typed in the publish form (null: closed).
+	const [publishing, setPublishing] = useState<string | null>(null);
 
 	const reload = useCallback(async () => {
 		try {
@@ -77,6 +79,16 @@ export function SourceControl() {
 			setBusy(false);
 			void reload();
 		}
+	};
+	const publish = () => {
+		const url = publishing?.trim();
+		if (!url) return;
+		void act(async () => {
+			await call("git.publish", url);
+			setPublishing(null);
+			await reload();
+			useStudio.getState().notify(`Published to ${url}`);
+		});
 	};
 
 	const files = status?.files ?? [];
@@ -129,12 +141,51 @@ export function SourceControl() {
 									↑{status.ahead} ↓{status.behind}
 								</span>
 							)}
-							<button disabled={busy} onClick={() => act(() => call("git.pull", target), "Pull from the remote (fast-forward only)?")}>
-								Pull
-							</button>
-							<button disabled={busy} onClick={() => act(() => call("git.push", target), `Push ${status.branch} to ${status.upstream ?? "the remote"}?`)}>
-								Push
-							</button>
+							{status.hasRemote ? (
+								<>
+									<button disabled={busy} onClick={() => act(() => call("git.pull", target), "Pull from the remote (fast-forward only)?")}>
+										Pull
+									</button>
+									<button disabled={busy} onClick={() => act(() => call("git.push", target), `Push ${status.branch} to ${status.upstream ?? "the remote"}?`)}>
+										Push
+									</button>
+								</>
+							) : target === "project" ? (
+								<button disabled={busy || publishing !== null} onClick={() => setPublishing("")} data-testid="publish-open">
+									Publish to remote…
+								</button>
+							) : (
+								<span className="muted small">no remote</span>
+							)}
+						</div>
+					)}
+					{status && !status.hasRemote && target === "project" && publishing === null && (
+						<span className="muted small" data-testid="local-only">
+							Only on this machine. Publish it when it's worth keeping somewhere else.
+						</span>
+					)}
+					{publishing !== null && (
+						<div className="card col publish-form" data-testid="publish-form">
+							<span className="small">
+								Create an <b>empty</b> repository on GitHub (or any git host), then paste its URL. The studio checks the engine commit this game uses is
+								on the engine's remote, adds the remote as <code>origin</code> and pushes <code>{status?.branch}</code> (with its Git LFS files).
+							</span>
+							<input
+								autoFocus
+								placeholder="git@github.com:you/my-game.git"
+								value={publishing}
+								onChange={(e) => setPublishing(e.target.value)}
+								onKeyDown={(e) => e.key === "Enter" && publish()}
+								data-testid="publish-url"
+							/>
+							<div className="row" style={{ justifyContent: "flex-end" }}>
+								<button disabled={busy} onClick={() => setPublishing(null)}>
+									Cancel
+								</button>
+								<button className="primary" disabled={busy || !publishing.trim()} onClick={publish} data-testid="publish-confirm">
+									{busy ? "Publishing…" : "Publish"}
+								</button>
+							</div>
 						</div>
 					)}
 					<textarea rows={3} placeholder="Commit message" value={message} onChange={(e) => setMessage(e.target.value)} />

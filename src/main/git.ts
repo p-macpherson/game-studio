@@ -68,7 +68,7 @@ export async function isAncestor(dir: string, ancestor: string, of: string): Pro
 export async function status(dir: string): Promise<GitStatus> {
 	// Read-only: no index refresh, so it never holds index.lock while a commit or merge runs in the same checkout.
 	const out = await git(dir, ["--no-optional-locks", "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"]);
-	const result: GitStatus = { branch: "", ahead: 0, behind: 0, files: [] };
+	const result: GitStatus = { branch: "", ahead: 0, behind: 0, files: [], hasRemote: !!(await git(dir, ["remote"])).trim() };
 	const records = out.split("\0");
 	for (let i = 0; i < records.length; i++) {
 		const r = records[i];

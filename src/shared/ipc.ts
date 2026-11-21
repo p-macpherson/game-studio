@@ -45,6 +45,8 @@ export interface StudioApi {
 	"git.log"(target: Target, limit: number): Promise<GitCommit[]>;
 	"git.push"(target: Target): Promise<string>;
 	"git.pull"(target: Target): Promise<string>;
+	/** Adds a remote to a project with none and pushes its branch there (see publishProject). */
+	"git.publish"(url: string): Promise<void>;
 	/** Engine submodule: commit currently pinned vs the engine repo's main. */
 	"git.engineInfo"(): Promise<{ pinned: string; latest: string; behind: number } | null>;
 	"git.updateEngine"(): Promise<void>;

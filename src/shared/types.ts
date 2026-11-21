@@ -120,6 +120,8 @@ export interface GitFileStatus {
 export interface GitStatus {
 	branch: string;
 	upstream?: string;
+	/** Whether the repo has any remote (a project can live only on this machine until it's published). */
+	hasRemote: boolean;
 	ahead: number;
 	behind: number;
 	files: GitFileStatus[];

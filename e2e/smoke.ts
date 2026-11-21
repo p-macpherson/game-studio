@@ -583,6 +583,14 @@ try {
 	await page.locator(".list-row", { hasText: "studio: worktree" }).first().waitFor();
 	await page.locator("code", { hasText: "⎇ main" }).waitFor();
 	await step("06-source-control", page);
+	// A project only on this machine: no Push/Pull, a Publish form instead.
+	if (await page.getByRole("button", { name: "Push", exact: true }).count()) throw new Error("Push shown for a project with no remote");
+	await page.getByTestId("local-only").waitFor();
+	await page.getByTestId("publish-open").click();
+	await page.getByTestId("publish-url").fill("git@github.com:someone/e2e-game.git");
+	await step("06b-publish-form", page);
+	await page.getByTestId("publish-form").getByRole("button", { name: "Cancel" }).click();
+	await page.getByTestId("publish-open").waitFor();
 	await nav.getByRole("button", { name: "Settings" }).click();
 	await page.getByRole("button", { name: "Accounts", exact: true }).click();
 	await page.getByText("Available models").waitFor();
