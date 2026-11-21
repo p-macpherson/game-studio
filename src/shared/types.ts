@@ -51,6 +51,8 @@ export interface SessionRecord {
 	linkedAsset?: string;
 	createdAt: string;
 	updatedAt: string;
+	/** When it became done (merged, discarded or marked done); cleared when it is resumed. Archival counts from here. */
+	closedAt?: string;
 	outcome: "merged" | "discarded" | null;
 	reviewRequested: boolean;
 	/** Pi's JSONL transcript, relative to the session folder. Pi picks the name on first save. */
@@ -72,6 +74,8 @@ export interface SessionSummary extends SessionRecord {
 	live: boolean;
 	/** A question the agent asked through `ask_user`, still waiting for an answer. */
 	pendingQuestion?: PendingQuestion;
+	/** Closed long ago and moved out of git into the project's archive folder; `sessions.restore` brings it back. */
+	archived?: boolean;
 }
 
 export interface PendingQuestion {

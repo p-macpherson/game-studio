@@ -218,6 +218,11 @@ try {
 	await selectMain(page);
 	await page.getByTestId("sessions-scope").filter({ hasText: "its own worktree" }).waitFor();
 	await step("49-sessions-main", page);
+	// Archived: read from the archive folder only when asked for (nothing is a week old here).
+	await page.getByTestId("archived-chip").click();
+	await page.getByText("Nothing archived matches").waitFor();
+	await step("52-archived", page);
+	await page.getByTestId("archived-chip").click();
 	await page.getByTestId("worktree-current").click();
 	await page.getByTestId("worktree-option").filter({ hasText: overviewWorktree.replace(/[⎇▾●]/g, "").trim().slice(0, 20) }).click();
 

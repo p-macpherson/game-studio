@@ -2,7 +2,7 @@
 // the session host. See the vault note "Sessions & Worktrees".
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { HostEvent, PromptMode, StudioRequestMethod } from "../shared/host";
 import type { StudioEvent } from "../shared/ipc";
@@ -10,10 +10,32 @@ import type { AgentTypeInfo, GitCommit, NewSessionRequest, PendingQuestion, Sess
 import { findAgentType } from "../shared/agents";
 import * as g from "./git";
 import type { HostLink } from "./host-link";
-import { writeJsonAtomic } from "./json-file";
+import { writeFileAtomic, writeJsonAtomic } from "./json-file";
 import { type FileChange, type Worktree, WORKTREES_DIR, WorktreeStore } from "./worktrees";
 
 export const SESSIONS_DIR = ".studio/sessions";
+/** Where the records and transcripts of work closed long ago go: in the repo's folder, out of git. */
+export const ARCHIVE_DIR = ".studio/archive";
+const ARCHIVE_AFTER_MS = 7 * 24 * 3600_000;
+export const STUDIO_IGNORE_FILE = ".studio/.gitignore";
+/**
+ * What is tracked: the small records of open and recently closed work. What isn't: transcripts (large, and a log of
+ * the work rather than part of the game), and everything closed more than a week ago.
+ */
+export const STUDIO_IGNORE = `# Game Studio keeps these on this machine, out of git: sessions' transcripts (large, and a log of the work rather
+# than part of the game), and the records of work closed more than a week ago.
+sessions/*/*.jsonl
+archive/
+*.tmp
+`;
+
+/** Writes the repo's `.studio/.gitignore` if it is missing or out of date. */
+export function ensureStudioIgnore(repoPath: string): void {
+	const file = join(repoPath, STUDIO_IGNORE_FILE);
+	if (existsSync(file) && readFileSync(file, "utf8") === STUDIO_IGNORE) return;
+	mkdirSync(join(repoPath, ".studio"), { recursive: true });
+	writeFileAtomic(file, STUDIO_IGNORE);
+}
 
 export interface SessionServiceDeps {
 	host: HostLink;
@@ -24,6 +46,8 @@ export interface SessionServiceDeps {
 	emit(event: StudioEvent): void;
 	/** Dispose Pi sessions that have been quiet this long. */
 	idleTimeoutMs?: number;
+	/** Archive work closed this long ago (default: seven days). */
+	archiveAfterMs?: number;
 	/** Serves an agent tool's call into the studio (asset generation). `cwd` is the session's worktree. */
 	studioRequest?(req: StudioRequest): Promise<unknown>;
 	cancelStudioRequest?(requestId: string): void;
@@ -75,6 +99,9 @@ export class SessionService {
 	private readonly delegations = new Map<string, string>();
 	/** Called when a session stops running (settles, fails or ends). */
 	private readonly settleWaiters = new Map<string, (() => void)[]>();
+	/** Repos whose `.studio/.gitignore` has been checked this run. */
+	private readonly ignoreChecked = new Set<string>();
+	private housekeeping: Promise<void> = Promise.resolve();
 
 	constructor(private readonly deps: SessionServiceDeps) {
 		this.worktrees = new WorktreeStore({ settings: deps.settings, changed: () => deps.emit({ type: "sessions_changed" }) });
@@ -124,6 +151,11 @@ export class SessionService {
 
 	private save(e: Entry): void {
 		e.record.updatedAt = new Date().toISOString();
+		// Before a transcript can exist: it must never be staged.
+		if (!this.ignoreChecked.has(e.repoPath)) {
+			ensureStudioIgnore(e.repoPath);
+			this.ignoreChecked.add(e.repoPath);
+		}
 		mkdirSync(this.sessionDir(e), { recursive: true });
 		writeJsonAtomic(join(this.sessionDir(e), "session.json"), e.record);
 		this.deps.emit({ type: "sessions_changed" });
@@ -193,6 +225,118 @@ export class SessionService {
 		}
 		for (const id of this.entries.keys()) if (!seen.has(id)) this.entries.delete(id);
 		this.deps.emit({ type: "sessions_changed" });
+		this.housekeeping = this.housekeeping.then(() => this.tidy(repos.map((r) => r.path))).catch((err) => console.error("session housekeeping failed:", err));
+	}
+
+	/** Resolves when the housekeeping the latest `load` started (untracking transcripts, archiving old work) is done. */
+	tidied(): Promise<void> {
+		return this.housekeeping;
+	}
+
+	private async tidy(repoPaths: string[]): Promise<void> {
+		let archived = 0;
+		for (const path of repoPaths) {
+			if (!existsSync(join(path, ".studio"))) continue;
+			try {
+				ensureStudioIgnore(path);
+				this.ignoreChecked.add(path);
+				// Transcripts committed before they were ignored: out of the index (history keeps what it has).
+				const tracked = (await g.git(path, ["ls-files", "--", `${SESSIONS_DIR}/*/*.jsonl`])).split("\n").filter(Boolean);
+				if (tracked.length) await g.untrack(path, tracked, [STUDIO_IGNORE_FILE], "studio: session transcripts stay on this machine, out of git");
+				archived += await this.archiveOld(path);
+			} catch (err) {
+				console.error(`session housekeeping in ${path}:`, err);
+			}
+		}
+		if (archived) this.deps.emit({ type: "sessions_changed" });
+	}
+
+	/**
+	 * Moves work closed more than a week ago into the repo's archive folder (ignored by git) and commits the removal of
+	 * its records. Work is archived by worktree: its record and every session in it together, once the worktree is
+	 * merged or discarded and all of them are done. Returns how many sessions and worktrees moved.
+	 */
+	private async archiveOld(repoPath: string): Promise<number> {
+		const after = this.deps.archiveAfterMs ?? ARCHIVE_AFTER_MS;
+		const groups = new Map<string, Entry[]>();
+		for (const w of this.worktrees.all()) if (w.repoPath === repoPath) groups.set(w.record.id, []);
+		for (const e of this.entries.values()) if (e.repoPath === repoPath) groups.set(e.record.worktreeId, [...(groups.get(e.record.worktreeId) ?? []), e]);
+		const moved: string[] = [];
+		const move = (path: string) => {
+			const to = join(repoPath, ARCHIVE_DIR, path.slice(".studio/".length));
+			rmSync(to, { recursive: true, force: true });
+			mkdirSync(join(to, ".."), { recursive: true });
+			renameSync(join(repoPath, path), to);
+			moved.push(path);
+		};
+		for (const [id, sessions] of groups) {
+			const w = this.worktrees.find(id);
+			if (w && (w.repoPath !== repoPath || w.record.status === "active")) continue;
+			if (sessions.some((e) => e.record.status !== "done" || this.live.has(e.record.id))) continue;
+			const closed = [w?.record.updatedAt, ...sessions.map((e) => e.record.closedAt ?? e.record.updatedAt)].flatMap((t) => (t ? [Date.parse(t)] : []));
+			if (!closed.length || Date.now() - Math.max(...closed) < after) continue;
+			for (const e of sessions) {
+				move(join(SESSIONS_DIR, e.record.id));
+				this.entries.delete(e.record.id);
+			}
+			if (w) {
+				move(join(WORKTREES_DIR, `${id}.json`));
+				this.worktrees.forget(id);
+			}
+		}
+		if (!moved.length) return 0;
+		const tracked = (await g.git(repoPath, ["ls-files", "--", ...moved])).split("\n").filter(Boolean);
+		if (tracked.length) await g.commitPaths(repoPath, tracked, `studio: archived ${moved.length} record${moved.length > 1 ? "s" : ""} of work closed over a week ago`);
+		return moved.length;
+	}
+
+	/** Archived sessions of every repo, newest first: read from the archive folders when asked for, never at startup. */
+	listArchived(): SessionSummary[] {
+		const out: SessionSummary[] = [];
+		const read = <T>(file: string): T | null => {
+			try {
+				return JSON.parse(readFileSync(file, "utf8")) as T;
+			} catch {
+				return null;
+			}
+		};
+		for (const { target, path } of this.repos()) {
+			const dir = join(path, ARCHIVE_DIR, "sessions");
+			if (!existsSync(dir)) continue;
+			for (const id of readdirSync(dir)) {
+				const record = read<SessionRecord>(join(dir, id, "session.json"));
+				if (!record) continue;
+				const w = read<WorktreeRecord>(join(path, ARCHIVE_DIR, "worktrees", `${record.worktreeId}.json`));
+				out.push({ ...record, target, repoPath: path, worktreePath: "", worktreeLabel: w?.label ?? "", branch: w?.branch ?? "", baseBranch: w?.baseBranch ?? "", worktree: "removed", live: false, archived: true });
+			}
+		}
+		return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+	}
+
+	/** Brings an archived session back into the studio, with its worktree's record and the sessions archived with it. */
+	async restore(id: string): Promise<void> {
+		const found = this.listArchived().find((s) => s.id === id);
+		if (!found) throw new Error(`No archived session ${id}`);
+		const { repoPath, worktreeId } = found;
+		const back = (path: string) => {
+			const from = join(repoPath, ARCHIVE_DIR, path.slice(".studio/".length));
+			if (!existsSync(from)) return;
+			mkdirSync(join(repoPath, path, ".."), { recursive: true });
+			renameSync(from, join(repoPath, path));
+		};
+		const together = this.listArchived().filter((s) => s.repoPath === repoPath && s.worktreeId === worktreeId);
+		back(join(WORKTREES_DIR, `${worktreeId}.json`));
+		for (const s of together) back(join(SESSIONS_DIR, s.id));
+		this.load();
+		// Closed as of now, so it isn't archived again the next time the studio tidies (no await before this: load's
+		// housekeeping hasn't started yet).
+		const now = new Date().toISOString();
+		for (const s of together) {
+			const e = this.entries.get(s.id);
+			if (!e) continue;
+			e.record.closedAt = now;
+			this.save(e);
+		}
 	}
 
 	/** A record from before worktrees: the session had its own branch and checkout. It becomes a worktree with its id. */
@@ -439,6 +583,7 @@ export class SessionService {
 
 	private prompt(e: Entry, text: string, mode?: PromptMode): void {
 		if (e.record.status === "done") e.record.outcome = null;
+		e.record.closedAt = undefined;
 		e.record.status = "in_progress";
 		e.record.error = undefined;
 		this.save(e);
@@ -790,6 +935,7 @@ export class SessionService {
 		this.assertNotRunning(e);
 		this.close(id);
 		e.record.status = "done";
+		e.record.closedAt = new Date().toISOString();
 		e.record.reviewRequested = false;
 		this.save(e);
 		await this.commitRecord(e);
@@ -799,6 +945,7 @@ export class SessionService {
 		this.close(e.record.id);
 		this.questions.delete(e.record.id);
 		e.record.status = "done";
+		e.record.closedAt = new Date().toISOString();
 		e.record.outcome = outcome;
 		e.record.reviewRequested = false;
 		this.save(e);
@@ -810,6 +957,7 @@ export class SessionService {
 		if (e.record.status === "done") {
 			e.record.status = "idle";
 			e.record.outcome = null;
+			e.record.closedAt = undefined;
 		}
 		this.save(e);
 	}
@@ -817,15 +965,17 @@ export class SessionService {
 	private async commitRecord(e: Entry): Promise<void> {
 		const r = e.record;
 		try {
-			await g.commitPaths(e.repoPath, [join(SESSIONS_DIR, r.id)], `studio: session ${r.id} ${r.outcome ?? "done"}: ${r.title}`);
+			ensureStudioIgnore(e.repoPath);
+			await g.commitPaths(e.repoPath, [join(SESSIONS_DIR, r.id), STUDIO_IGNORE_FILE], `studio: session ${r.id} ${r.outcome ?? "done"}: ${r.title}`);
 		} catch (err) {
 			console.error(`could not commit session record ${r.id}:`, err);
 		}
 	}
 
 	private async commitRecords(w: Worktree, sessions: Entry[], outcome: "merged" | "discarded"): Promise<void> {
-		const paths = [join(WORKTREES_DIR, `${w.record.id}.json`), ...sessions.map((e) => join(SESSIONS_DIR, e.record.id))];
+		const paths = [join(WORKTREES_DIR, `${w.record.id}.json`), ...sessions.map((e) => join(SESSIONS_DIR, e.record.id)), STUDIO_IGNORE_FILE];
 		try {
+			ensureStudioIgnore(w.repoPath);
 			await g.commitPaths(w.repoPath, paths, `studio: worktree ${w.record.id} ${outcome}: ${w.record.label}`);
 		} catch (err) {
 			console.error(`could not commit the records of worktree ${w.record.id}:`, err);

@@ -367,4 +367,56 @@ describe("SessionService", () => {
 			reloaded.dispose();
 		}
 	}, 30_000);
+
+	it("keeps transcripts out of git, and archives work a week after it closed, by worktree", async () => {
+		// A transcript committed before they were ignored (an older studio's): untracked when the studio loads.
+		mkdirSync(join(project, ".studio/sessions/old"), { recursive: true });
+		writeFileSync(join(project, ".studio/sessions/old/2026.jsonl"), "{}\n");
+		sh(project, "add", "-f", ".studio/sessions/old/2026.jsonl");
+		sh(project, "commit", "-q", "-m", "an old transcript");
+
+		const s = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: "add a note" });
+		await settled(s.id);
+		const other = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: "still going" });
+		await settled(other.id);
+		await service.merge(s.id);
+		service.load();
+		await service.tidied();
+		const tracked = () => sh(project, "ls-files", ".studio").trim().split("\n");
+		expect(tracked()).toContain(`.studio/sessions/${s.id}/session.json`);
+		expect(tracked().filter((p) => p.endsWith(".jsonl"))).toEqual([]);
+		expect(existsSync(join(project, ".studio/sessions/old/2026.jsonl"))).toBe(true); // only untracked, not deleted
+		const transcriptName = service.get(s.id).piSessionFile!;
+		expect(existsSync(join(project, ".studio/sessions", s.id, transcriptName))).toBe(true);
+		expect(sh(project, "status", "--porcelain", "--", `.studio/sessions/${s.id}`)).toBe("");
+
+		// Nothing is archived while it's recent.
+		expect(service.listArchived()).toEqual([]);
+
+		// A week later (here: at once): the merged worktree and its session go; the open one stays.
+		const later = new SessionService({ host: await inProcessHost(join(root, "pi3")), settings: () => settings, projectPath: () => project, agentTypes: () => [general], skillsDir: join(root, "skills"), emit: () => {}, archiveAfterMs: 0 });
+		try {
+			later.load();
+			await later.tidied();
+			expect(later.list().map((x) => x.id)).toEqual([other.id]);
+			expect(later.listArchived().map((x) => x.id)).toEqual([s.id]);
+			expect(later.listArchived()[0].worktreeLabel).toBe("add a note");
+			expect(tracked().some((p) => p.includes(s.id))).toBe(false);
+			expect(sh(project, "status", "--porcelain", "--", ".studio")).not.toContain(s.id); // the removal is committed
+			expect(existsSync(join(project, ".studio/archive/sessions", s.id, transcriptName))).toBe(true);
+
+		} finally {
+			later.dispose();
+		}
+
+		// Restoring (in a studio with the usual week) brings back the session, its worktree's record and its transcript;
+		// it counts as closed now, so it stays, and it can be resumed.
+		await service.restore(s.id);
+		await service.tidied();
+		expect(service.get(s.id).status).toBe("done");
+		expect(service.listArchived()).toEqual([]);
+		expect((await service.messages(s.id)).length).toBeGreaterThan(0);
+		await service.resume(s.id);
+		expect(service.get(s.id).worktree).toBe("active");
+	}, 30_000);
 });

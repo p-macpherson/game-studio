@@ -155,6 +155,10 @@ export interface StudioApi {
 	"sessions.discard"(id: string): Promise<void>;
 	"sessions.markDone"(id: string): Promise<void>;
 	"sessions.resume"(id: string): Promise<void>;
+	/** Sessions closed over a week ago, kept in each repo's gitignored `.studio/archive/` (read when asked for). */
+	"sessions.archived"(): Promise<SessionSummary[]>;
+	/** Brings an archived session back, with its worktree's record and the other sessions archived with it. */
+	"sessions.restore"(id: string): Promise<void>;
 	"sessions.openTerminal"(id: string): Promise<void>;
 }
 

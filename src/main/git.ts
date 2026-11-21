@@ -9,7 +9,7 @@ const exec = promisify(execFile);
 export class GitError extends Error {}
 
 /** Commands that only read: they run at once. Anything else takes its turn in its checkout. */
-const READS = new Set(["rev-parse", "log", "diff", "status", "merge-base", "rev-list", "symbolic-ref", "push", "--no-optional-locks"]);
+const READS = new Set(["rev-parse", "log", "diff", "status", "merge-base", "rev-list", "symbolic-ref", "ls-files", "push", "--no-optional-locks"]);
 /** Another git process (an agent's own commit in the same checkout) holds a lock: worth waiting for. */
 const LOCKED = /\.lock': File exists|Unable to create '.*\.lock'|cannot lock ref/;
 const LOCK_RETRIES = 6;
@@ -165,6 +165,20 @@ export async function commitPaths(dir: string, paths: string[], message: string)
 		if (!staged.trim()) return false;
 		await runPatiently(dir, ["commit", "-q", "-m", message, "--only", "--", ...paths]);
 		return true;
+	});
+}
+
+/**
+ * Stops tracking `paths` (their files stay on disk) and commits that, together with `alongside` (e.g. the ignore file
+ * that keeps them out from now on). Refuses while anything else is staged, so that isn't swept into the commit.
+ */
+export async function untrack(dir: string, paths: string[], alongside: string[], message: string): Promise<void> {
+	await inTurn(dir, async () => {
+		const staged = (await run(dir, ["diff", "--cached", "--name-only"])).trim();
+		if (staged) throw new GitError(`git rm: other changes are staged (${staged.split("\n").length} files); commit or unstage them first`);
+		await runPatiently(dir, ["rm", "--cached", "-q", "--", ...paths]);
+		await runPatiently(dir, ["add", "--", ...alongside]);
+		await runPatiently(dir, ["commit", "-q", "-m", message]);
 	});
 }
 

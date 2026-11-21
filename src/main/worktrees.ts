@@ -72,6 +72,11 @@ export class WorktreeStore {
 		return [...this.items.values()];
 	}
 
+	/** Drops a record from memory (its file was moved to the archive). */
+	forget(id: string): void {
+		this.items.delete(id);
+	}
+
 	save(w: Worktree): void {
 		w.record.updatedAt = new Date().toISOString();
 		mkdirSync(join(w.repoPath, WORKTREES_DIR), { recursive: true });

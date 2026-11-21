@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { SessionStatus, SessionSummary, Target } from "../../shared/types";
 import { findAgentType } from "../../shared/agents";
-import { relativeTime } from "../api";
+import { call, relativeTime } from "../api";
 import { isOpenWorktree, useStudio } from "../store";
 import { SessionDetail } from "./SessionDetail";
 import { useShallow } from "zustand/react/shallow";
@@ -37,7 +37,7 @@ export function TargetBadge({ target }: { target: Target }) {
 }
 
 export function Sessions() {
-	const { sessions, agentTypes, selectedSession, selectSession, openNewSession, selected: picked, worktrees } = useStudio(
+	const { sessions, agentTypes, selectedSession, selectSession, openNewSession, selected: picked, worktrees, showError, refreshSessions } = useStudio(
 		useShallow((s) => ({
 			sessions: s.sessions,
 			agentTypes: s.agentTypes,
@@ -46,6 +46,8 @@ export function Sessions() {
 			openNewSession: s.openNewSession,
 			selected: s.selected,
 			worktrees: s.worktrees,
+			showError: s.showError,
+			refreshSessions: s.refreshSessions,
 		})),
 	);
 	// Which sessions: the selected worktree's (game, engine or studio); with main selected, those in no open worktree
@@ -56,6 +58,24 @@ export function Sessions() {
 	const [statuses, setStatuses] = useState<Set<StatusFilter>>(new Set(["in_progress", "idle"]));
 	const [target, setTarget] = useState<Target | "all">("all");
 	const [search, setSearch] = useState("");
+	// Work closed over a week ago lives in the project's archive folder (out of git) and is only read when asked for.
+	const [archive, setArchive] = useState<SessionSummary[] | null>(null);
+	const showArchive = archive !== null;
+	useEffect(() => {
+		if (showArchive) call("sessions.archived").then(setArchive, showError);
+	}, [showArchive, sessions, showError]);
+	const restore = async (id: string) => {
+		try {
+			await call("sessions.restore", id);
+			await refreshSessions();
+			setArchive(null);
+			setStatuses(new Set(["in_progress", "idle", "done"]));
+			selectSession(id);
+		} catch (err) {
+			showError(err);
+		}
+	};
+	const archived = (archive ?? []).filter((s) => (target === "all" || s.target === target) && (!search || `${s.title} ${s.agentType}`.toLowerCase().includes(search.toLowerCase())));
 
 	const toggle = (f: StatusFilter) => {
 		const next = new Set(statuses);
@@ -160,6 +180,14 @@ export function Sessions() {
 									{f === "in_progress" ? "In progress" : f === "idle" ? "Idle" : "Done"}
 								</button>
 							))}
+							<button
+								className={`chip ${showArchive ? "on" : ""}`}
+								onClick={() => setArchive(showArchive ? null : [])}
+								title="Sessions closed over a week ago: kept on this machine, out of git"
+								data-testid="archived-chip"
+							>
+								Archived
+							</button>
 						</div>
 						<select value={target} onChange={(e) => setTarget(e.target.value as Target | "all")}>
 							<option value="all">All targets</option>
@@ -183,8 +211,37 @@ export function Sessions() {
 					)}
 				</div>
 				<div className="session-items">
-					{roots.length === 0 && <div className="empty">{current ? "No sessions in this worktree match." : "No sessions here match."} Start one with “New session”.</div>}
-					{roots.map((s) => node(s, 0))}
+					{showArchive ? (
+						<>
+							{archived.length === 0 && <div className="empty">Nothing archived matches. Sessions move here a week after they are closed.</div>}
+							{archived.map((s) => (
+								<div key={s.id} className="session-item" style={{ paddingLeft: 14 }} data-testid="archived-item">
+									<div className="row">
+										<span className="title grow ellipsis">{s.title}</span>
+										<span className="muted" style={{ fontSize: 11 }}>
+											{relativeTime(s.closedAt ?? s.updatedAt)}
+										</span>
+									</div>
+									<div className="row">
+										<StatusBadge s={s} />
+										<TargetBadge target={s.target} />
+										<span className="muted ellipsis grow" style={{ fontSize: 12 }}>
+											{typeName(s.agentType)}
+											{s.worktreeLabel && ` · ⎇ ${s.worktreeLabel}`}
+										</span>
+										<button onClick={() => restore(s.id)} title="Bring it back, with the other sessions of its worktree">
+											Restore
+										</button>
+									</div>
+								</div>
+							))}
+						</>
+					) : (
+						<>
+							{roots.length === 0 && <div className="empty">{current ? "No sessions in this worktree match." : "No sessions here match."} Start one with “New session”.</div>}
+							{roots.map((s) => node(s, 0))}
+						</>
+					)}
 				</div>
 			</div>
 			{selected ? <SessionDetail key={selected.id} session={selected} /> : <div className="empty">Select a session, or start a new one.</div>}

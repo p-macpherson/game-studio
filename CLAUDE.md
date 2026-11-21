@@ -38,8 +38,11 @@ Install dependencies with `npm install --ignore-scripts` (Pi's recommendation). 
   Pi install. `GAME_STUDIO_USER_DATA` overrides userData, so a second instance (tests, studio-engineer
   sessions) can run alongside.
 - Sessions work in labelled git worktrees (several sessions can share one; sub-agents use their parent's), merged
-  or discarded as a whole. Session records and Pi transcripts are committed in the target repo's
-  `.studio/sessions/<id>/`, worktree records in `.studio/worktrees/`. See the vault notes `Sessions & Worktrees.md`
+  or discarded as a whole. Session records are committed in the target repo's `.studio/sessions/<id>/`, worktree
+  records in `.studio/worktrees/`. Pi transcripts sit beside the session record but are never tracked
+  (`.studio/.gitignore`, written by `ensureStudioIgnore`), and work closed over a week ago is archived by worktree into
+  the gitignored `.studio/archive/` (`SessionService.tidy` after each `load`; the Sessions page's **Archived** filter
+  lists it and **Restore** brings it back). See the vault notes `Sessions & Worktrees.md`
   and `M8 Workflow & Sessions.md`.
 - Every Pi session has the `codemode` tool (scripts that call the other tools, studio tools included). The SDK
   doesn't load the CLI's built-in extensions, so `host-core.ts` adds `createCodemodeExtension()` and activates

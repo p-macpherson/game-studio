@@ -3,7 +3,7 @@ import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, re
 import { basename, join } from "node:path";
 import type { ProjectInfo } from "../shared/types";
 import { git, hasCommits, isRepo } from "./git";
-import { linkEngineLibs } from "./sessions";
+import { ensureStudioIgnore, linkEngineLibs } from "./sessions";
 
 export const PROJECT_FILE = ".studio/project.json";
 const ASSET_DIRS = ["models", "textures", "music", "sounds", "scenes", "prefabs"];
@@ -48,6 +48,7 @@ export async function createProject(opts: { path: string; name: string; template
 	}
 	mkdirSync(join(path, ".studio/sessions"), { recursive: true });
 	writeFileSync(join(path, ".studio/sessions/.gitkeep"), "");
+	ensureStudioIgnore(path);
 	writeFileSync(join(path, PROJECT_FILE), `${JSON.stringify({ name, formatVersion: 1, createdAt: new Date().toISOString() }, null, "\t")}\n`);
 
 	await git(path, ["-c", "protocol.file.allow=always", "submodule", "add", "-q", engineRepo, "engine"]);
