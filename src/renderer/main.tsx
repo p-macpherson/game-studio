@@ -9,6 +9,7 @@ import { applyAppearance, loadAppearance } from "./appearance";
 import { MergeDialog } from "./views/MergeDialog";
 import { NewSessionDialog } from "./views/NewSession";
 import { Play } from "./views/Play";
+import { Release } from "./views/Release";
 import { ProjectMenu, ProjectPicker } from "./views/Projects";
 import { Sessions } from "./views/Sessions";
 import { SettingsView } from "./views/Settings";
@@ -98,6 +99,10 @@ function App() {
 							<span className="nav-label">Play &amp; Test</span>
 							{run?.state === "running" && <span className="count">●</span>}
 						</button>
+						<button className={`nav-item ${view === "release" ? "active" : ""}`} title="Release" aria-label="Release" onClick={() => setView("release")}>
+							<span className="nav-icon">📦</span>
+							<span className="nav-label">Release</span>
+						</button>
 					</>
 				)}
 				<div className="sidebar-bottom">
@@ -130,6 +135,7 @@ function App() {
 				{view === "source-control" && <SourceControl />}
 				{view === "settings" && <SettingsView />}
 				{view === "play" && project && <Play />}
+				{view === "release" && project && <Release />}
 				{activeModule && project && (() => {
 					const ModuleView = MODULE_VIEWS[activeModule.id];
 					return <ModuleView key={activeModule.id} module={activeModule} />;

@@ -204,7 +204,51 @@ export function AccountsPanel() {
 					</details>
 				))}
 			</div>
+			<ItchAccount />
 			{login && <LoginDialog provider={login.provider} type={login.type} onDone={onDone} />}
 		</>
+	);
+}
+
+/** itch.io: the API key butler publishes releases with (Release section), kept in the studio's data folder. */
+function ItchAccount() {
+	const showError = useStudio((s) => s.showError);
+	const [has, setHas] = useState<boolean | null>(null);
+	const [key, setKey] = useState("");
+	const reload = useCallback(() => void call("itch.hasKey").then(setHas, showError), [showError]);
+	useEffect(reload, [reload]);
+	const save = async (value: string | null) => {
+		try {
+			await call("itch.setKey", value);
+			setKey("");
+			reload();
+		} catch (err) {
+			showError(err);
+		}
+	};
+	return (
+		<div className="card" data-testid="itch-account">
+			<h3>itch.io</h3>
+			<span className="muted">
+				For publishing releases (the Release section uploads builds with itch.io's butler). Make a key at{" "}
+				<a href="https://itch.io/user/settings/api-keys" target="_blank" rel="noreferrer">
+					itch.io → Settings → API keys
+				</a>
+				; it's kept in Game Studio's own data folder, readable only by you.
+			</span>
+			{has ? (
+				<div className="row">
+					<span className="grow">API key saved</span>
+					<button onClick={() => window.confirm("Remove the itch.io API key?") && save(null)}>Remove</button>
+				</div>
+			) : (
+				<div className="row">
+					<input className="grow" type="password" data-testid="itch-key" placeholder="API key" value={key} onChange={(e) => setKey(e.target.value)} />
+					<button className="primary" disabled={!key.trim()} onClick={() => save(key)}>
+						Save
+					</button>
+				</div>
+			)}
+		</div>
 	);
 }

@@ -1,6 +1,7 @@
 /** Contract between the renderer and the main process, exposed by the preload script as `window.studio`. */
 import type { HostInfo, PromptMode, StudioRequestMethod } from "./host";
 import type { AssetLinks } from "./asset-links";
+import type { ReleaseBuild, ReleaseInfo, ReleaseTarget } from "./release";
 import type { HistoryStep } from "./history";
 import type { CandidateRecord } from "./texture";
 import type { AssetSearchHit, AssetSummary, ModuleInfo, MoveResult } from "./modules";
@@ -166,6 +167,22 @@ export interface StudioApi {
 	/** Brings an archived session back, with its worktree's record and the other sessions archived with it. */
 	"sessions.restore"(id: string): Promise<void>;
 	"sessions.openTerminal"(id: string): Promise<void>;
+
+	/** Release: release.json (or its defaults), what ships, past builds and the tools there are, for a checkout. */
+	"release.info"(checkout: string | null): Promise<ReleaseInfo>;
+	/** Builds, packages and checks a release (progress as release_progress events). */
+	"release.build"(checkout: string | null, target: ReleaseTarget): Promise<ReleaseBuild>;
+	/** Starts a built package in its own window (Windows under Wine). */
+	"release.run"(checkout: string | null, version: string, target: ReleaseTarget): Promise<void>;
+	/** Opens a build's package folder in the file manager. */
+	"release.reveal"(checkout: string | null, version: string, target: ReleaseTarget): Promise<void>;
+	/** Uploads a passing build to its itch.io channel with butler. */
+	"release.publish"(checkout: string | null, version: string, target: ReleaseTarget): Promise<string>;
+	/** butler status of the release's itch.io page. */
+	"release.itchStatus"(checkout: string | null): Promise<string>;
+	"itch.hasKey"(): Promise<boolean>;
+	/** Saves the itch.io API key for butler (null removes it). */
+	"itch.setKey"(key: string | null): Promise<void>;
 }
 
 export type StudioMethod = keyof StudioApi;
@@ -188,7 +205,8 @@ export type StudioEvent =
 	| { type: "login_notice"; loginId: string; notice: LoginNotice }
 	| { type: "login_prompt"; loginId: string; prompt: LoginPrompt }
 	/** Edit → Undo/Redo (the app menu's shortcuts): text undo in a text field, else the worktree's manual-edit history. */
-	| { type: "edit_command"; command: "undo" | "redo" };
+	| { type: "edit_command"; command: "undo" | "redo" }
+	| { type: "release_progress"; checkout: string; target: ReleaseTarget; text: string };
 
 /** What the preload exposes. */
 export interface StudioBridge {

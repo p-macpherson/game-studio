@@ -1,12 +1,17 @@
 // Release builds for players (Release section; see the vault's M13 Shipping Builds): which files ship, the build
 // itself (the engine's tools/release.sh), the package folder and its archives, and checks run on the package.
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
+	type LeftOutFile,
+	type ReleaseBuild,
+	type ReleaseCheck,
 	type ReleaseConfig,
 	RELEASE_FILE,
+	type ReleaseManifest,
+	type ShippedFile,
 	type ReleaseTarget,
 	globMatcher,
 	isCompanion,
@@ -17,25 +22,6 @@ import {
 } from "../shared/release";
 import { walk } from "./assets";
 import { linkEngineLibs } from "./sessions";
-
-export interface ShippedFile {
-	/** Repo-relative, under assets/. */
-	path: string;
-	size: number;
-	/** Why it ships: "game code (game/main.odin)", "used by assets/scenes/x.json", "goes with …", "release.json include". */
-	why: string;
-}
-export interface LeftOutFile {
-	path: string;
-	size: number;
-	/** "working file (takes/)", "studio record", "nothing uses it", "release.json exclude". */
-	why: string;
-}
-export interface ReleaseManifest {
-	files: ShippedFile[];
-	leftOut: LeftOutFile[];
-	bytes: number;
-}
 
 export function readReleaseConfig(root: string, projectName: string): { config: ReleaseConfig; problems: string[] } {
 	const file = join(root, RELEASE_FILE);
@@ -98,27 +84,8 @@ export function releaseManifest(root: string, config: ReleaseConfig): ReleaseMan
 	return { files, leftOut, bytes: files.reduce((n, f) => n + f.size, 0) };
 }
 
-export interface ReleaseCheck {
-	name: string;
-	ok: boolean;
-	detail: string;
-}
-export interface ReleaseBuild {
-	target: ReleaseTarget;
-	version: string;
-	/** The package folder (what the archives hold), project-relative: builds/<version>/<target>/<slug>. */
-	dir: string;
-	/** Archives (and the AppImage), project-relative. */
-	archives: string[];
-	checks: ReleaseCheck[];
-	ok: boolean;
-	files: number;
-	bytes: number;
-	builtAt: string;
-}
-
 export interface ReleaseTools {
-	/** appimagetool; without it no AppImage is made (a check says so). */
+	/** appimagetool; without it no AppImage is made. */
 	appimagetool?: string;
 	/** Wine runs the Windows build's checks; without it they're skipped (and the build isn't ok). */
 	wine?: string;
@@ -193,8 +160,8 @@ export async function buildRelease(opts: {
 			checks.push(...(await checkTests(root, pkg, exe, work, runner, tools.winePrefix)));
 		}
 		if (target === "linux") {
-			if (!tools.appimagetool) checks.push({ name: "AppImage", ok: false, detail: "appimagetool isn't available, so no AppImage was made" });
-			else {
+			// Without appimagetool (turned off, as in tests) there's simply no AppImage.
+			if (tools.appimagetool) {
 				progress("Making the AppImage");
 				const image = join(out, releaseArchiveName(config, target, "AppImage"));
 				const made = await appImage(root, config, pkg, exe, image, work, tools.appimagetool);
@@ -226,9 +193,9 @@ const rel = (root: string, p: string) => p.slice(root.length + 1);
 function ignoreBuilds(root: string): void {
 	const gi = join(root, ".gitignore");
 	if (existsSync(gi) && /^\/?builds\/?$/m.test(readFileSync(gi, "utf8"))) return;
-	const gitDir = join(root, ".git");
-	if (!existsSync(gitDir) || !statSync(gitDir).isDirectory()) return;
-	const exclude = join(gitDir, "info/exclude");
+	if (!existsSync(join(root, ".git"))) return;
+	// A worktree's .git is a file: ask git where the (shared) exclude file is.
+	const exclude = execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-path", "info/exclude"], { cwd: root, encoding: "utf8" }).trim();
 	const text = existsSync(exclude) ? readFileSync(exclude, "utf8") : "";
 	if (!/^\/builds\/$/m.test(text)) {
 		mkdirSync(dirname(exclude), { recursive: true });

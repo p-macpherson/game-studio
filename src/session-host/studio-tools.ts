@@ -405,6 +405,23 @@ export function studioTools(ctx: StudioToolContext) {
 			},
 		}),
 		defineTool({
+			name: "build_release",
+			label: "Build a release",
+			description:
+				"Build the game for players as the Release section does: an optimised release build for 'linux' (default; runs on glibc 2.29+) or " +
+				"'windows' (cross-compiled), packaged with only the asset files the game uses into builds/<version>/<target>/ (never committed), then " +
+				"checked: the package started from another folder (release build, release.json's version, no warnings in its log), every tests/*.jsonl " +
+				"run against the packaged binary, and for Linux an AppImage that starts. Windows checks run under Wine. Takes a minute or two. Returns " +
+				"each check with its detail, the archives, and how many files ship. Use it to confirm a change survives packaging (a file loaded by a " +
+				"computed path needs release.json's include). Publishing to itch.io is the user's, from the Release section.",
+			parameters: Type.Object({
+				target: Type.Optional(Type.Union([Type.Literal("linux"), Type.Literal("windows")])),
+			}),
+			async execute(_id, params, signal, onUpdate) {
+				return ok(JSON.stringify(await ctx.request("build_release", params, signal, progressTo(onUpdate)), null, 2));
+			},
+		}),
+		defineTool({
 			name: "check_shader",
 			label: "Check a material shader",
 			description:

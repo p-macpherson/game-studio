@@ -22,6 +22,12 @@ const engineRepo = join(root, "engine");
 execSync(`git clone -q --shared ${JSON.stringify(realEngine)} ${JSON.stringify(engineRepo)}`);
 execSync(`ln -s ${JSON.stringify(join(realEngine, "third_party/lib"))} ${JSON.stringify(join(engineRepo, "third_party/lib"))}`);
 writeFileSync(join(engineRepo, ".git/info/exclude"), "/third_party/lib\n", { flag: "a" });
+// Release builds need the Debian sysroot the real engine fetched (third_party/deps.sh).
+execSync(`ln -s ${JSON.stringify(join(realEngine, "third_party/sysroot"))} ${JSON.stringify(join(engineRepo, "third_party/sysroot"))}`);
+writeFileSync(join(engineRepo, ".git/info/exclude"), "/third_party/sysroot\n", { flag: "a" });
+// A stand-in for itch.io's butler: publishing records its arguments instead of uploading anything.
+const fakeButler = join(root, "fake-butler.sh");
+writeFileSync(fakeButler, `#!/bin/sh\necho "$@" > ${JSON.stringify(join(root, "butler-args"))}\necho "• Pushing 1 file"\n`, { mode: 0o755 });
 // Without the real repo's own session and worktree records (they're committed there).
 execSync("git rm -rq --ignore-unmatch .studio && git -c user.name=e2e -c user.email=e2e@example.com commit -qm 'e2e: no studio records' || true", { cwd: engineRepo });
 writeFileSync(
@@ -45,6 +51,8 @@ const app = await electron.launch({
 		GAME_STUDIO_USER_DATA: userData,
 		GAME_STUDIO_FAUX: "1",
 		GAME_STUDIO_GEN_FAKE: "1",
+		GAME_STUDIO_BUTLER: fakeButler,
+		GAME_STUDIO_APPIMAGETOOL: "off",
 		GAME_STUDIO_GEN: join(root, "gen"),
 		GAME_STUDIO_SOUNDFONT: process.env.GAME_STUDIO_SOUNDFONT ?? join(homedir(), ".local/share/game-studio/gen/models/soundfonts/GeneralUser-GS.sf2"),
 	},
@@ -944,6 +952,31 @@ try {
 	const notePath = await page.evaluate(async () => ((await window.studio.call("worktrees.list")) as { label: string; path: string; status: string }[]).find((w) => w.label === "add a note" && w.status === "active")!.path);
 	await page.waitForFunction(async (p) => ((await window.studio.call("worktrees.list")) as { path: string; checkout: string }[]).some((w) => w.path === p && w.checkout === "active"), notePath, { timeout: 30_000 });
 	if (readFileSync(join(notePath, "faux-notes.md"), "utf8") !== "add a note\nsecond note\n") throw new Error("the reloaded worktree lost its work");
+
+	// Release: an itch.io key, the release settings (a manual edit in a worktree), what ships, a Linux build checked from
+	// its own folder and against the game's tests, then publishing it (to the stand-in butler: nothing is uploaded).
+	await page.getByRole("button", { name: "Accounts", exact: true }).click();
+	await page.getByTestId("itch-key").fill("abcdefghijklmnopqrstuvwxyz0123456789ABCD");
+	await page.getByTestId("itch-account").getByRole("button", { name: "Save" }).click();
+	await page.getByTestId("itch-account").getByText("API key saved").waitFor();
+	await selectMain(page);
+	await nav.getByRole("button", { name: "Release" }).click();
+	await page.getByTestId("release-settings").waitFor();
+	await page.getByTestId("release-files").getByText("scenes/main.json").waitFor();
+	await page.getByTestId("release-version").fill("1.0.0");
+	await page.getByTestId("release-itch").fill("e2e/e2e-game");
+	await step("59-release", page);
+	await page.getByTestId("release-save").click();
+	await page.getByTestId("release-build-linux").and(page.locator(":enabled")).waitFor({ timeout: 30_000 });
+	await page.getByTestId("release-build-linux").click();
+	await page.getByTestId("release-card").filter({ hasText: "Checks passed" }).waitFor({ timeout: 240_000 });
+	await step("60-release-built", page);
+	await page.getByTestId("release-publish").click();
+	await page.getByTestId("release-log").getByText("Uploaded").waitFor({ timeout: 30_000 });
+	const pushed = readFileSync(join(root, "butler-args"), "utf8");
+	if (!/^push \S+\/builds\/1\.0\.0\/linux\/e2e-game e2e\/e2e-game:linux --userversion 1\.0\.0 -i /.test(pushed)) throw new Error(`butler was called with: ${pushed}`);
+	await step("61-release-published", page);
+	await nav.getByRole("button", { name: "Settings" }).click();
 
 	// Appearance: a theme and fonts apply at once (the page's variables), survive a reload, and Simple Dark comes back.
 	await page.getByRole("button", { name: "Appearance", exact: true }).click();

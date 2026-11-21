@@ -2852,3 +2852,63 @@ input.bad {
 	background-image: linear-gradient(to right, color-mix(in srgb, var(--accent) 40%, transparent) 1px, transparent 1px),
 		linear-gradient(to bottom, color-mix(in srgb, var(--accent) 40%, transparent) 1px, transparent 1px);
 }
+
+/* Release */
+.release-grid {
+	display: grid;
+	grid-template-columns: minmax(320px, 1fr) minmax(320px, 1fr);
+	gap: 12px;
+	align-items: start;
+}
+.release-settings .field-row,
+.release-settings .field-row label {
+	gap: 8px;
+}
+.release-settings input:not([type="checkbox"]),
+.release-settings select {
+	flex: 1;
+}
+.release-targets {
+	flex: 1;
+	justify-content: flex-start;
+	gap: 18px;
+}
+.release-targets label {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex: none;
+}
+.release-log {
+	max-height: 220px;
+	overflow: auto;
+	margin-top: 8px;
+}
+.release-card {
+	margin-bottom: 8px;
+}
+.release-checks {
+	margin: 6px 0;
+}
+.release-check {
+	padding: 2px 0;
+}
+.release-table {
+	width: 100%;
+	border-collapse: collapse;
+	table-layout: fixed;
+}
+.release-table td {
+	padding: 3px 6px;
+	border-bottom: 1px solid var(--border);
+}
+.release-table td:first-child {
+	width: 45%;
+}
+.release-table td:nth-child(2) {
+	width: 70px;
+}
+.release-table td:last-child {
+	width: 120px;
+	text-align: right;
+}

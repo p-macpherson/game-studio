@@ -6,7 +6,7 @@ import type { AgentTypeInfo, ModelInfo, ProjectInfo, SessionSummary, Settings, T
 import type { HistoryStep } from "../shared/history";
 import { call } from "./api";
 
-export type View = "sessions" | "source-control" | "settings" | "play" | `module:${string}`;
+export type View = "sessions" | "source-control" | "settings" | "play" | "release" | `module:${string}`;
 
 export type PlayTab = "run" | "tests";
 export type SettingsTab = "general" | "appearance" | "accounts" | "agents";

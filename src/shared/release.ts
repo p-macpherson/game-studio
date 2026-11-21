@@ -134,3 +134,57 @@ export function globMatcher(globs: string[]): (path: string) => boolean {
 	);
 	return (path) => res.some((r) => r.test(path));
 }
+
+export interface ShippedFile {
+	/** Repo-relative, under assets/. */
+	path: string;
+	size: number;
+	/** Why it ships: "game code (game/main.odin)", "used by assets/scenes/x.json", "goes with …", "release.json include". */
+	why: string;
+}
+export interface LeftOutFile {
+	path: string;
+	size: number;
+	/** "working file (takes/)", "studio record", "nothing uses it", "release.json exclude". */
+	why: string;
+}
+export interface ReleaseManifest {
+	files: ShippedFile[];
+	leftOut: LeftOutFile[];
+	bytes: number;
+}
+
+export interface ReleaseCheck {
+	name: string;
+	ok: boolean;
+	detail: string;
+}
+export interface ReleaseBuild {
+	target: ReleaseTarget;
+	version: string;
+	/** The package folder (what the archives hold), project-relative: builds/<version>/<target>/<slug>. */
+	dir: string;
+	/** Archives (and the AppImage), project-relative. */
+	archives: string[];
+	checks: ReleaseCheck[];
+	ok: boolean;
+	files: number;
+	bytes: number;
+	builtAt: string;
+}
+
+
+/** What the Release section shows for a checkout. */
+export interface ReleaseInfo {
+	config: ReleaseConfig;
+	problems: string[];
+	/** release.json exists (else the config is the defaults). */
+	saved: boolean;
+	manifest: ReleaseManifest;
+	/** Past builds in builds/, newest first. */
+	builds: ReleaseBuild[];
+	/** Wine is installed (Windows builds can be checked); appimagetool is here or can be downloaded. */
+	tools: { wine: boolean; appimagetool: boolean };
+	/** An itch.io API key is saved (Settings → Accounts). */
+	itchKey: boolean;
+}

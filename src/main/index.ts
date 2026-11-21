@@ -22,6 +22,7 @@ import { VoicePipeline, voiceRequests } from "./voices";
 import { studioRequests } from "./studio-requests";
 import { TexturePipeline, textureRequests } from "./textures";
 import { effectRequests, ParticleTexturePipeline } from "./effects";
+import { ReleaseService, releaseRequests } from "./release-service";
 import { shaderRequests } from "./shaders";
 import { UiArtPipeline, uiRequests } from "./ui";
 import { texturePaths } from "../modules/textures/info";
@@ -105,6 +106,7 @@ async function main(): Promise<void> {
 		effectRequests(particles, (sessionId, p) => runner.previewEffect(sessionId, p)),
 		assetRequests(moduleInfos),
 		designDocRequests(),
+		releaseRequests(() => release),
 	);
 	const sessions = new SessionService({
 		host,
@@ -128,6 +130,15 @@ async function main(): Promise<void> {
 		return sessions.checkoutPath(checkout);
 	};
 	serveStudioFiles(checkoutRoot);
+	const release = new ReleaseService({
+		checkoutRoot,
+		projectName: () => project?.name ?? "Game",
+		engineRepo: () => settings.get().engineRepo,
+		dataDir: app.getPath("userData"),
+		emit,
+		butler: process.env.GAME_STUDIO_BUTLER,
+		appimagetool: process.env.GAME_STUDIO_APPIMAGETOOL,
+	});
 	const assets = new AssetService(checkoutRoot, sessions);
 	/** A generation job queued or running for a worktree (a section's step, or one of its sessions' tools). */
 	const generating = (w: { id: string; sessionIds: string[] }) =>
@@ -264,6 +275,14 @@ async function main(): Promise<void> {
 			return step ? history.record(worktreeId, cwd, step.label, step.scopes, run) : run();
 		},
 		"worktrees.commits": (id) => sessions.worktreeCommits(id),
+		"release.info": async (checkout) => release.info(checkout),
+		"release.build": (checkout, target) => release.build(checkout, target),
+		"release.run": async (checkout, version, target) => release.run(checkout, version, target),
+		"release.reveal": async (checkout, version, target) => void (await shell.openPath(release.folder(checkout, version, target))),
+		"release.publish": (checkout, version, target) => release.publish(checkout, version, target),
+		"release.itchStatus": (checkout) => release.itchStatus(checkout),
+		"itch.hasKey": async () => release.hasItchKey(),
+		"itch.setKey": async (key) => release.setItchKey(key),
 		"worktrees.status": (id) => sessions.worktreeStatus(id),
 		"worktrees.space": async () => {
 			const open = sessions.listWorktrees().filter((w) => w.status === "active");
