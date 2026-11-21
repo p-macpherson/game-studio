@@ -828,7 +828,7 @@ try {
 	await page.getByText("Available models").waitFor();
 	await step("07-accounts", page);
 	await page.getByRole("button", { name: "Agents", exact: true }).click();
-	await page.getByTestId("agent-type-card").filter({ hasText: "Delegates to: Game Designer, Art Director, UI Designer, Audio Director" }).waitFor();
+	await page.getByTestId("agent-type-card").filter({ hasText: "Delegates to: Game Designer, Art Director, UI Designer, Shader Author, Audio Director" }).waitFor();
 	await step("33-agent-types", page);
 
 	// Engine (and studio) worktrees are in the selector too, under their repo: selecting one shows its sessions,

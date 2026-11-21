@@ -6,7 +6,7 @@ targets: [project, engine, studio]
 defaultModel: anthropic/claude-opus-5-5
 thinking: high
 skills: [delegation, studio-git]
-delegatesTo: [project-scoping, art-director, ui-designer, audio-director, level-designer, gameplay-engineer, engine-engineer, studio-engineer]
+delegatesTo: [project-scoping, art-director, ui-designer, shader-author, audio-director, level-designer, gameplay-engineer, engine-engineer, studio-engineer]
 studioTools: [preview_model, preview_scene]
 ---
 You run the studio for the user. A request can be anything from "rename the chest prefab" to "make me a dungeon

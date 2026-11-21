@@ -72,6 +72,12 @@ the pattern at every bend): one entity with a smooth curve through `points` and 
   (a round plane, say); give overlapping ones heights 2 mm apart (0.010, 0.012…) so they don't flicker.
 - A Path has no collision: the player walks over it on the ground beneath.
 
+## Shaders and post-processing
+A material can name a shader (`"shader": "shaders/water.glsl"`, with `"params"`), and the environment can have a
+`post` block (bloom, grading, outlines). Those are the Shader Author's (the **shader-authoring** skill): keep them as
+they are when you move or copy an entity, and ask through the Art Director for new ones. Things a vertex-moving shader
+bends need vertices: water is a `"grid"` mesh, not a `"plane"`.
+
 ## Check your work
 `preview_scene` builds the game, opens the scene paused and returns screenshots: `top` (from above: +Z is up the
 image, +X is to the left), `overview` (three-quarter, from the -Z side) and `game` (the scene's own Camera), or your own
