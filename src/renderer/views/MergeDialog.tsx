@@ -18,7 +18,7 @@ const WORKING = new Set(["starting", "in_progress"]);
 const WAITING = new Set(["idle", "interrupted"]);
 
 export function MergeDialog({ worktreeId }: { worktreeId: string }) {
-	const { worktrees, sessions, modules, agentTypes, openMerge, showError, refreshWorktrees, refreshHistory, selectWorktree, worktree: selected } = useStudio();
+	const { worktrees, sessions, modules, agentTypes, openMerge, showError, refreshWorktrees, refreshHistory, selectWorktree, selected } = useStudio();
 	const w = worktrees.find((x) => x.id === worktreeId);
 	const [data, setData] = useState<{ files: Change[]; commits: GitCommit[]; steps: HistoryStep[]; unsaved: string[]; behind: number; conflicts: string[] | null } | null>(null);
 	const [busy, setBusy] = useState(false);

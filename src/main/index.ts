@@ -244,7 +244,7 @@ async function main(): Promise<void> {
 		"worktrees.commits": (id) => sessions.worktreeCommits(id),
 		"worktrees.status": (id) => sessions.worktreeStatus(id),
 		"worktrees.space": async () => {
-			const open = sessions.listWorktrees().filter((w) => w.target === "project" && w.status === "active");
+			const open = sessions.listWorktrees().filter((w) => w.status === "active");
 			return Promise.all(open.map(async (w) => ({ id: w.id, bytes: await sessions.worktreeBytes(w.id), blocker: await sessions.worktreeUnloadBlocker(w.id, generating(w)) })));
 		},
 		"worktrees.unload": async (id) => {

@@ -88,6 +88,20 @@
 		]
 	},
 	{
+		"name": "Path",
+		"flags": [],
+		"fields": [
+			{
+				"name": "points",
+				"type": "[][3]f32"
+			},
+			{
+				"name": "width",
+				"type": "f32"
+			}
+		]
+	},
+	{
 		"name": "Light",
 		"flags": [],
 		"fields": [
@@ -463,5 +477,10 @@
 				"type": "bool"
 			}
 		]
+	},
+	{
+		"name": "Treasure_Map",
+		"flags": [],
+		"fields": []
 	}
 ]

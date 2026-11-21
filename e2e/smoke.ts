@@ -22,6 +22,8 @@ const engineRepo = join(root, "engine");
 execSync(`git clone -q --shared ${JSON.stringify(realEngine)} ${JSON.stringify(engineRepo)}`);
 execSync(`ln -s ${JSON.stringify(join(realEngine, "third_party/lib"))} ${JSON.stringify(join(engineRepo, "third_party/lib"))}`);
 writeFileSync(join(engineRepo, ".git/info/exclude"), "/third_party/lib\n", { flag: "a" });
+// Without the real repo's own session and worktree records (they're committed there).
+execSync("git rm -rq --ignore-unmatch .studio && git -c user.name=e2e -c user.email=e2e@example.com commit -qm 'e2e: no studio records' || true", { cwd: engineRepo });
 writeFileSync(
 	join(userData, "settings.json"),
 	JSON.stringify({
@@ -689,6 +691,29 @@ try {
 	await page.getByRole("button", { name: "Agents", exact: true }).click();
 	await page.getByTestId("agent-type-card").filter({ hasText: "Delegates to: Game Designer, Art Director, Audio Director" }).waitFor();
 	await step("33-agent-types", page);
+
+	// Engine (and studio) worktrees are in the selector too, under their repo: selecting one shows its sessions,
+	// leaves the sections on the game's main, and merges into that repo's main.
+	await selectMain(page);
+	const engineSession = (await page.evaluate(() =>
+		window.studio.call("sessions.create", { agentType: "engine-engineer", target: "engine", model: "faux/echo", prompt: "an engine note" }),
+	)) as { id: string; worktreeId: string };
+	await page.waitForFunction(async (id) => ((await window.studio.call("sessions.list")) as { id: string; status: string }[]).some((s) => s.id === id && s.status === "idle"), engineSession.id, { timeout: 30_000 });
+	await page.getByTestId("worktree-current").click();
+	const engineGroup = page.getByTestId("worktree-group-engine");
+	await engineGroup.getByTestId("worktree-option").filter({ hasText: "an engine note" }).waitFor({ timeout: 15_000 });
+	await step("51-worktrees-by-repo", page);
+	await engineGroup.getByTestId("worktree-option").filter({ hasText: "an engine note" }).click();
+	await page.getByTestId("worktree-repo").filter({ hasText: "engine" }).waitFor();
+	await page.getByTestId("worktree-repo-note").waitFor();
+	await nav.getByRole("button", { name: "Sessions" }).click();
+	await page.getByTestId("sessions-scope").filter({ hasText: "(engine)" }).waitFor();
+	await page.getByTestId("session-item").filter({ hasText: "an engine note" }).waitFor();
+	await page.getByTestId("worktree-merge").click();
+	await page.getByTestId("merge-confirm").click();
+	await page.getByTestId("worktree-current").filter({ hasText: "main" }).waitFor({ timeout: 30_000 });
+	if (readFileSync(join(engineRepo, "faux-notes.md"), "utf8") !== "an engine note\n") throw new Error("the engine worktree's merge didn't reach the engine's main");
+	await nav.getByRole("button", { name: "Settings" }).click(); // where the steps after this expect to be
 
 	// Free up space: the menu shows each worktree's size; a clean, idle one's folder can go, and selecting it brings
 	// it back with its committed work.

@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { SessionStatus, SessionSummary, Target } from "../../shared/types";
 import { findAgentType } from "../../shared/agents";
 import { relativeTime } from "../api";
-import { isOpenProjectWorktree, useStudio } from "../store";
+import { isOpenWorktree, useStudio } from "../store";
 import { SessionDetail } from "./SessionDetail";
 
 type StatusFilter = "in_progress" | "idle" | "done";
@@ -36,11 +36,11 @@ export function TargetBadge({ target }: { target: Target }) {
 }
 
 export function Sessions() {
-	const { sessions, agentTypes, selectedSession, selectSession, openNewSession, worktree, worktrees } = useStudio();
-	// Which sessions: the selected worktree's; with main selected, those in no open worktree of the game (finished,
-	// merged or discarded work, and engine or studio sessions, which work in their own repos).
-	const current = worktrees.find((w) => w.id === worktree && isOpenProjectWorktree(w));
-	const open = new Set(worktrees.filter(isOpenProjectWorktree).map((w) => w.id));
+	const { sessions, agentTypes, selectedSession, selectSession, openNewSession, selected: picked, worktrees } = useStudio();
+	// Which sessions: the selected worktree's (game, engine or studio); with main selected, those in no open worktree
+	// (finished, merged or discarded work).
+	const current = worktrees.find((w) => w.id === picked && isOpenWorktree(w));
+	const open = new Set(worktrees.filter(isOpenWorktree).map((w) => w.id));
 	const inScope = (s: SessionSummary) => (current ? s.worktreeId === current.id : !open.has(s.worktreeId));
 	const [statuses, setStatuses] = useState<Set<StatusFilter>>(new Set(["in_progress", "idle"]));
 	const [target, setTarget] = useState<Target | "all">("all");
@@ -109,7 +109,7 @@ export function Sessions() {
 					<div className="row">
 						<StatusBadge s={s} />
 						<TargetBadge target={s.target} />
-						{s.target === "project" && !depth && (
+						{!depth && s.worktree === "active" && (
 							<span className="muted ellipsis small" title={`Worktree: ${s.worktreeLabel}`}>
 								⎇ {s.worktreeLabel}
 							</span>
@@ -161,12 +161,13 @@ export function Sessions() {
 				<div className={`scope-banner ${current ? "" : "scope-main"}`} data-testid="sessions-scope">
 					{current ? (
 						<>
-							⎇ <b>{current.label}</b>: its sessions. New sessions join this worktree.
+							⎇ <b>{current.label}</b>
+							{current.target !== "project" && ` (${current.target})`}: its sessions. New {current.target === "project" ? "game" : current.target} sessions join this worktree.
 						</>
 					) : (
 						<>
-							<b>Main</b>: a new game session starts <b>its own worktree</b>, named after its task. Listed here: finished work, and engine or studio
-							sessions. Pick a worktree in the sidebar to see its sessions.
+							<b>Main</b>: a new session starts <b>its own worktree</b>, named after its task. Listed here: finished work. Pick a worktree in the sidebar
+							(game, engine or studio) to see its sessions.
 						</>
 					)}
 				</div>

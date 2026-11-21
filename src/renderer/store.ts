@@ -75,7 +75,12 @@ interface State {
 	focus: AssetFocus | null;
 	/** Bumped whenever assets may have changed, so module views refetch. */
 	assetsVersion: number;
-	/** The worktree the sections show and edit (null: main), remembered per project; and every worktree. */
+	/**
+	 * The worktree picked in the sidebar's selector, in any repo (game, engine or studio; null: main), remembered per
+	 * project; and `worktree`: the game worktree the sections show and edit (the selection when it's a game
+	 * worktree, else null: the game's main). And every worktree.
+	 */
+	selected: string | null;
 	worktree: string | null;
 	worktrees: WorktreeSummary[];
 	/** The selected worktree's changed files (refreshed by the selector), for the sidebar's per-section counts. */
@@ -126,6 +131,8 @@ const emptyTranscript = (): Transcript => ({ messages: [], runningTools: {}, raw
 /** A worktree of the game project that's still being worked on: one the selector offers. */
 /** Open: not merged or discarded (its folder may be unloaded to free space; selecting it loads it). */
 export const isOpenProjectWorktree = (w: WorktreeSummary) => w.target === "project" && w.status === "active";
+/** Open in any repo: the game's, the engine's or the studio's. */
+export const isOpenWorktree = (w: WorktreeSummary) => w.status === "active";
 const RAW_LIMIT = 500;
 
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -158,6 +165,7 @@ export const useStudio = create<State>((set, get) => ({
 	modules: [],
 	focus: null,
 	assetsVersion: 0,
+	selected: null,
 	worktree: null,
 	worktrees: [],
 	worktreeChanges: [],
@@ -199,14 +207,14 @@ export const useStudio = create<State>((set, get) => ({
 		await Promise.all([get().refreshSessions(), get().refreshModels(), get().refreshWorktrees()]);
 		// The worktree last selected in this project, if it's still open.
 		const saved = project ? localStorage.getItem(`worktree:${project.path}`) : null;
-		get().selectWorktree(saved && get().worktrees.some((w) => w.id === saved && isOpenProjectWorktree(w)) ? saved : null);
+		get().selectWorktree(saved && get().worktrees.some((w) => w.id === saved && isOpenWorktree(w)) ? saved : null);
 	},
 	async refreshWorktrees() {
 		const worktrees = await call("worktrees.list");
 		set({ worktrees });
 		// A selected worktree that was merged or discarded leaves the selection at main.
-		const selected = get().worktree;
-		if (selected && !worktrees.some((w) => w.id === selected && isOpenProjectWorktree(w))) get().selectWorktree(null);
+		const selected = get().selected;
+		if (selected && !worktrees.some((w) => w.id === selected && isOpenWorktree(w))) get().selectWorktree(null);
 	},
 	selectWorktree(id) {
 		// An unloaded worktree (its folder removed to free space) is rebuilt from its branch first.
@@ -223,9 +231,13 @@ export const useStudio = create<State>((set, get) => ({
 			if (id) localStorage.setItem(`worktree:${project.path}`, id);
 			else localStorage.removeItem(`worktree:${project.path}`);
 		}
-		if (id === get().worktree) return;
-		// Play & Test follows the selection.
-		set((s) => ({ worktree: id, playCheckout: id, worktreeChanges: [], assetsVersion: s.assetsVersion + 1 }));
+		if (id === get().selected) return;
+		// The sections show a game worktree; an engine or studio worktree leaves them on the game's main.
+		const w = id ? get().worktrees.find((x) => x.id === id) : undefined;
+		const game = w && w.target !== "project" ? null : id;
+		if (game === get().worktree) return set({ selected: id });
+		// Play & Test follows the game selection.
+		set((s) => ({ selected: id, worktree: game, playCheckout: game, worktreeChanges: [], assetsVersion: s.assetsVersion + 1 }));
 	},
 	async refreshSessions() {
 		set({ sessions: await call("sessions.list") });

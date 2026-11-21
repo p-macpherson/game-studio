@@ -3,14 +3,21 @@
 import { useEffect, useState } from "react";
 import type { WorktreeSummary } from "../../shared/types";
 import { call } from "../api";
-import { isOpenProjectWorktree, useStudio } from "../store";
+import type { Target } from "../../shared/types";
+import { isOpenWorktree, useStudio } from "../store";
 import { confirmDiscard, saveMessage } from "../workspace";
 
 const otherFiles = <T extends { path: string }>(files: T[]) => files.filter((f) => !f.path.startsWith(".studio/"));
+/** The selector's groups: the game's worktrees, then the engine's and the studio's (shown when there are any). */
+const GROUPS: { target: Target; label: string }[] = [
+	{ target: "project", label: "Game" },
+	{ target: "engine", label: "Engine" },
+	{ target: "studio", label: "Studio" },
+];
 const megabytes = (bytes: number) => (bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1024 ** 2))} MB`);
 
 export function WorktreePicker() {
-	const { project, worktree, worktrees, sessions, assetsVersion, selectWorktree, refreshWorktrees, showError, history, refreshHistory, undo, redo } = useStudio();
+	const { project, selected, worktrees, sessions, assetsVersion, selectWorktree, refreshWorktrees, showError, history, refreshHistory, undo, redo } = useStudio();
 	const [showSteps, setShowSteps] = useState(false);
 	const [saving, setSaving] = useState<string | null>(null);
 	// How far main has moved on, and an update's conflicts.
@@ -31,8 +38,10 @@ export function WorktreePicker() {
 	const [label, setLabel] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [changed, setChanged] = useState<string[]>([]);
-	const list = worktrees.filter(isOpenProjectWorktree);
-	const current = list.find((w) => w.id === worktree);
+	const list = worktrees.filter(isOpenWorktree);
+	const current = list.find((w) => w.id === selected);
+	// Engine and studio worktrees have no sections: no per-section counts or manual edits.
+	const game = current?.target === "project";
 	const working = (w: WorktreeSummary) => sessions.some((s) => s.worktreeId === w.id && (s.status === "in_progress" || s.status === "starting"));
 
 	useEffect(() => {
@@ -47,7 +56,7 @@ export function WorktreePicker() {
 		call("worktrees.changedFiles", current.id).then((f) => {
 			if (!live) return;
 			setChanged(otherFiles(f).map((x) => x.path));
-			useStudio.setState({ worktreeChanges: otherFiles(f) });
+			useStudio.setState({ worktreeChanges: current.target === "project" ? otherFiles(f) : [] });
 		}, () => {});
 		return () => {
 			live = false;
@@ -123,23 +132,58 @@ export function WorktreePicker() {
 			if (await confirmDiscard(current.id, current.label)) await call("worktrees.discard", current.id);
 		});
 	};
-	const mine = history && current && history.worktree === current.id ? history : null;
+	const mine = history && current && game && history.worktree === current.id ? history : null;
 	const steps = mine?.steps ?? [];
 	const unsaved = mine?.unsaved ?? [];
 	const done = steps.filter((s) => s.done);
 	const undone = steps.filter((s) => !s.done);
 
+	/** A worktree's row in the menu: select it, its size and sessions, and Free up space. */
+	const option = (w: WorktreeSummary) => {
+		const sp = space?.find((x) => x.id === w.id);
+		const blocker = w.id === current?.id ? "it's selected: switch to another worktree first" : sp?.blocker;
+		return (
+			<div key={w.id} className="row worktree-option-row" data-target={w.target}>
+				<button className={`ghost nav-item grow ${w.id === current?.id ? "active" : ""}`} onClick={() => (selectWorktree(w.id), setOpen(false))} data-testid="worktree-option">
+					<span className="grow ellipsis" title={w.label}>
+						{w.label}
+					</span>
+					{working(w) && <span className="count">●</span>}
+					<span className="muted small" data-testid="worktree-size">
+						{w.checkout === "removed" ? "unloaded" : sp?.bytes ? megabytes(sp.bytes) : ""} · {w.sessionIds.length} session{w.sessionIds.length === 1 ? "" : "s"}
+					</span>
+				</button>
+				{w.checkout !== "removed" && (
+					<button
+						className="small icon"
+						disabled={busy || !sp || !!blocker}
+						title={blocker ? `Can't free its space: ${blocker}` : `Free up space: remove its folder${sp?.bytes ? ` (${megabytes(sp.bytes)})` : ""}. Its work is on its branch; selecting it brings the folder back.`}
+						onClick={() => unload(w, sp?.bytes ?? null)}
+						data-testid="worktree-unload"
+					>
+						⏏
+					</button>
+				)}
+			</div>
+		);
+	};
+
 	return (
 		<div className="worktree-picker" data-testid="worktree-picker">
 			<button
 				className="nav-item worktree-current"
-				title={current ? `Worktree: ${current.label}` : "Main: what's in the game"}
+				title={current ? `${current.target === "project" ? "Game" : current.target === "engine" ? "Engine" : "Studio"} worktree: ${current.label}` : "Main: what's in the game"}
 				aria-label="Worktree"
 				onClick={() => setOpen(!open)}
 				data-testid="worktree-current"
 			>
 				<span className="nav-icon">⎇</span>
 				<span className="nav-label grow ellipsis">{current?.label ?? "main"}</span>
+				{current && !game && (
+					<span className={`badge target-${current.target} nav-label`} data-testid="worktree-repo">
+						{current.target}
+					</span>
+				)}
 				{current && working(current) && <span className="count">●</span>}
 				<span className="nav-label muted">▾</span>
 			</button>
@@ -180,6 +224,11 @@ export function WorktreePicker() {
 					<button className="small" disabled={busy || working(current)} onClick={update} title={working(current) ? "Wait for the agents to finish" : "Merge latest main into this worktree"} data-testid="worktree-update">
 						Update
 					</button>
+				</div>
+			)}
+			{current && !game && (
+				<div className="nav-label muted small worktree-note" data-testid="worktree-repo-note">
+					An {current.target} worktree: the sections show the game's main.
 				</div>
 			)}
 			{current && (steps.length > 0 || unsaved.length > 0) && (
@@ -279,31 +328,14 @@ export function WorktreePicker() {
 						<span className="grow">main</span>
 						<span className="muted small">in the game</span>
 					</button>
-					{list.map((w) => {
-						const sp = space?.find((x) => x.id === w.id);
-						const blocker = w.id === current?.id ? "it's selected: switch to another worktree first" : sp?.blocker;
+					{GROUPS.map(({ target, label }) => {
+						const group = list.filter((w) => w.target === target);
+						if (!group.length && target !== "project") return null;
 						return (
-							<div key={w.id} className="row worktree-option-row">
-								<button className={`ghost nav-item grow ${w.id === current?.id ? "active" : ""}`} onClick={() => (selectWorktree(w.id), setOpen(false))} data-testid="worktree-option">
-									<span className="grow ellipsis" title={w.label}>
-										{w.label}
-									</span>
-									{working(w) && <span className="count">●</span>}
-									<span className="muted small" data-testid="worktree-size">
-										{w.checkout === "removed" ? "unloaded" : sp?.bytes ? megabytes(sp.bytes) : ""} · {w.sessionIds.length} session{w.sessionIds.length === 1 ? "" : "s"}
-									</span>
-								</button>
-								{w.checkout !== "removed" && (
-									<button
-										className="small icon"
-										disabled={busy || !sp || !!blocker}
-										title={blocker ? `Can't free its space: ${blocker}` : `Free up space: remove its folder${sp?.bytes ? ` (${megabytes(sp.bytes)})` : ""}. Its work is on its branch; selecting it brings the folder back.`}
-										onClick={() => unload(w, sp?.bytes ?? null)}
-										data-testid="worktree-unload"
-									>
-										⏏
-									</button>
-								)}
+							<div key={target} className="worktree-group" data-testid={`worktree-group-${target}`}>
+								<div className="worktree-group-label muted small">{label}</div>
+								{group.map((w) => option(w))}
+								{!group.length && <span className="muted small worktree-group-empty">No open worktrees</span>}
 							</div>
 						);
 					})}
@@ -313,7 +345,7 @@ export function WorktreePicker() {
 						</span>
 					)}
 					<button className="ghost nav-item" onClick={() => (setOpen(false), setNaming("new"), setLabel(""))} data-testid="worktree-new">
-						+ New worktree…
+						+ New game worktree…
 					</button>
 				</div>
 			)}
