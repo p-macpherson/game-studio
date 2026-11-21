@@ -150,9 +150,12 @@ export function studioTools(ctx: StudioToolContext) {
 			description:
 				"For a character rigged with rig_model or generate_model(rig: true): names its bones by role (hips, spine, chest, neck, head, shoulder/upper_arm/forearm/hand.L/R, " +
 				"thigh/shin/foot/toe.L/R) and gives it exactly the clips you list (default: idle, walk, wave; asking again replaces the set, so list every clip the " +
-				"character needs). Loops: idle, walk, run, sprint, jump_loop, wave. One-shots: jump_start, jump_land, attack, hit, death, pick_up, interact. All but wave are " +
-				"retargeted from a library of hand-made clips, in place (the game moves the character). Only works for bipeds (two legs, two arms); other skeletons are " +
-				"reported. In the game, play a clip with an Animator component: {\"clip\": \"run\"}, or {\"clip\": \"attack\", \"once\": true}. Check clips with preview_model.",
+				"character needs). Loops: idle, idle_talk, idle_torch, walk, walk_formal, run, sprint, crouch_idle, crouch_walk, jump_loop, push, swim, swim_idle, sit_idle, " +
+				"sit_talk, dance, drive, sword_idle, pistol_idle, spell_idle, wave. One-shots: jump_start, jump_land, roll, attack (a sword swing), punch_enter, punch_jab, " +
+				"punch_cross, hit, hit_head, death, pick_up, interact, fix_kneeling, sit_down, stand_up, spell_enter, spell_shoot, spell_exit, pistol_shoot, pistol_reload. " +
+				"Held poses: pistol_aim, pistol_aim_up, pistol_aim_down. All but wave are retargeted from a library of hand-made clips, in place (the game moves the " +
+				"character). Only works for bipeds (two legs, two arms); other skeletons are reported. In the game, play a clip with an Animator component: " +
+				"{\"clip\": \"run\"}, or {\"clip\": \"attack\", \"once\": true}. Check clips with preview_model.",
 			parameters: Type.Object({
 				model: MODEL_NAME,
 				clips: Type.Optional(Type.Array(Type.Union(ANIMATION_CLIPS.map((c) => Type.Literal(c))))),

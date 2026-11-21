@@ -3,7 +3,7 @@ import { existsSync, readFileSync, utimesSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { GenJob, ModelManifest } from "../shared/gen";
+import { ANIMATION_CLIPS, type GenJob, type ModelManifest } from "../shared/gen";
 import type { StudioEvent } from "../shared/ipc";
 import { GenService } from "./gen";
 import { modelRequests, ModelPipeline } from "./models";
@@ -245,9 +245,12 @@ describe.skipIf(!hasBlender)("ModelPipeline", () => {
 			// Asking again replaces the set (no "idle.001" beside "idle").
 			await pipeline.animate(ctx, { model: "hero", clips: ["idle", "walk"] });
 			expect(read("hero").stats?.animations).toEqual(["idle", "walk"]);
+			// Every clip on offer is one the library really has.
+			await pipeline.animate(ctx, { model: "hero", clips: [...ANIMATION_CLIPS] });
+			expect(read("hero").stats?.animations).toEqual([...ANIMATION_CLIPS].sort());
 			await gen.dispose();
 		} finally {
 			delete process.env.GAME_STUDIO_ANIMATIONS;
 		}
-	}, 120_000);
+	}, 240_000);
 });

@@ -43,8 +43,8 @@ Read the art direction in `docs/design/` first, and match it in every prompt (st
   smoothed to soften joints. Bones are named `bone_N` until animated.
 - **Animation:** `animate_model` names a two-legged character's bones by role (hips, spine, chest, neck, head,
   shoulder/upper_arm/forearm/hand.L/R, thigh/shin/foot/toe.L/R) and gives it the clips you list (default `idle`,
-  `walk`, `wave`; also `run`, `sprint`, `jump_start`, `jump_loop`, `jump_land`, `attack`, `hit`, `death`, `pick_up`,
-  `interact`), retargeted from a library of hand-made clips. Each call replaces the set: list every clip it needs. In the
+  `walk`, `wave`; the tool lists the rest: locomotion, crouching, jumps, a roll, sword, punches, pistol and spell sets,
+  hits and death, sitting, swimming, pick-up and interact), retargeted from a library of hand-made clips. Each call replaces the set: list every clip it needs. In the
   game: `{"Animator": {"clip": "walk"}}`. Other skeletons (quadrupeds, tails) are reported: animate those in
   Blender with the blender-modelling skill, using the role names or the `bones` map in `model.json`.
 - **Props** (a chest lid, a door, a hatch): `rig_prop` with the hinge side and where the moving part starts
