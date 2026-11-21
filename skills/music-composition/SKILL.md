@@ -40,12 +40,21 @@ A piece of music is `assets/music/<name>/song.json`, a multi-track score. `rende
 ```
 - `tempo` is quarter notes per minute; `meter` is `[beats, unit]` (default `[4, 4]`; `[3, 4]`, `[6, 8]` work).
 - `instruments`: track id → `program` (a General MIDI name, see below, or 0-127), or `drums: true` for a drum
-  kit. Optional `volume` 0-1 (0.8), `pan` -1..1 (0), `reverb` 0-1 (0.3). At most 15 melodic tracks plus drums.
+  kit. Optional `volume` 0-1 (0.8), `pan` -1..1 (0), `reverb` 0-1 (0.3, how much of it reaches the room),
+  `chorus` 0-1 (a detuned double, lush and wide; 0.25 for strings and pads, else 0). At most 15 melodic tracks
+  plus drums.
 - `sections`: name → `bars` and each track's **pattern**. A track left out of a section is silent there.
 - `arrangement`: section names in playing order; repeat a name to repeat the section.
 - `loop` (default true): rendered so the end flows seamlessly into the start. Set false for a stinger or an
   ending that should ring out.
 - `style`: a short description of the intended sound, used when a produced version is made from the score.
+- `space`: the room it's played in: `"room"` (default), `"hall"` (big and soft: slow, orchestral, ambient) or
+  `"dry"` (close and tight: chiptune, punchy action). Tracks reach it by their `reverb` amount.
+- `humanize` 0-1 (default 0.4): played like people, not a sequencer: notes slightly early or late, uneven
+  velocities, downbeats leaning in. Lower it for mechanical or electronic music, raise it (0.6-0.8) for loose folk
+  or jazz feel; 0 is exactly on the grid. Accents (`!`) and ghost notes (`?`) still matter most.
+- Every render is mixed (each track low-cut below its lowest note, the room, a gentle master) and levelled to the
+  same loudness, so pieces sit at one level in the game: balance tracks with `volume`, not overall loudness.
 
 ## Patterns
 A pattern is a string of notes. `|` separates bars; each bar must add up to exactly one bar (4 beats in 4/4).

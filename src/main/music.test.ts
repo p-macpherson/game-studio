@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { GenService } from "./gen";
 import { generationRequests, ModelPipeline } from "./models";
-import { MusicPipeline, readWav, SongError, songHash } from "./music";
+import { MusicPipeline, readWav, SongError, songHash, toMidi } from "./music";
+import { parseSong } from "../shared/song";
 import { SessionService } from "./sessions";
 import { inProcessHost, makeRepo, tempDir, waitFor } from "./test-helpers";
 
@@ -22,6 +23,62 @@ const SONG = {
 	},
 	arrangement: ["A", "A"],
 };
+
+/** Each MIDI track's notes as [tick, on/off, pitch, velocity] (the writer never uses running status). */
+function midiNotes(midi: Uint8Array): [number, "on" | "off", number, number][][] {
+	const tracks: [number, "on" | "off", number, number][][] = [];
+	let i = 14;
+	while (i < midi.length) {
+		const end = i + 8 + ((midi[i + 4] << 24) | (midi[i + 5] << 16) | (midi[i + 6] << 8) | midi[i + 7]);
+		const notes: [number, "on" | "off", number, number][] = [];
+		let tick = 0;
+		i += 8;
+		while (i < end) {
+			let d = 0;
+			do d = (d << 7) | (midi[i] & 0x7f);
+			while (midi[i++] & 0x80);
+			tick += d;
+			const s = midi[i];
+			if (s === 0xff) i += 3 + midi[i + 2];
+			else if ((s & 0xf0) === 0xc0) i += 2;
+			else {
+				if ((s & 0xf0) === 0x90) notes.push([tick, "on", midi[i + 1], midi[i + 2]]);
+				if ((s & 0xf0) === 0x80) notes.push([tick, "off", midi[i + 1], 0]);
+				i += 3;
+			}
+		}
+		tracks.push(notes);
+	}
+	return tracks;
+}
+
+describe("toMidi humanizing", () => {
+	const fast = { title: "t", tempo: 120, instruments: { lead: { program: "flute" } }, sections: { A: { bars: 1, tracks: { lead: "A4:s A4 A4 A4 A4 A4 A4 A4 C5:q D5" } } }, arrangement: ["A", "A"] };
+	const notesOf = (song: object, passes: number) => {
+		const { song: s, timeline } = parseSong(song);
+		return midiNotes(toMidi(s!, timeline!, passes))[1];
+	};
+
+	it("nudges notes off the grid but never starts one before the same pitch has ended", () => {
+		const notes = notesOf({ ...fast, humanize: 1 }, 3);
+		expect(notes.filter(([, kind]) => kind === "on").some(([tick]) => tick % 120 !== 0)).toBe(true);
+		const sounding = new Map<number, boolean>();
+		for (const [, kind, pitch] of notes) {
+			if (kind === "on") expect(sounding.get(pitch), `pitch ${pitch} restarted while sounding`).not.toBe(true);
+			sounding.set(pitch, kind === "on");
+		}
+		expect(notesOf({ ...fast, humanize: 0 }, 1).every(([tick]) => tick % 120 === 0)).toBe(true);
+	});
+
+	it("plays every pass of a loop the same way", () => {
+		const { timeline } = parseSong(fast);
+		const total = timeline!.totalTicks;
+		const ons = notesOf({ ...fast, humanize: 1 }, 3).filter(([, kind]) => kind === "on");
+		const pass = (p: number) => ons.filter(([tick]) => tick >= p * total - 20 && tick < (p + 1) * total - 20).map(([tick, , pitch, v]) => [tick - p * total, pitch, v]);
+		expect(pass(2)).toEqual(pass(1));
+		expect(pass(1).length).toBe(timeline!.tracks[0].notes.length);
+	});
+});
 
 describe.skipIf(!canRender)("MusicPipeline", () => {
 	it("renders a song to an OGG that is exactly one loop long and loops without a jump", async () => {
@@ -50,6 +107,28 @@ describe.skipIf(!canRender)("MusicPipeline", () => {
 		// The reverb tail is there at the start: the first 50 ms aren't silent even though the pad re-attacks.
 		const rms = Math.sqrt(left.slice(0, pcm.rate / 20).reduce((s, v) => s + v * v, 0) / (pcm.rate / 20));
 		expect(rms).toBeGreaterThan(200);
+	}, 60_000);
+
+	it("plays the song in its space: a hall rings on where a dry render stops", async () => {
+		const cwd = tempDir();
+		const tailRms = async (space: string) => {
+			const dir = join(cwd, "assets/music", space);
+			mkdirSync(dir, { recursive: true });
+			const song = { title: space, tempo: 120, loop: false, space, humanize: 0, instruments: { keys: { program: "marimba", reverb: 1 } }, sections: { A: { bars: 1, tracks: { keys: "C5:q r:q r:h" } } }, arrangement: ["A"] };
+			writeFileSync(join(dir, "song.json"), JSON.stringify(song));
+			await new MusicPipeline({ soundfont: () => soundfont }).render({ cwd }, { name: space });
+			const wav = join(cwd, `${space}.wav`);
+			execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-i", join(dir, `${space}.ogg`), "-c:a", "pcm_s16le", wav]);
+			const pcm = readWav(readFileSync(wav));
+			// 1.2-1.7 s: the marimba note (0-0.5 s) has died away by then; a hall is still sounding.
+			const from = Math.round(1.2 * pcm.rate);
+			const n = Math.round(0.5 * pcm.rate);
+			let sum = 0;
+			for (let i = from; i < from + n; i++) sum += pcm.data.readInt16LE(i * 4) ** 2;
+			return Math.sqrt(sum / n);
+		};
+		const [dry, hall] = [await tailRms("dry"), await tailRms("hall")];
+		expect(hall).toBeGreaterThan(dry * 1.5); // the same with no reverb at all
 	}, 60_000);
 
 	it("refuses a broken score with every problem listed", async () => {

@@ -2,16 +2,19 @@
 //   song.json      the score (the asset)
 //   <name>.ogg     what the game plays (`engine.play_music`); a seamless loop unless the song says loop: false
 //   render.json    which song.json the OGG was rendered from, so a stale render shows
-// Rendering is FluidSynth with a General MIDI SoundFont, then ffmpeg. A loop is rendered three times in a row
-// and the middle pass kept: its start already holds the reverb and release tails of the bars before it.
+// Rendering is FluidSynth with a General MIDI SoundFont, one stem per track, mixed in music-mix.ts and mastered
+// with ffmpeg. A loop is rendered three times in a row and the middle pass kept: its start already holds the reverb
+// and release tails of the bars before it.
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { drumName, GM_PROGRAMS, parseSong, pitchName, TICKS_PER_BEAT, type Song, type Timeline } from "../shared/song";
+import { drumName, GM_PROGRAMS, type Note, parseSong, pitchName, TICKS_PER_BEAT, type Song, type Timeline } from "../shared/song";
 import { ASSET_NAME, leafName } from "../shared/asset-names";
 import { safeJoin } from "./assets";
+import { decodeWav } from "./audio-dsp";
+import { encodeFloatWav, impulse, StemBus, unit } from "./music-mix";
 
 export const MUSIC_DIR = "assets/music";
 const RATE = 44100;
@@ -72,6 +75,58 @@ export class MusicPipeline {
 		return this.render(ctx, { name: p.name });
 	}
 
+	/**
+	 * The mixed, mastered render (all passes) as a 16-bit WAV in `tmp`: each track a stem (FluidSynth, reverb off),
+	 * low-cut, summed, its reverb send through the song's space (convolution), then levelled to TARGET_LUFS, glued
+	 * with a gentle compressor and EQ, and limited to -1 dBFS.
+	 */
+	private async mix(ctx: { progress?(text: string): void }, tmp: string, soundfont: string, song: Song, timeline: Timeline, passes: number, tail: number): Promise<string> {
+		const ffmpeg = this.deps.ffmpeg ?? "ffmpeg";
+		const bus = new StemBus();
+		const tracks = timeline.tracks.filter((tr) => tr.notes.length);
+		ctx.progress?.(`Rendering ${tracks.length} track(s) with FluidSynth`);
+		let next = 0;
+		const worker = async () => {
+			for (let i = next++; i < tracks.length; i = next++) {
+				const mid = join(tmp, `stem-${i}.mid`);
+				const wav = join(tmp, `stem-${i}.wav`);
+				writeFileSync(mid, toMidi(song, timeline, passes, tail, tracks[i].id));
+				await run(this.deps.fluidsynth ?? "fluidsynth", ["-ni", "-q", "-R", "0", "-C", "1", "-a", "file", "-g", "0.6", "-r", String(RATE), "-F", wav, soundfont, mid]);
+				bus.add(decodeWav(readFileSync(wav)).audio, tracks[i]);
+				rmSync(wav);
+			}
+		};
+		await Promise.all(Array.from({ length: Math.min(4, tracks.length) }, worker));
+		if (!bus.dry.length) bus.dry = bus.send = [new Float32Array(Math.round(timeline.seconds * passes * RATE)), new Float32Array(Math.round(timeline.seconds * passes * RATE))];
+
+		ctx.progress?.("Mixing");
+		const space = song.space ?? "room";
+		const mixed = join(tmp, "mix.wav");
+		if (space === "dry") writeFileSync(mixed, encodeFloatWav(bus.dry));
+		else {
+			const send = join(tmp, "send.wav");
+			const ir = join(tmp, "ir.wav");
+			writeFileSync(send, encodeFloatWav(bus.send));
+			writeFileSync(ir, encodeFloatWav(impulse(space)));
+			writeFileSync(join(tmp, "dry.wav"), encodeFloatWav(bus.dry));
+			// dry + the send through the room. afir's dry/wet are its input and output gains (not a mix: dry=0 is silence);
+			// irnorm=-1 keeps the IR as made, so its unit energy sets the reverb's level. Zero latency.
+			await run(ffmpeg, ["-y", "-loglevel", "error", "-i", join(tmp, "dry.wav"), "-i", send, "-i", ir, "-filter_complex",
+				"[1:a][2:a]afir=dry=1:wet=1:irnorm=-1[w];[0:a][w]amix=inputs=2:normalize=0:duration=first[m]", "-map", "[m]", "-c:a", "pcm_f32le", mixed]);
+		}
+		ctx.progress?.("Mastering");
+		// Glue and tone at a known level (the compressor's threshold assumes it), then level to the target and limit.
+		const pre = Math.max(-30, Math.min(30, TARGET_LUFS - (await loudness(ffmpeg, mixed))));
+		const glued = join(tmp, "glued.wav");
+		await run(ffmpeg, ["-y", "-loglevel", "error", "-i", mixed, "-af",
+			[`volume=${pre.toFixed(2)}dB`, "acompressor=threshold=0.1:ratio=1.8:attack=25:release=300:knee=4", "equalizer=f=280:t=q:w=1:g=-1.5", "treble=g=1.5:f=9000"].join(","),
+			"-c:a", "pcm_f32le", glued]);
+		const gain = Math.max(-30, Math.min(30, TARGET_LUFS - (await loudness(ffmpeg, glued))));
+		const out = join(tmp, "master.wav");
+		await run(ffmpeg, ["-y", "-loglevel", "error", "-i", glued, "-af", `volume=${gain.toFixed(2)}dB,alimiter=limit=0.89:attack=5:release=60:level=0`, "-c:a", "pcm_s16le", "-ar", String(RATE), out]);
+		return out;
+	}
+
 	/** Validates and renders assets/music/<name>/song.json to <name>.ogg. */
 	async render(ctx: { cwd: string; progress?(text: string): void }, p: { name: string }): Promise<RenderResult> {
 		const dir = this.dir(ctx.cwd, p.name);
@@ -92,11 +147,7 @@ export class MusicPipeline {
 		const loop = song.loop !== false;
 		const tmp = mkdtempSync(join(tmpdir(), "gs-music-"));
 		try {
-			ctx.progress?.(`Rendering ${p.name} with FluidSynth`);
-			const mid = join(tmp, "song.mid");
-			writeFileSync(mid, toMidi(song, timeline, loop ? 3 : 1, loop ? 0 : TAIL_SECONDS));
-			const wav = join(tmp, "song.wav");
-			await run(this.deps.fluidsynth ?? "fluidsynth", ["-ni", "-q", "-a", "file", "-g", "0.6", "-r", String(RATE), "-F", wav, soundfont, mid]);
+			const wav = await this.mix(ctx, tmp, soundfont, song, timeline, loop ? 3 : 1, loop ? 0 : TAIL_SECONDS);
 			let audio = readWav(readFileSync(wav));
 			const loopFrames = Math.round(timeline.seconds * RATE);
 			audio = loop ? loopFromPasses(audio, loopFrames) : sliceFrames(audio, 0, loopFrames + TAIL_SECONDS * RATE);
@@ -113,6 +164,21 @@ export class MusicPipeline {
 			rmSync(tmp, { recursive: true, force: true });
 		}
 	}
+}
+
+export interface MixOptions {
+	fluidsynth?: string;
+	ffmpeg?: string;
+}
+
+/** Integrated loudness every render is levelled to (a little under the usual -16 for music, to sit under effects). */
+export const TARGET_LUFS = -18;
+
+/** ffmpeg's EBU R128 integrated loudness (LUFS) of a file, from its summary. */
+export async function loudness(ffmpeg: string, file: string): Promise<number> {
+	const out = await run(ffmpeg, ["-hide_banner", "-nostats", "-i", file, "-af", "ebur128", "-f", "null", "-"]);
+	const m = /Integrated loudness:\s*I:\s*(-?[\d.]+|-inf)\s*LUFS/.exec(out);
+	return m && m[1] !== "-inf" ? Number(m[1]) : -70;
 }
 
 /** What was rendered, in words an agent can check against its intent (it can't listen). */
@@ -160,8 +226,27 @@ function trackChunk(events: { tick: number; bytes: number[]; order: number }[]):
 	return chunk("MTrk", data);
 }
 
-/** A Standard MIDI File (format 1) of the song, repeated `passes` times, with `tailSeconds` of silence after. */
-export function toMidi(song: Song, t: Timeline, passes = 1, tailSeconds = 0): Uint8Array {
+/**
+ * Where a note is played and how hard, humanised by `amount` (0-1): a timing nudge shared by a chord's notes (drums
+ * and bass keep tighter time), a velocity wobble, and the bar's shape (downbeats lean in, off-beats fall back). It
+ * depends only on the note, so every pass of a loop plays the same.
+ */
+export function humanizeNote(track: { id: string; drums: boolean; program: number }, n: Note, ticksPerBar: number, amount: number): { tick: number; velocity: number } {
+	if (!amount) return { tick: n.tick, velocity: n.velocity };
+	const tight = track.drums || (track.program >= 32 && track.program <= 39) ? 0.5 : 1;
+	const nudge = (unit(`${track.id}@${n.tick}`) * 2 - 1) * 14 * amount * tight + (unit(`${track.id}@${n.tick}:${n.pitch}`) * 2 - 1) * 2 * amount;
+	const inBar = n.tick % ticksPerBar;
+	const shape = inBar === 0 ? 10 : inBar % TICKS_PER_BEAT === 0 ? 4 : inBar % (TICKS_PER_BEAT / 2) === 0 ? -2 : -6;
+	const wobble = (unit(`${track.id}#${n.tick}:${n.pitch}`) * 2 - 1) * 12;
+	return { tick: n.tick + Math.round(nudge), velocity: Math.round(n.velocity + (shape + wobble) * amount) };
+}
+
+/**
+ * A Standard MIDI File (format 1) of the song, repeated `passes` times, with `tailSeconds` of silence after:
+ * every track, or only `track` (a stem). Humanised by the song's `humanize` (default 0.4).
+ */
+export function toMidi(song: Song, t: Timeline, passes = 1, tailSeconds = 0, only?: string): Uint8Array {
+	const amount = song.humanize ?? 0.4;
 	const usPerBeat = Math.round(60_000_000 / song.tempo);
 	const meter = song.meter ?? [4, 4];
 	const end = t.totalTicks * passes + Math.round(tailSeconds * (song.tempo / 60) * TICKS_PER_BEAT);
@@ -173,20 +258,34 @@ export function toMidi(song: Song, t: Timeline, passes = 1, tailSeconds = 0): Ui
 	];
 	const chunks = [trackChunk(conductor)];
 	for (const tr of t.tracks) {
+		if (only !== undefined && tr.id !== only) continue;
 		const ch = tr.channel;
 		const ev: { tick: number; bytes: number[]; order: number }[] = [
 			{ tick: 0, order: 0, bytes: [0xc0 | ch, tr.program] },
 			{ tick: 0, order: 0, bytes: [0xb0 | ch, 7, Math.round(tr.volume * 127)] },
 			{ tick: 0, order: 0, bytes: [0xb0 | ch, 10, Math.round((tr.pan + 1) * 63.5)] },
 			{ tick: 0, order: 0, bytes: [0xb0 | ch, 91, Math.round(tr.reverb * 127)] },
+			{ tick: 0, order: 0, bytes: [0xb0 | ch, 93, Math.round(tr.chorus * 127)] },
 		];
+		const played: { on: number; off: number; pitch: number; velocity: number }[] = [];
 		for (let p = 0; p < passes; p++) {
 			const offset = p * t.totalTicks;
 			for (const n of tr.notes) {
-				// Note-offs sort before note-ons at the same tick, so repeated notes retrigger.
-				ev.push({ tick: offset + n.tick, order: 2, bytes: [0x90 | ch, n.pitch, Math.min(127, Math.max(1, n.velocity))] });
-				ev.push({ tick: offset + n.tick + n.ticks, order: 1, bytes: [0x80 | ch, n.pitch, 0] });
+				const h = humanizeNote(tr, n, t.ticksPerBar, amount);
+				const on = Math.max(0, offset + h.tick);
+				played.push({ on, off: Math.max(on + 1, offset + h.tick + n.ticks), pitch: n.pitch, velocity: h.velocity });
 			}
+		}
+		// A note nudged early mustn't start before the same pitch's previous note ends (its note-off would cut it).
+		played.sort((a, b) => a.pitch - b.pitch || a.on - b.on);
+		for (let i = 1; i < played.length; i++) {
+			const prev = played[i - 1];
+			if (prev.pitch === played[i].pitch && prev.off > played[i].on) prev.off = Math.max(prev.on + 1, played[i].on);
+		}
+		for (const n of played) {
+			// Note-offs sort before note-ons at the same tick, so repeated notes retrigger.
+			ev.push({ tick: n.on, order: 2, bytes: [0x90 | ch, n.pitch, Math.min(127, Math.max(1, n.velocity))] });
+			ev.push({ tick: n.off, order: 1, bytes: [0x80 | ch, n.pitch, 0] });
 		}
 		chunks.push(trackChunk(ev));
 	}
@@ -271,12 +370,13 @@ export function writeWav(pcm: Pcm): Buffer {
 	return Buffer.concat([h, pcm.data]);
 }
 
-function run(cmd: string, args: string[]): Promise<void> {
+/** Runs a command; resolves the end of its stderr (where ffmpeg's measurements go). */
+function run(cmd: string, args: string[]): Promise<string> {
 	return new Promise((resolve, reject) => {
 		const proc = spawn(cmd, args, { stdio: ["ignore", "ignore", "pipe"] });
 		let err = "";
-		proc.stderr.on("data", (d) => (err = (err + d).slice(-2000)));
+		proc.stderr.on("data", (d) => (err = (err + d).slice(-4000)));
 		proc.on("error", (e) => reject(new Error(`${cmd} isn't available: ${e.message}`)));
-		proc.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`${cmd} failed (exit ${code}): ${err.trim().split("\n").slice(-3).join(" ")}`))));
+		proc.on("close", (code) => (code === 0 ? resolve(err) : reject(new Error(`${cmd} failed (exit ${code}): ${err.trim().split("\n").slice(-3).join(" ")}`))));
 	});
 }

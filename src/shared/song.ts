@@ -18,6 +18,13 @@ export interface Song {
 	loop?: boolean;
 	/** How a produced version should sound (a caption for the audio model), e.g. "whimsical folk, wooden flute". */
 	style?: string;
+	/**
+	 * How much it's played like people rather than a sequencer, 0-1 (default 0.4): notes a little early or late, uneven
+	 * velocities, downbeats leaning in. 0 is exactly on the grid.
+	 */
+	humanize?: number;
+	/** The room it's played in (the reverb tracks' `reverb` sends reach): "dry", "room" (default) or "hall". */
+	space?: Space;
 	/** Track id → instrument. Track order is this object's key order. */
 	instruments: Record<string, Instrument>;
 	/** Section name → its bars and each track's pattern. */
@@ -37,7 +44,12 @@ export interface Instrument {
 	pan?: number;
 	/** 0-1 reverb send, default 0.3. */
 	reverb?: number;
+	/** 0-1 chorus (a slightly detuned double: lush, wide), default 0.25 for strings and pads, else 0. */
+	chorus?: number;
 }
+
+export const SPACES = ["dry", "room", "hall"] as const;
+export type Space = (typeof SPACES)[number];
 
 export interface Section {
 	bars: number;
@@ -63,6 +75,7 @@ export interface TimelineTrack {
 	volume: number;
 	pan: number;
 	reverb: number;
+	chorus: number;
 	notes: Note[];
 }
 
@@ -229,6 +242,8 @@ export function parseSong(input: unknown): ParsedSong {
 	if (!s.instruments || typeof s.instruments !== "object" || !Object.keys(s.instruments).length) fail("instruments", "Add at least one instrument");
 	if (!s.sections || typeof s.sections !== "object" || !Object.keys(s.sections).length) fail("sections", "Add at least one section");
 	if (!Array.isArray(s.arrangement) || !s.arrangement.length) fail("arrangement", "arrangement lists section names in playing order");
+	if (s.humanize !== undefined && (typeof s.humanize !== "number" || s.humanize < 0 || s.humanize > 1)) fail("humanize", "humanize is 0 (exactly on the grid) to 1");
+	if (s.space !== undefined && !SPACES.includes(s.space)) fail("space", `space is one of ${SPACES.join(", ")}`);
 	if (errors.length) return { song: null, timeline: null, errors };
 
 	// Instruments → tracks and MIDI channels (drums on channel 10, i.e. 9).
@@ -243,7 +258,7 @@ export function parseSong(input: unknown): ParsedSong {
 			continue;
 		}
 		if (!drums && inst.program === undefined) fail(`${at}.program`, "Choose an instrument (a General MIDI name like \"flute\") or set drums: true");
-		for (const [field, lo, hi] of [["volume", 0, 1], ["pan", -1, 1], ["reverb", 0, 1]] as const) {
+		for (const [field, lo, hi] of [["volume", 0, 1], ["pan", -1, 1], ["reverb", 0, 1], ["chorus", 0, 1]] as const) {
 			const v = inst[field];
 			if (v !== undefined && (typeof v !== "number" || v < lo || v > hi)) fail(`${at}.${field}`, `${field} is ${lo} to ${hi}`);
 		}
@@ -252,7 +267,19 @@ export function parseSong(input: unknown): ParsedSong {
 			fail(at, "At most 15 melodic tracks (plus drums)");
 			continue;
 		}
-		tracks.push({ id, drums, program, channel: drums ? 9 : channel++, volume: inst.volume ?? 0.8, pan: inst.pan ?? 0, reverb: inst.reverb ?? 0.3, notes: [] });
+		// Strings (40-51) and synth pads (88-95) sound thin without a little chorus.
+		const lush = !drums && ((program >= 40 && program <= 51) || (program >= 88 && program <= 95));
+		tracks.push({
+			id,
+			drums,
+			program,
+			channel: drums ? 9 : channel++,
+			volume: inst.volume ?? 0.8,
+			pan: inst.pan ?? 0,
+			reverb: inst.reverb ?? 0.3,
+			chorus: inst.chorus ?? (lush ? 0.25 : 0),
+			notes: [],
+		});
 	}
 
 	// Sections: parse each pattern once.
