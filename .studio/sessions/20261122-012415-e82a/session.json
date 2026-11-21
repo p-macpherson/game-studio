@@ -9,9 +9,9 @@
 	"model": "anthropic/claude-opus-5-5",
 	"thinking": "high",
 	"createdAt": "2026-11-21T14:24:15.245Z",
-	"updatedAt": "2026-11-21T14:32:02.630Z",
-	"outcome": null,
+	"updatedAt": "2026-11-21T23:50:56.682Z",
+	"outcome": "merged",
 	"reviewRequested": false,
 	"piSessionFile": "2026-11-21T14-24-15-321Z_01a1fe7e-57d8-74f6-a034-6b0d7d0a3317.jsonl",
-	"closedAt": "2026-11-21T14:32:02.630Z"
+	"closedAt": "2026-11-21T23:50:56.682Z"
 }

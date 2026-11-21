@@ -1,0 +1,12 @@
+{
+	"id": "20261122-012415-e82a",
+	"label": "Playable prototype: 5-minute run (studio)",
+	"target": "studio",
+	"branch": "studio/20261122-012415-e82a",
+	"baseBranch": "main",
+	"baseCommit": "625cf237f8de2e33084f9e54a435b186a09c8476",
+	"status": "merged",
+	"checkout": "removed",
+	"createdAt": "2026-11-21T14:24:15.250Z",
+	"updatedAt": "2026-11-21T23:50:56.670Z"
+}
