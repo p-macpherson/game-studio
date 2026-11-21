@@ -30,6 +30,8 @@ const FRAME_INTERVAL_MS = 1000 / 30;
 const FRAMES_IN_FLIGHT = 4;
 const FRAME_REQUEST = { inline: true, format: "jpeg", quality: 80 };
 const TEST_TIMEOUT_MS = 180_000;
+/** A build takes a second or two; one still going after this is stuck, and everything queued behind it in its checkout waits. */
+const BUILD_TIMEOUT_MS = 10 * 60_000;
 
 export type SceneView = "top" | "overview" | "game" | { position: number[]; target: number[] };
 
@@ -88,6 +90,8 @@ export class RunService {
 	private streaming = false;
 	private testQueue: Promise<unknown> = Promise.resolve();
 	private turns = new Map<string, Promise<unknown>>();
+	/** Every build, test and game this service started that is still running (killed on quit). */
+	private children = new Set<ChildProcess>();
 
 	constructor(private readonly deps: RunServiceDeps) {}
 
@@ -400,7 +404,15 @@ export class RunService {
 	}
 
 	dispose(): void {
-		this.run?.proc?.kill("SIGKILL");
+		for (const proc of this.children) proc.kill("SIGKILL");
+		this.children.clear();
+	}
+
+	private track<P extends ChildProcess>(proc: P): P {
+		this.children.add(proc);
+		proc.once("exit", () => this.children.delete(proc));
+		proc.once("error", () => this.children.delete(proc));
+		return proc;
 	}
 
 	private project(): string {
@@ -449,17 +461,18 @@ export class RunService {
 
 	/** Starts the checkout's game binary in its turn. */
 	private launch(co: CheckoutInfo, args: string[]): Promise<ChildProcess> {
-		return this.inTurn(co.cwd, () => spawnGame(join(co.cwd, "build/game"), args, { cwd: co.cwd, env: { ...process.env, NO_COLOR: "1" } }));
+		return this.inTurn(co.cwd, async () => this.track(await spawnGame(join(co.cwd, "build/game"), args, { cwd: co.cwd, env: { ...process.env, NO_COLOR: "1" } })));
 	}
 
 	private exec(co: CheckoutInfo, args: string[], onOutput?: (text: string) => void, timeoutMs?: number): Promise<ExecResult> {
 		return this.inTurn(co.cwd, () => this.execNow(co, args, onOutput, timeoutMs));
 	}
 
-	private execNow(co: CheckoutInfo, args: string[], onOutput?: (text: string) => void, timeoutMs?: number): Promise<ExecResult> {
+	private execNow(co: CheckoutInfo, args: string[], onOutput?: (text: string) => void, timeoutMs = BUILD_TIMEOUT_MS): Promise<ExecResult> {
 		return new Promise((resolve) => {
 			const env = { ...process.env, NO_COLOR: "1", ...(co.engineDir ? { ENGINE_DIR: co.engineDir } : {}) };
-			const proc = spawn(join(co.cwd, "build.sh"), args, { cwd: co.cwd, env });
+			const proc = this.track(spawn(join(co.cwd, "build.sh"), args, { cwd: co.cwd, env }));
+			let timedOut = false;
 			let stdout = "";
 			let stderr = "";
 			proc.stdout.setEncoding("utf8").on("data", (t: string) => {
@@ -470,13 +483,17 @@ export class RunService {
 				stderr += t;
 				onOutput?.(t);
 			});
-			const timer = timeoutMs ? setTimeout(() => proc.kill("SIGKILL"), timeoutMs) : undefined;
+			const timer = setTimeout(() => {
+				timedOut = true;
+				proc.kill("SIGKILL");
+			}, timeoutMs);
 			proc.on("error", (err) => {
 				clearTimeout(timer);
 				resolve({ code: null, stdout, stderr: `${stderr}${err.message}\n` });
 			});
 			proc.on("close", (code) => {
 				clearTimeout(timer);
+				if (timedOut) stderr += `build.sh ${args.join(" ")} was stopped: no result after ${Math.round(timeoutMs / 1000)} s\n`;
 				resolve({ code, stdout, stderr });
 			});
 		});

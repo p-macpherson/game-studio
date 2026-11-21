@@ -1,5 +1,5 @@
 // Agent types: `<dir>/<id>/AGENT.md` files, YAML frontmatter plus a system-prompt body.
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "yaml";
 import { TARGETS, type AgentTypeInfo, type Target, type ThinkingLevel } from "../shared/types";
@@ -75,4 +75,36 @@ export function loadAgentTypes(builtinDir: string, projectPath?: string): AgentT
 	for (const t of loadDir(builtinDir, "builtin")) byId.set(t.id, t);
 	if (projectPath) for (const t of loadDir(join(projectPath, ".studio/agent-types"), "project")) byId.set(t.id, t);
 	return checkDelegation([...byId.values()]).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * `loadAgentTypes`, read again only when an AGENT.md was added, removed or changed: the types are asked for several
+ * times whenever a session starts, opens or delegates, and parsing them all each time is wasted work.
+ */
+export function agentTypeCache(builtinDir: string): (projectPath?: string) => AgentTypeInfo[] {
+	let seen = "";
+	let types: AgentTypeInfo[] = [];
+	return (projectPath) => {
+		const dirs = [builtinDir, ...(projectPath ? [join(projectPath, ".studio/agent-types")] : [])];
+		const now = dirs.map(signature).join("|");
+		if (now !== seen) {
+			types = loadAgentTypes(builtinDir, projectPath);
+			seen = now;
+		}
+		return types;
+	};
+}
+
+/** Which AGENT.md files a folder has, with their sizes and times. */
+function signature(dir: string): string {
+	if (!existsSync(dir)) return `${dir}:-`;
+	const files = readdirSync(dir, { withFileTypes: true })
+		.filter((e) => e.isDirectory())
+		.flatMap((e) => {
+			const file = join(dir, e.name, "AGENT.md");
+			if (!existsSync(file)) return [];
+			const st = statSync(file);
+			return [`${e.name}:${st.size}:${st.mtimeMs}`];
+		});
+	return `${dir}:${files.join(",")}`;
 }

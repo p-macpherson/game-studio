@@ -11,6 +11,7 @@ import { AssetBrowser, type AssetContentProps } from "../../renderer/views/Asset
 import { editCheckout, runInWorktree } from "../../renderer/workspace";
 import { modelName } from "./info";
 import { ModelViewer, type ViewerOptions } from "./ModelViewer";
+import { useShallow } from "zustand/react/shallow";
 
 const parse = (text: string): ModelManifest | null => {
 	try {
@@ -116,7 +117,7 @@ function Thumbnail({ asset, checkout }: { asset: AssetSummary; checkout?: string
 }
 
 function NewModelDialog({ onClose }: { onClose(): void }) {
-	const { showAsset, showError } = useStudio();
+	const { showAsset, showError } = useStudio(useShallow((s) => ({ showAsset: s.showAsset, showError: s.showError })));
 	const [description, setDescription] = useState("");
 	const [name, setName] = useState("");
 	const [count, setCount] = useState(4);
@@ -190,7 +191,7 @@ function NewModelDialog({ onClose }: { onClose(): void }) {
 type Tab = "model" | "concepts" | "engine";
 
 function ModelDetail({ asset, text, checkout }: AssetContentProps) {
-	const { showAsset, showError } = useStudio();
+	const { showAsset, showError } = useStudio(useShallow((s) => ({ showAsset: s.showAsset, showError: s.showError })));
 	// The name comes from the path: right after switching models, `text` can still be the previous model's
 	// manifest until the new one loads, so a manifest for another model is ignored.
 	const name = modelName(asset.path);
@@ -388,7 +389,13 @@ function RigActions({ manifest, busy, run }: Pick<TabProps, "manifest" | "busy" 
 }
 
 function ConceptsTab({ manifest, name, dir, checkout, busy, run }: Omit<TabProps, "manifest"> & { manifest: ModelManifest | null; name: string }) {
-	const { assetsVersion, showError, openNewSession } = useStudio();
+	const { assetsVersion, showError, openNewSession } = useStudio(
+		useShallow((s) => ({
+			assetsVersion: s.assetsVersion,
+			showError: s.showError,
+			openNewSession: s.openNewSession,
+		})),
+	);
 	const [concepts, setConcepts] = useState<ConceptImage[]>([]);
 	// Click selects one concept; Ctrl/Cmd-click adds more (e.g. a back view) to hand over together.
 	const [picked, setPicked] = useState<string[]>([]);
@@ -515,7 +522,7 @@ function ConceptsTab({ manifest, name, dir, checkout, busy, run }: Omit<TabProps
 }
 
 function EngineTab({ name, checkout }: { name: string; checkout?: string }) {
-	const { showError } = useStudio();
+	const { showError } = useStudio(useShallow((s) => ({ showError: s.showError })));
 	const [busy, setBusy] = useState(false);
 	const [result, setResult] = useState<{ images: string[]; errors: string[] } | null>(null);
 	const render = async () => {

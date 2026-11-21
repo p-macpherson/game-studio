@@ -30,6 +30,7 @@ import { parseTexture } from "../../shared/texture";
 import { textureName, texturePaths } from "../textures/info";
 import { enginePath, isPrefab, type PrefabInfo, prefabIndex } from "./info";
 import { defaultOrbit, FOV, type Orbit, orbitDrag, orbitPosition, pan, project, type Vec3 } from "./orbit";
+import { useShallow } from "zustand/react/shallow";
 
 const bumpAssets = () => useStudio.setState((s) => ({ assetsVersion: s.assetsVersion + 1 }));
 const quiet = (p: Promise<unknown>) => p.catch(() => {});
@@ -45,7 +46,7 @@ const selections = new Map<string, number | null>();
 
 /** Every prefab's model and where it's placed, in the shown checkout. */
 function usePrefabIndex(checkout?: string): Map<string, PrefabInfo> {
-	const { assetsVersion } = useStudio();
+	const { assetsVersion } = useStudio(useShallow((s) => ({ assetsVersion: s.assetsVersion })));
 	const [index, setIndex] = useState<Map<string, PrefabInfo>>(new Map());
 	useEffect(() => {
 		let live = true;
@@ -112,7 +113,15 @@ function worldPosition(e: SceneEntity, prefabRoot?: SceneEntity): Vec3 | null {
 
 
 function SceneDetail({ asset, text, checkout: shownCheckout, assets }: AssetContentProps) {
-	const { run, frame, showAsset, showError, assetsVersion } = useStudio();
+	const { run, frame, showAsset, showError, assetsVersion } = useStudio(
+		useShallow((s) => ({
+			run: s.run,
+			frame: s.frame,
+			showAsset: s.showAsset,
+			showError: s.showError,
+			assetsVersion: s.assetsVersion,
+		})),
+	);
 	const parsed = useMemo(() => (text ? parseScene(text) : null), [text]);
 	const scene = parsed?.scene;
 	const prefabFile = isPrefab(asset.path);
@@ -730,7 +739,7 @@ type SurfaceChoice = { name: string; tile: number; paths: ReturnType<typeof text
  * resize.
  */
 function SurfacePicker({ entity, prefabRoot, checkout, busy, onSet }: { entity: SceneEntity; prefabRoot?: SceneEntity; checkout?: string; busy: boolean; onSet(v: Record<string, unknown>): void }) {
-	const { assetsVersion } = useStudio();
+	const { assetsVersion } = useStudio(useShallow((s) => ({ assetsVersion: s.assetsVersion })));
 	const [choices, setChoices] = useState<SurfaceChoice[] | null>(null);
 	useEffect(() => {
 		let live = true;

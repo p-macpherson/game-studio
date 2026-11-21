@@ -48,7 +48,7 @@ import {
 	trimSilence,
 } from "./audio-dsp";
 import type { GenService } from "./gen";
-import type { PipelineContext } from "./models";
+import { handler, type PipelineContext, type StudioRequestHandlers } from "./studio-requests";
 
 export const SOUNDS_DIR = "assets/sounds";
 /** A take whose CLAP score is this far below its batch's median probably isn't the sound asked for. */
@@ -318,4 +318,15 @@ export class SoundPipeline {
 			proc.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`${cmd} failed (exit ${code}): ${err.trim().split("\n").slice(-3).join(" ")}`))));
 		});
 	}
+}
+
+/** The Sound Effects section's requests (see studio-requests.ts). */
+export function soundRequests(sounds: SoundPipeline): StudioRequestHandlers {
+	type Edit = Parameters<SoundPipeline["edit"]>[1];
+	const step = (name: string, what: string) => ({ label: `Sound ${name}: ${what}`, scopes: [{ path: `${SOUNDS_DIR}/${name}` }] });
+	return {
+		generate_sound: handler((ctx, p: Parameters<SoundPipeline["generateTakes"]>[1]) => sounds.generateTakes(ctx, p), (p) => step(p.name, "new takes")),
+		render_sound: handler((ctx, p: { name: string }) => sounds.render(ctx, p), (p) => step(p.name, "rendered")),
+		edit_sound: handler((ctx, p: Edit) => sounds.edit(ctx, p), (p) => step(p.name, [...(p.variants ? ["variants"] : []), ...Object.keys(p.set ?? {})].join(", ") || "edited")),
+	};
 }

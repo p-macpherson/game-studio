@@ -3,6 +3,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { applyEdits, formatScene, parseScene, type SceneEdit, stripJson5, validateScene } from "../shared/scene";
 import { safeJoin } from "./assets";
+import { handler, type StudioRequestHandlers } from "./studio-requests";
 
 export const SCENE_ROOTS = ["assets/scenes", "assets/prefabs"];
 
@@ -36,4 +37,38 @@ export function editScene(cwd: string, p: { path: string; edits: SceneEdit[] }):
 	writeFileSync(file, formatScene(r.scene));
 	const prefabs = r.scene.entities.flatMap((e) => (e.prefab ? [e.prefab] : [])).filter((x) => !existsSync(safeJoin(cwd, `assets/${x}`)));
 	return { created: r.created, deleted: r.deleted, problems: [...validateScene(r.scene), ...prefabs.map((x) => `prefab ${x} not found`)] };
+}
+
+/** The Scenes section's requests (see studio-requests.ts). `preview` shows a scene in the game's engine (RunService.previewScene). */
+export function sceneRequests(preview?: (sessionId: string, params: { scene: string; views?: unknown }) => Promise<unknown>): StudioRequestHandlers {
+	const leaf = (path: string) => path.slice(path.lastIndexOf("/") + 1).replace(/\.json$/, "");
+	return {
+		edit_scene: handler(
+			(ctx, p: { path: string; edits: SceneEdit[] }) => editScene(ctx.cwd, p),
+			(p) => ({ label: `Scene ${leaf(p.path)}: ${[...new Set((p.edits ?? []).map(describeSceneEdit))].join(", ") || "edited"}`, scopes: [{ path: p.path }] }),
+		),
+		preview_scene: handler((ctx, p: { scene: string; views?: unknown }) => {
+			if (!preview) throw new Error("Scene previews aren't available here");
+			return preview(ctx.sessionId, p);
+		}),
+	};
+}
+
+function describeSceneEdit(e: SceneEdit): string {
+	switch (e.op) {
+		case "set":
+			return `set ${e.component}`;
+		case "remove_component":
+			return `removed ${e.component}`;
+		case "add":
+			return "added an entity";
+		case "delete":
+			return "deleted an entity";
+		case "duplicate":
+			return "duplicated an entity";
+		case "notes":
+			return "notes";
+		case "environment":
+			return "environment";
+	}
 }

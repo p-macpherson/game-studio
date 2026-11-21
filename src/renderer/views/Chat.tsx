@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import { type ChatMessage, type ContentBlock, type Transcript, useStudio } from "../store";
 import { Markdown } from "./Markdown";
 
@@ -26,7 +26,8 @@ function ToolCall({ block, result, running }: { block: Extract<ContentBlock, { t
 	);
 }
 
-function Assistant({ m, results, running }: { m: ChatMessage; results: Map<string, ChatMessage>; running: Record<string, string> }) {
+// Memoised: while a reply streams, only the streaming message changes; the finished ones above it are left alone.
+const Assistant = memo(function Assistant({ m, results, running }: { m: ChatMessage; results: Map<string, ChatMessage>; running: Record<string, string> }) {
 	const blocks = typeof m.content === "string" ? [{ type: "text" as const, text: m.content }] : m.content;
 	return (
 		<div className="msg assistant">
@@ -40,11 +41,11 @@ function Assistant({ m, results, running }: { m: ChatMessage; results: Map<strin
 			{m.stopReason === "aborted" && <div className="muted">(stopped)</div>}
 		</div>
 	);
-}
+});
 
 export function Chat({ transcript }: { transcript: Transcript }) {
 	const end = useRef<HTMLDivElement>(null);
-	const results = new Map(transcript.messages.filter((m) => m.role === "toolResult").map((m) => [m.toolCallId!, m]));
+	const results = useMemo(() => new Map(transcript.messages.filter((m) => m.role === "toolResult").map((m) => [m.toolCallId!, m])), [transcript.messages]);
 	const shown = transcript.streaming ? [...transcript.messages, transcript.streaming] : transcript.messages;
 
 	useEffect(() => {

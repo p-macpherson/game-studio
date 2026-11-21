@@ -11,6 +11,7 @@ import { useStudio } from "../store";
 import { saveMessage } from "../workspace";
 import { ChangeCountsLabel } from "./AssetBrowser";
 import { StatusBadge } from "./Sessions";
+import { useShallow } from "zustand/react/shallow";
 
 type Change = { path: string; change: "added" | "modified" | "deleted" };
 const LABEL = { added: "New", modified: "Modified", deleted: "Removed" } as const;
@@ -18,7 +19,20 @@ const WORKING = new Set(["starting", "in_progress"]);
 const WAITING = new Set(["idle", "interrupted"]);
 
 export function MergeDialog({ worktreeId }: { worktreeId: string }) {
-	const { worktrees, sessions, modules, agentTypes, openMerge, showError, refreshWorktrees, refreshHistory, selectWorktree, selected } = useStudio();
+	const { worktrees, sessions, modules, agentTypes, openMerge, showError, refreshWorktrees, refreshHistory, selectWorktree, selected } = useStudio(
+		useShallow((s) => ({
+			worktrees: s.worktrees,
+			sessions: s.sessions,
+			modules: s.modules,
+			agentTypes: s.agentTypes,
+			openMerge: s.openMerge,
+			showError: s.showError,
+			refreshWorktrees: s.refreshWorktrees,
+			refreshHistory: s.refreshHistory,
+			selectWorktree: s.selectWorktree,
+			selected: s.selected,
+		})),
+	);
 	const w = worktrees.find((x) => x.id === worktreeId);
 	const [data, setData] = useState<{ files: Change[]; commits: GitCommit[]; steps: HistoryStep[]; unsaved: string[]; behind: number; conflicts: string[] | null } | null>(null);
 	const [busy, setBusy] = useState(false);
@@ -163,7 +177,7 @@ export function MergeDialog({ worktreeId }: { worktreeId: string }) {
 }
 
 function SessionRow({ s, typeName }: { s: SessionSummary; typeName: string }) {
-	const { selectSession, openMerge } = useStudio();
+	const { selectSession, openMerge } = useStudio(useShallow((s) => ({ selectSession: s.selectSession, openMerge: s.openMerge })));
 	return (
 		<div className="row merge-file" data-testid="merge-session">
 			<button className="ghost grow ellipsis link-like" title="Open the session" onClick={() => (openMerge(null), selectSession(s.id))}>

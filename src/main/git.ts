@@ -1,5 +1,6 @@
 // Thin wrapper over the git CLI. Every function takes the repo (or worktree) directory first.
 import { execFile } from "node:child_process";
+import { resolve } from "node:path";
 import { promisify } from "node:util";
 import type { GitCommit, GitStatus } from "../shared/types";
 
@@ -7,7 +8,48 @@ const exec = promisify(execFile);
 
 export class GitError extends Error {}
 
+/** Commands that only read: they run at once. Anything else takes its turn in its checkout. */
+const READS = new Set(["rev-parse", "log", "diff", "status", "merge-base", "rev-list", "symbolic-ref", "push", "--no-optional-locks"]);
+/** Another git process (an agent's own commit in the same checkout) holds a lock: worth waiting for. */
+const LOCKED = /\.lock': File exists|Unable to create '.*\.lock'|cannot lock ref/;
+const LOCK_RETRIES = 6;
+
+const turns = new Map<string, Promise<unknown>>();
+
+/**
+ * Runs git in `cwd`. Commands that write (the index, refs, the working tree) run one at a time per checkout, in the
+ * order they were asked for: the studio's own steps (a session's record commit, a merge, a save) can't trip over each
+ * other's index.lock. A lock held by someone else is retried for a few seconds before giving up.
+ */
 export async function git(cwd: string, args: string[]): Promise<string> {
+	if (READS.has(args[0])) return run(cwd, args);
+	return inTurn(cwd, () => runPatiently(cwd, args));
+}
+
+/** Runs `step` when every earlier writing step in this checkout has finished (so a stage-then-commit pair stays together). */
+function inTurn<T>(cwd: string, step: () => Promise<T>): Promise<T> {
+	const key = resolve(cwd);
+	const turn = (turns.get(key) ?? Promise.resolve()).then(step);
+	const settled = turn.catch(() => {});
+	turns.set(key, settled);
+	void settled.then(() => {
+		if (turns.get(key) === settled) turns.delete(key);
+	});
+	return turn;
+}
+
+async function runPatiently(cwd: string, args: string[]): Promise<string> {
+	for (let attempt = 0; ; attempt++) {
+		try {
+			return await run(cwd, args);
+		} catch (err) {
+			if (attempt >= LOCK_RETRIES || !LOCKED.test((err as Error).message)) throw err;
+			await new Promise((r) => setTimeout(r, 50 * 2 ** attempt));
+		}
+	}
+}
+
+async function run(cwd: string, args: string[]): Promise<string> {
 	try {
 		const { stdout } = await exec("git", args, {
 			cwd,
@@ -107,19 +149,23 @@ export async function log(dir: string, limit: number, rev = "HEAD"): Promise<Git
 
 /** Stages everything and commits it; false if there was nothing committable (e.g. only submodule noise). */
 export async function commitAll(dir: string, message: string): Promise<boolean> {
-	await git(dir, ["add", "-A"]);
-	if (!(await git(dir, ["diff", "--cached", "--name-only"])).trim()) return false;
-	await git(dir, ["commit", "-q", "-m", message]);
-	return true;
+	return inTurn(dir, async () => {
+		await runPatiently(dir, ["add", "-A"]);
+		if (!(await run(dir, ["diff", "--cached", "--name-only"])).trim()) return false;
+		await runPatiently(dir, ["commit", "-q", "-m", message]);
+		return true;
+	});
 }
 
 /** Commits exactly `paths` (staging them first), leaving anything else staged untouched. */
 export async function commitPaths(dir: string, paths: string[], message: string): Promise<boolean> {
-	await git(dir, ["add", "-A", "--", ...paths]);
-	const staged = await git(dir, ["diff", "--cached", "--name-only", "--", ...paths]);
-	if (!staged.trim()) return false;
-	await git(dir, ["commit", "-q", "-m", message, "--only", "--", ...paths]);
-	return true;
+	return inTurn(dir, async () => {
+		await runPatiently(dir, ["add", "-A", "--", ...paths]);
+		const staged = await run(dir, ["diff", "--cached", "--name-only", "--", ...paths]);
+		if (!staged.trim()) return false;
+		await runPatiently(dir, ["commit", "-q", "-m", message, "--only", "--", ...paths]);
+		return true;
+	});
 }
 
 export async function worktreeAdd(repo: string, path: string, branch: string, startPoint?: string): Promise<void> {

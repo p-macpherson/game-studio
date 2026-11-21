@@ -20,6 +20,21 @@ const MODEL_NAME = Type.String({ description: "The model's folder under assets/m
 
 const ok = (text: string) => ({ content: [{ type: "text" as const, text }], details: {} });
 
+type Update = (partial: { content: { type: "text"; text: string }[]; details: Record<string, never> }) => void;
+/** A request's progress lines, shown as the tool call's updates in the chat. */
+const progressTo = (onUpdate: Update | undefined) => (text: string) => onUpdate?.({ content: [{ type: "text", text }], details: {} });
+
+const image = (dataUrl: string | undefined) => {
+	const [, mimeType, data] = /^data:([^;]+);base64,(.*)$/.exec(dataUrl ?? "") ?? [];
+	return data ? [{ type: "image" as const, mimeType, data }] : [];
+};
+/** A result whose `key` is a picture (a data URL) for the agent to look at: the rest as JSON, `caption`, then the picture. */
+function pictured(result: unknown, key: string, caption: string) {
+	const { [key]: dataUrl, ...rest } = result as Record<string, unknown>;
+	const images = image(dataUrl as string | undefined);
+	return { content: [{ type: "text" as const, text: `${JSON.stringify(rest, null, 2)}${images.length ? `\n${caption}` : ""}` }, ...images], details: {} };
+}
+
 export function studioTools(ctx: StudioToolContext) {
 	const tool = (tool: "set_session_title" | "request_review" | "open_in_studio", params: Record<string, string>) =>
 		ctx.post({ type: "studio_tool", id: ctx.sessionId, tool, params });
@@ -31,9 +46,9 @@ export function studioTools(ctx: StudioToolContext) {
 			_id: string,
 			params: Record<string, unknown>,
 			signal?: AbortSignal,
-			onUpdate?: (partial: { content: { type: "text"; text: string }[]; details: Record<string, never> }) => void,
+			onUpdate?: Update,
 		) => {
-			const result = await ctx.request(method, params, signal, (text) => onUpdate?.({ content: [{ type: "text", text }], details: {} }));
+			const result = await ctx.request(method, params, signal, progressTo(onUpdate));
 			return ok(typeof result === "string" ? result : JSON.stringify(result, null, 2));
 		};
 
@@ -54,7 +69,7 @@ export function studioTools(ctx: StudioToolContext) {
 						title: Type.Optional(Type.String({ description: "A short title for its session" })),
 					}),
 					async execute(_id, params, signal, onUpdate) {
-						const report = await ctx.request("delegate", params, signal, (text) => onUpdate?.({ content: [{ type: "text", text }], details: {} }));
+						const report = await ctx.request("delegate", params, signal, progressTo(onUpdate));
 						return ok(String(report));
 					},
 				}),
@@ -78,12 +93,7 @@ export function studioTools(ctx: StudioToolContext) {
 				seed: Type.Optional(Type.Number()),
 			}),
 			async execute(_id, params, signal, onUpdate) {
-				const { sheet, ...r } = (await ctx.request("generate_concepts", params, signal, (text) => onUpdate?.({ content: [{ type: "text", text }], details: {} }))) as {
-					sheet?: string;
-				};
-				const [, mimeType, data] = /^data:([^;]+);base64,(.*)$/.exec(sheet ?? "") ?? [];
-				const text = `${JSON.stringify(r, null, 2)}${data ? "\nAll of them, numbered in the order above:" : ""}`;
-				return { content: [{ type: "text" as const, text }, ...(data ? [{ type: "image" as const, mimeType, data }] : [])], details: {} };
+				return pictured(await ctx.request("generate_concepts", params, signal, progressTo(onUpdate)), "sheet", "All of them, numbered in the order above:");
 			},
 		}),
 		defineTool({
@@ -154,14 +164,11 @@ export function studioTools(ctx: StudioToolContext) {
 				"Use it after every change: a model can look right in Blender and wrong in the game.",
 			parameters: Type.Object({ model: MODEL_NAME }),
 			async execute(_id, params, signal, onUpdate) {
-				const r = (await ctx.request("preview_model", params, signal, (text) => onUpdate?.({ content: [{ type: "text", text }], details: {} }))) as {
+				const r = (await ctx.request("preview_model", params, signal, progressTo(onUpdate))) as {
 					images: string[];
 					errors: string[];
 				};
-				const images = r.images.map((url) => {
-					const [, mimeType, data] = /^data:([^;]+);base64,(.*)$/.exec(url) ?? [];
-					return { type: "image" as const, mimeType, data };
-				});
+				const images = r.images.flatMap(image);
 				const text = `${params.model} in the game's engine: front, three-quarter, back.${r.errors.length ? `\nEngine errors:\n${r.errors.join("\n")}` : " No engine errors."}`;
 				return { content: [{ type: "text" as const, text }, ...images], details: {} };
 			},
@@ -189,7 +196,7 @@ export function studioTools(ctx: StudioToolContext) {
 				),
 			}),
 			async execute(_id, params, signal, onUpdate) {
-				const r = (await ctx.request("preview_scene", params, signal, (text) => onUpdate?.({ content: [{ type: "text", text }], details: {} }))) as {
+				const r = (await ctx.request("preview_scene", params, signal, progressTo(onUpdate))) as {
 					images: { view: string; image: string }[];
 					warnings: string[];
 				};
@@ -199,11 +206,7 @@ export function studioTools(ctx: StudioToolContext) {
 						text: `${params.scene} in the game's engine, views in order: ${r.images.map((i) => i.view).join(", ")}.${r.warnings.length ? `\nProblems and engine warnings:\n${r.warnings.join("\n")}` : " No problems or engine warnings."}`,
 					},
 				];
-				for (const { image } of r.images) {
-					const [, mimeType, data] = /^data:([^;]+);base64,(.*)$/.exec(image) ?? [];
-					content.push({ type: "image", mimeType, data });
-				}
-				return { content, details: {} };
+				return { content: [...content, ...r.images.flatMap((i) => image(i.image))], details: {} };
 			},
 		}),
 		defineTool({
@@ -225,12 +228,7 @@ export function studioTools(ctx: StudioToolContext) {
 				seed: Type.Optional(Type.Number({ description: "First seed (default random); takes use seed, seed+1, …" })),
 			}),
 			async execute(_id, params, signal, onUpdate) {
-				const { sheet, ...r } = (await ctx.request("generate_sound", params, signal, (text) => onUpdate?.({ content: [{ type: "text", text }], details: {} }))) as {
-					sheet?: string;
-				};
-				const [, mimeType, data] = /^data:([^;]+);base64,(.*)$/.exec(sheet ?? "") ?? [];
-				const text = `${JSON.stringify(r, null, 2)}${data ? "\nEvery take, top to bottom in the order above (waveform over spectrogram, each stretched to the same width):" : ""}`;
-				return { content: [{ type: "text" as const, text }, ...(data ? [{ type: "image" as const, mimeType, data }] : [])], details: {} };
+				return pictured(await ctx.request("generate_sound", params, signal, progressTo(onUpdate)), "sheet", "Every take, top to bottom in the order above (waveform over spectrogram, each stretched to the same width):");
 			},
 		}),
 		defineTool({
@@ -243,12 +241,7 @@ export function studioTools(ctx: StudioToolContext) {
 				"shows them (waveform over spectrogram): check them against what you meant, since you can't listen. Render after every edit.",
 			parameters: Type.Object({ name: Type.String({ description: "The sound's folder name under assets/sounds/" }) }),
 			async execute(_id, params, signal, onUpdate) {
-				const { sheet, ...r } = (await ctx.request("render_sound", params, signal, (text) => onUpdate?.({ content: [{ type: "text", text }], details: {} }))) as {
-					sheet?: string;
-				};
-				const [, mimeType, data] = /^data:([^;]+);base64,(.*)$/.exec(sheet ?? "") ?? [];
-				const text = `${JSON.stringify(r, null, 2)}${data ? "\nEach variant, top to bottom (waveform over spectrogram):" : ""}`;
-				return { content: [{ type: "text" as const, text }, ...(data ? [{ type: "image" as const, mimeType, data }] : [])], details: {} };
+				return pictured(await ctx.request("render_sound", params, signal, progressTo(onUpdate)), "sheet", "Each variant, top to bottom (waveform over spectrogram):");
 			},
 		}),
 		defineTool({
@@ -290,10 +283,7 @@ export function studioTools(ctx: StudioToolContext) {
 				seed: Type.Optional(Type.Number()),
 			}),
 			async execute(_id, params, signal, onUpdate) {
-				const { sheet, ...r } = (await ctx.request("generate_texture", params, signal, (text) => onUpdate?.({ content: [{ type: "text", text }], details: {} }))) as { sheet?: string };
-				const [, mimeType, data] = /^data:([^;]+);base64,(.*)$/.exec(sheet ?? "") ?? [];
-				const text = `${JSON.stringify(r, null, 2)}${data ? "\nEach candidate tiled 2x2, in the order above:" : ""}`;
-				return { content: [{ type: "text" as const, text }, ...(data ? [{ type: "image" as const, mimeType, data }] : [])], details: {} };
+				return pictured(await ctx.request("generate_texture", params, signal, progressTo(onUpdate)), "sheet", "Each candidate tiled 2x2, in the order above:");
 			},
 		}),
 		defineTool({
@@ -312,12 +302,7 @@ export function studioTools(ctx: StudioToolContext) {
 				notes: Type.Optional(Type.String({ description: "What it's for" })),
 			}),
 			async execute(_id, params, signal, onUpdate) {
-				const { preview, ...r } = (await ctx.request("make_texture", params, signal, (text) => onUpdate?.({ content: [{ type: "text", text }], details: {} }))) as {
-					preview?: string;
-				};
-				const [, mimeType, data] = /^data:([^;]+);base64,(.*)$/.exec(preview ?? "") ?? [];
-				const text = `${JSON.stringify(r, null, 2)}${data ? "\nThe colour tiled 2x2, the normal map, the roughness map:" : ""}`;
-				return { content: [{ type: "text" as const, text }, ...(data ? [{ type: "image" as const, mimeType, data }] : [])], details: {} };
+				return pictured(await ctx.request("make_texture", params, signal, progressTo(onUpdate)), "preview", "The colour tiled 2x2, the normal map, the roughness map:");
 			},
 		}),
 		defineTool({

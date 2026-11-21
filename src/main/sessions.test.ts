@@ -346,4 +346,25 @@ describe("SessionService", () => {
 		await expect(service.merge(s.id)).rejects.toThrow(/switch it to main/);
 		expect(service.get(s.id).status).toBe("idle");
 	});
+
+	it("loads the rest when a record is unreadable, and reads a transcript whose last line was cut short", async () => {
+		const good = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: "hello" });
+		const bad = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: "hello again" });
+		await settled(good.id);
+		await settled(bad.id);
+		// What a crash in the middle of a write used to leave behind.
+		writeFileSync(join(project, ".studio/sessions", bad.id, "session.json"), '{"id": "' + bad.id + '", "title": "hel');
+		writeFileSync(join(project, ".studio/worktrees", `${bad.worktreeId}.json`), "");
+		const transcript = join(project, ".studio/sessions", good.id, good.piSessionFile ?? service.get(good.id).piSessionFile!);
+		writeFileSync(transcript, `${readFileSync(transcript, "utf8")}{"type":"message","message":{"role":"assis`);
+
+		const reloaded = new SessionService({ host: await inProcessHost(join(root, "pi2")), settings: () => settings, projectPath: () => project, agentTypes: () => [general], skillsDir: join(root, "skills"), emit: () => {} });
+		try {
+			reloaded.load();
+			expect(reloaded.list().map((s) => s.id)).toEqual([good.id]);
+			expect((await reloaded.messages(good.id)).length).toBeGreaterThan(0);
+		} finally {
+			reloaded.dispose();
+		}
+	}, 30_000);
 });

@@ -14,6 +14,7 @@ import { drumName, gmProgram, GM_PROGRAMS, type Note, parseSong, pitchName, type
 import { ASSET_NAME, leafName } from "../shared/asset-names";
 import { safeJoin } from "./assets";
 import { decodeWav } from "./audio-dsp";
+import { handler, type StudioRequestHandlers } from "./studio-requests";
 import { encodeFloatWav, impulse, StemBus, unit } from "./music-mix";
 
 export const MUSIC_DIR = "assets/music";
@@ -517,4 +518,27 @@ function run(cmd: string, args: string[]): Promise<string> {
 		proc.on("error", (e) => reject(new Error(`${cmd} isn't available: ${e.message}`)));
 		proc.on("close", (code) => (code === 0 ? resolve(err) : reject(new Error(`${cmd} failed (exit ${code}): ${err.trim().split("\n").slice(-3).join(" ")}`))));
 	});
+}
+
+/** The Music section's requests (see studio-requests.ts). */
+export function musicRequests(music: MusicPipeline): StudioRequestHandlers {
+	type Edit = Parameters<MusicPipeline["edit"]>[1];
+	const scopes = (name: string) => [{ path: `assets/music/${name}` }];
+	return {
+		render_song: handler((ctx, p: { name: string }) => music.render(ctx, p), (p) => ({ label: `Music ${p.name}: rendered`, scopes: scopes(p.name) })),
+		edit_song: handler((ctx, p: Edit) => music.edit(ctx, p), (p) => ({ label: `Music ${p.name}: ${describeSongEdit(p)}`, scopes: scopes(p.name) })),
+	};
+}
+
+/** What an edit_song changed, for the history ("space hall, tempo 96"). */
+function describeSongEdit(p: Parameters<MusicPipeline["edit"]>[1]): string {
+	const parts = [
+		p.space !== undefined && `space ${p.space}`,
+		p.tempo !== undefined && `tempo ${p.tempo}`,
+		p.humanize !== undefined && `feel ${p.humanize}`,
+		...Object.entries(p.instruments ?? {}).map(
+			([id, c]) => `${id} ${[c.program !== undefined && String(c.program), c.volume !== undefined && `volume ${c.volume}`].filter(Boolean).join(", ")}`,
+		),
+	].filter(Boolean);
+	return parts.join(", ") || "edited";
 }

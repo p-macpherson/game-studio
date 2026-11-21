@@ -7,116 +7,34 @@
 // Every step reads and writes inside one checkout (the main checkout or a session's worktree).
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
-import type { ConceptImage, ConceptRecord, GenJob, GenJobKind, ModelManifest } from "../shared/gen";
+import type { ConceptImage, ConceptRecord, GenJobKind, ModelManifest } from "../shared/gen";
 import { ASSET_NAME, leafName } from "../shared/asset-names";
-import { moveAsset } from "./asset-move";
-import { MODULES, safeJoin } from "./assets";
+import { safeJoin } from "./assets";
 import type { GenService } from "./gen";
-import type { MusicPipeline } from "./music";
-import { editScene } from "./scenes";
-import type { SoundPipeline } from "./sounds";
-import type { TexturePipeline } from "./textures";
-import type { StudioRequest } from "./sessions";
+import { handler, type PipelineContext, type StudioRequestHandlers } from "./studio-requests";
 
 export const MODELS_DIR = "assets/models";
 /** Compared on the robot: 3 passes fix most joint artefacts; 12 start to make joints lumpy. */
 const SKIN_SMOOTHING_PASSES = 3;
 
-export interface PipelineContext {
-	/** Checkout root (absolute). */
-	cwd: string;
-	sessionId?: string;
-	progress?(text: string): void;
-	/** Lets a caller cancel the jobs it started. */
-	onJob?(job: GenJob): void;
-}
+export type { PipelineContext } from "./studio-requests";
 
-/**
- * Serves agents' generation tools (see studio-tools.ts) in their session's worktree, and cancels a tool call's
- * jobs when the agent is stopped. Plug into SessionService's `studioRequest` / `cancelStudioRequest`.
- */
-export function generationRequests(
-	pipeline: ModelPipeline,
-	gen: GenService,
-	opts: {
-		/** Renders a model in the game's engine (RunService.preview), for `preview_model`. */
-		preview?(sessionId: string, model: string): Promise<{ images: string[]; errors: string[] }>;
-		/** Renders songs (assets/music/), for `render_song`. */
-		music?: MusicPipeline;
-		/** Tileable surface textures (assets/textures/), for `generate_texture` and `make_texture`. */
-		textures?: TexturePipeline;
-		/** Renders a scene in the game's engine (RunService.previewScene), for `preview_scene`. */
-		previewScene?(sessionId: string, cwd: string, params: Record<string, unknown>): Promise<unknown>;
-		/** Sound effects (assets/sounds/), for `generate_sound_takes` and `render_sound`. */
-		sounds?: SoundPipeline;
-	} = {},
-) {
-	const jobs = new Map<string, Set<string>>();
+/** The 3D Models section's requests (see studio-requests.ts). `preview` renders a model in the game's engine (RunService.preview). */
+export function modelRequests(pipeline: ModelPipeline, preview?: (sessionId: string, model: string) => Promise<{ images: string[]; errors: string[] }>): StudioRequestHandlers {
+	const step = (what: string) => (p: { model: string }) => ({ label: `Model ${p.model}: ${what}`, scopes: [{ path: `${MODELS_DIR}/${p.model}` }] });
+	type P<M extends "concepts" | "generate" | "retexture" | "rig" | "rigProp" | "animate" | "finalize"> = Parameters<ModelPipeline[M]>[1];
 	return {
-		async studioRequest(req: StudioRequest): Promise<unknown> {
-			const started = new Set<string>();
-			jobs.set(req.requestId, started);
-			const ctx: PipelineContext = { cwd: req.cwd, sessionId: req.sessionId, progress: req.progress, onJob: (j) => started.add(j.id) };
-			const p = req.params as never;
-			try {
-				switch (req.method) {
-					case "move_asset": {
-						const { from, to } = req.params as { from: string; to: string };
-						const m = MODULES.find((b) => b.info.roots.some((r) => from.startsWith(`${r}/`)));
-						if (!m) throw new Error(`${from} isn't a studio asset (or a folder of them)`);
-						return moveAsset(ctx.cwd, m.info, from, to);
-					}
-					case "generate_texture":
-						if (!opts.textures) throw new Error("Texture generation isn't available here");
-						return await opts.textures.candidates(ctx, p);
-					case "make_texture":
-						if (!opts.textures) throw new Error("Texture generation isn't available here");
-						return await opts.textures.make(ctx, p);
-					case "generate_concepts":
-						return await pipeline.concepts(ctx, p);
-					case "generate_model":
-						return await pipeline.generate(ctx, p);
-					case "retexture_model":
-						return await pipeline.retexture(ctx, p);
-					case "rig_model":
-						return await pipeline.rig(ctx, p);
-					case "rig_prop":
-						return await pipeline.rigProp(ctx, p);
-					case "animate_model":
-						return await pipeline.animate(ctx, p);
-					case "finalize_model":
-						return await pipeline.finalize(ctx, p);
-					case "preview_model":
-						if (!opts.preview) throw new Error("In-engine previews aren't available here");
-						return await opts.preview(req.sessionId, (req.params as { model: string }).model);
-					case "render_song":
-						if (!opts.music) throw new Error("Music rendering isn't available here");
-						return await opts.music.render(ctx, p);
-					case "edit_song":
-						if (!opts.music) throw new Error("Music rendering isn't available here");
-						return await opts.music.edit(ctx, p);
-					case "edit_scene":
-						return editScene(ctx.cwd, p);
-					case "preview_scene":
-						if (!opts.previewScene) throw new Error("Scene previews aren't available here");
-						return await opts.previewScene(req.sessionId, req.cwd, req.params);
-					case "generate_sound":
-						if (!opts.sounds) throw new Error("Sound generation isn't available here");
-						return await opts.sounds.generateTakes(ctx, p);
-					case "render_sound":
-						if (!opts.sounds) throw new Error("Sound rendering isn't available here");
-						return await opts.sounds.render(ctx, p);
-					case "edit_sound":
-						if (!opts.sounds) throw new Error("Sound rendering isn't available here");
-						return await opts.sounds.edit(ctx, p);
-				}
-			} finally {
-				jobs.delete(req.requestId);
-			}
-		},
-		cancelStudioRequest(requestId: string): void {
-			for (const id of jobs.get(requestId) ?? []) gen.cancel(id);
-		},
+		generate_concepts: handler((ctx, p: P<"concepts">) => pipeline.concepts(ctx, p), step("concepts")),
+		generate_model: handler((ctx, p: P<"generate">) => pipeline.generate(ctx, p), step("generated")),
+		retexture_model: handler((ctx, p: P<"retexture">) => pipeline.retexture(ctx, p), step("retextured")),
+		rig_model: handler((ctx, p: P<"rig">) => pipeline.rig(ctx, p), step("rigged")),
+		rig_prop: handler((ctx, p: P<"rigProp">) => pipeline.rigProp(ctx, p), step("prop rig")),
+		animate_model: handler((ctx, p: P<"animate">) => pipeline.animate(ctx, p), step("animated")),
+		finalize_model: handler((ctx, p: P<"finalize">) => pipeline.finalize(ctx, p), step("finalized")),
+		preview_model: handler((ctx, p: { model: string }) => {
+			if (!preview) throw new Error("In-engine previews aren't available here");
+			return preview(ctx.sessionId, p.model);
+		}),
 	};
 }
 

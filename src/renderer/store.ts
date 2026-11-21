@@ -57,7 +57,6 @@ export interface Transcript {
 	messages: ChatMessage[];
 	streaming?: ChatMessage;
 	runningTools: Record<string, string>;
-	raw: string[];
 }
 
 interface State {
@@ -126,14 +125,13 @@ interface State {
 	handleEvent(event: StudioEvent): void;
 }
 
-const emptyTranscript = (): Transcript => ({ messages: [], runningTools: {}, raw: [] });
+const emptyTranscript = (): Transcript => ({ messages: [], runningTools: {} });
 
 /** A worktree of the game project that's still being worked on: one the selector offers. */
 /** Open: not merged or discarded (its folder may be unloaded to free space; selecting it loads it). */
 export const isOpenProjectWorktree = (w: WorktreeSummary) => w.target === "project" && w.status === "active";
 /** Open in any repo: the game's, the engine's or the studio's. */
 export const isOpenWorktree = (w: WorktreeSummary) => w.status === "active";
-const RAW_LIMIT = 500;
 
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -344,33 +342,30 @@ export const useStudio = create<State>((set, get) => ({
 }));
 
 function applyEvent(t: Transcript, ev: { type: string; [k: string]: unknown }): Transcript {
-	const raw = [...t.raw.slice(-RAW_LIMIT + 1), JSON.stringify(ev)];
 	const message = ev.message as ChatMessage | undefined;
 	switch (ev.type) {
 		case "message_start":
 		case "message_update":
-			if (message?.role === "assistant") return { ...t, raw, streaming: message };
-			return { ...t, raw };
+			return message?.role === "assistant" ? { ...t, streaming: message } : t;
 		case "message_end": {
-			if (!message || message.role === "system") return { ...t, raw };
+			if (!message || message.role === "system") return t;
 			const last = t.messages.at(-1);
 			const duplicate = last && last.role === message.role && last.timestamp === message.timestamp;
 			return {
 				...t,
-				raw,
 				messages: duplicate ? t.messages : [...t.messages, message],
 				streaming: message.role === "assistant" ? undefined : t.streaming,
 			};
 		}
 		case "tool_execution_start":
-			return { ...t, raw, runningTools: { ...t.runningTools, [String(ev.toolCallId)]: String(ev.toolName) } };
+			return { ...t, runningTools: { ...t.runningTools, [String(ev.toolCallId)]: String(ev.toolName) } };
 		case "tool_execution_end": {
 			const { [String(ev.toolCallId)]: _, ...rest } = t.runningTools;
-			return { ...t, raw, runningTools: rest };
+			return { ...t, runningTools: rest };
 		}
 		case "agent_settled":
-			return { ...t, raw, runningTools: {}, streaming: undefined };
+			return { ...t, runningTools: {}, streaming: undefined };
 		default:
-			return { ...t, raw };
+			return t;
 	}
 }

@@ -49,6 +49,9 @@ export function safeJoin(root: string, path: string): string {
 }
 
 export class AssetService {
+	/** file → its summary at a given size and time: listing a section doesn't read files that haven't changed. */
+	private readonly summaries = new Map<string, { size: number; mtimeMs: number; summary: { title: string; excerpt: string } }>();
+
 	constructor(
 		/** The root of a checkout: the main one (null) or a worktree's (by id). */
 		private readonly checkoutRoot: (checkout: string | null) => string,
@@ -74,11 +77,17 @@ export class AssetService {
 		const present: AssetSummary[] = this.files(m, root).map((path) => {
 			const full = join(root, path);
 			const change = changes.get(path);
+			const st = statSync(full);
+			let known = this.summaries.get(full);
+			if (!known || known.size !== st.size || known.mtimeMs !== st.mtimeMs) {
+				known = { size: st.size, mtimeMs: st.mtimeMs, summary: m.summarize(readFileSync(full, "utf8"), path) };
+				this.summaries.set(full, known);
+			}
 			return {
 				path,
-				...m.summarize(readFileSync(full, "utf8"), path),
+				...known.summary,
 				inMain: existsSync(join(main, path)),
-				updatedAt: statSync(full).mtime.toISOString(),
+				updatedAt: st.mtime.toISOString(),
 				...(change === "added" || change === "modified" ? { change } : {}),
 			};
 		});

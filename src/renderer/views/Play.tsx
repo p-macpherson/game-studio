@@ -5,6 +5,7 @@ import { type KeyboardEvent, type MouseEvent, type WheelEvent, useEffect, useRef
 import type { CheckoutId, CheckoutInfo, Diagnostic, RunInfo, TestReport } from "../../shared/run";
 import { call } from "../api";
 import { testKey, useStudio } from "../store";
+import { useShallow } from "zustand/react/shallow";
 
 const STATE_LABEL: Record<RunInfo["state"], string> = {
 	building: "Building…",
@@ -53,7 +54,16 @@ function pretty(value: unknown): string {
 
 /** "Fix it": hands a problem to the newest session in the worktree it came from, or starts a gameplay session. */
 function useFix() {
-	const { sessions, worktrees, openNewSession, selectSession, selectWorktree, showError } = useStudio();
+	const { sessions, worktrees, openNewSession, selectSession, selectWorktree, showError } = useStudio(
+		useShallow((s) => ({
+			sessions: s.sessions,
+			worktrees: s.worktrees,
+			openNewSession: s.openNewSession,
+			selectSession: s.selectSession,
+			selectWorktree: s.selectWorktree,
+			showError: s.showError,
+		})),
+	);
 	const sessionIn = (checkout: CheckoutId) =>
 		checkout ? sessions.filter((s) => s.worktreeId === checkout && s.status !== "done").sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] : undefined;
 	return {
@@ -85,7 +95,7 @@ function describeBuildFailure(diagnostics: Diagnostic[], output: string): string
 }
 
 function Diagnostics({ list, sessionId }: { list: Diagnostic[]; sessionId: CheckoutId }) {
-	const { showAsset, worktrees } = useStudio();
+	const { showAsset, worktrees } = useStudio(useShallow((s) => ({ showAsset: s.showAsset, worktrees: s.worktrees })));
 	// Project worktrees hold the game's files; an engine worktree's files aren't studio assets.
 	const draftOf = worktrees.find((w) => w.id === sessionId && w.target === "project")?.id;
 	if (!list.length) return null;
@@ -104,7 +114,16 @@ function Diagnostics({ list, sessionId }: { list: Diagnostic[]; sessionId: Check
 }
 
 export function Play() {
-	const { playCheckout, playTab, openPlay, sessions, assetsVersion, showError } = useStudio();
+	const { playCheckout, playTab, openPlay, sessions, assetsVersion, showError } = useStudio(
+		useShallow((s) => ({
+			playCheckout: s.playCheckout,
+			playTab: s.playTab,
+			openPlay: s.openPlay,
+			sessions: s.sessions,
+			assetsVersion: s.assetsVersion,
+			showError: s.showError,
+		})),
+	);
 	const [checkouts, setCheckouts] = useState<CheckoutInfo[]>([]);
 
 	useEffect(() => {
@@ -148,7 +167,16 @@ export function Play() {
 }
 
 function RunPanel() {
-	const { run, runOutput, frame, startRun, playCheckout, showError } = useStudio();
+	const { run, runOutput, frame, startRun, playCheckout, showError } = useStudio(
+		useShallow((s) => ({
+			run: s.run,
+			runOutput: s.runOutput,
+			frame: s.frame,
+			startRun: s.startRun,
+			playCheckout: s.playCheckout,
+			showError: s.showError,
+		})),
+	);
 	const { label: fixLabel, fix } = useFix();
 	const running = run?.state === "running";
 	const busy = run?.state === "building" || run?.state === "starting";
@@ -397,7 +425,15 @@ function Inspector({ running, runId }: { running: boolean; runId?: string }) {
 }
 
 function TestsPanel() {
-	const { playCheckout, testReports, testsRunning, runTests, showError } = useStudio();
+	const { playCheckout, testReports, testsRunning, runTests, showError } = useStudio(
+		useShallow((s) => ({
+			playCheckout: s.playCheckout,
+			testReports: s.testReports,
+			testsRunning: s.testsRunning,
+			runTests: s.runTests,
+			showError: s.showError,
+		})),
+	);
 	const [scripts, setScripts] = useState<string[] | null>(null);
 	const [open, setOpen] = useState<string | null>(null);
 

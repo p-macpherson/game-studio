@@ -39,7 +39,9 @@ const app = await electron.launch({
 	// Faux agent model, and a fake generation backend (fixture outputs, no GPU); Blender runs for real.
 	// Music renders for real with the installed SoundFont (FluidSynth runs on the CPU).
 	env: {
-		...process.env,
+		// Without the shell's provider credentials: with one set (say GEMINI_API_KEY), Pi lists that provider's models, the
+		// New Session dialog picks the first of them instead of faux/echo, and the run talks to a real API.
+		...Object.fromEntries(Object.entries(process.env).filter(([name]) => !/_API_KEY$|_AUTH_TOKEN$|^AWS_|^GOOGLE_APPLICATION_CREDENTIALS$/.test(name))),
 		GAME_STUDIO_USER_DATA: userData,
 		GAME_STUDIO_FAUX: "1",
 		GAME_STUDIO_GEN_FAKE: "1",

@@ -16,6 +16,10 @@ const WORKER_SCRIPT: Record<GenFamily, string> = {
 	"stable-audio": "audio_worker.py",
 };
 const JOB_HISTORY = 200;
+/** Nothing a worker or Blender does takes this long: past it the job is stuck, and the queue behind it must not be. */
+const JOB_TIMEOUT_MS = 30 * 60_000;
+/** Loading a model takes 15-30 s; a worker that hasn't said "ready" by now never will. */
+const WORKER_START_TIMEOUT_MS = 10 * 60_000;
 
 export interface GenServiceDeps {
 	/** Environments, weights and model repos (default ~/.local/share/game-studio/gen). */
@@ -27,6 +31,9 @@ export interface GenServiceDeps {
 	fake?: boolean;
 	idleMs?: number;
 	blender?: string;
+	/** Overrides for tests. */
+	jobTimeoutMs?: number;
+	workerStartTimeoutMs?: number;
 }
 
 interface Pending {
@@ -50,8 +57,13 @@ class Worker {
 		env: NodeJS.ProcessEnv,
 		private readonly log: (line: string) => void,
 		onExit: () => void,
+		startTimeoutMs = WORKER_START_TIMEOUT_MS,
 	) {
 		this.proc = spawn(command, args, { env, stdio: ["pipe", "pipe", "pipe"] });
+		const startTimer = setTimeout(() => {
+			this.exitError = new Error(`The ${family} worker didn't start within ${Math.round(startTimeoutMs / 1000)} s; see ${family}.log`);
+			this.proc.kill("SIGKILL");
+		}, startTimeoutMs);
 		this.ready = new Promise((resolve, reject) => {
 			createInterface({ input: this.proc.stdout! }).on("line", (line) => {
 				let msg: { id?: string; event?: string; result?: Record<string, unknown>; error?: string; message?: string; fraction?: number | null };
@@ -62,6 +74,7 @@ class Worker {
 					return;
 				}
 				if (msg.event === "ready") {
+					clearTimeout(startTimer);
 					this.state = "idle";
 					resolve();
 					return;
@@ -82,6 +95,7 @@ class Worker {
 				reject(err);
 			});
 			this.proc.on("exit", (code, signal) => {
+				clearTimeout(startTimer);
 				const err = this.exitError ?? new Error(`The ${family} worker exited (${signal ?? `code ${code}`}); see ${family}.log`);
 				reject(err);
 				for (const p of this.pending.values()) p.reject(err);
@@ -269,6 +283,12 @@ export class GenService {
 		job.startedAt = new Date().toISOString();
 		this.changed(job);
 		let cancelled = false;
+		let timedOut = false;
+		const limit = this.deps.jobTimeoutMs ?? JOB_TIMEOUT_MS;
+		const timer = setTimeout(() => {
+			timedOut = true;
+			this.running?.cancel();
+		}, limit);
 		try {
 			const result =
 				(BLENDER_JOBS as readonly string[]).includes(job.kind)
@@ -286,10 +306,11 @@ export class GenService {
 				job.progress = { message: "Out of GPU memory: retrying in a fresh worker" };
 				this.changed(job);
 			} else {
-				job.error = message;
-				this.finish(job, cancelled ? "cancelled" : "failed");
+				job.error = timedOut ? `no result after ${Math.round(limit / 60_000)} minutes, so it was stopped` : message;
+				this.finish(job, cancelled && !timedOut ? "cancelled" : "failed");
 			}
 		} finally {
+			clearTimeout(timer);
 			this.running = null;
 			if (this.worker && !this.jobs.some((j) => j.status === "queued")) {
 				this.idleTimer = setTimeout(() => void this.stopWorker(), this.deps.idleMs ?? 5 * 60_000);
@@ -318,10 +339,11 @@ export class GenService {
 		const script = join(codeDir, "workers", fake ? "fake_worker.py" : WORKER_SCRIPT[family]);
 		if (!fake && !existsSync(python)) throw new Error(`The ${family} environment isn't installed (Settings → Asset generation)`);
 		const env = { ...process.env, GAME_STUDIO_GEN: root, PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True", PYTHONUNBUFFERED: "1" };
-		const worker = new Worker(family, python, [script], env, this.logger(family), () => {
+		const onExit = () => {
 			if (this.worker === worker) this.worker = null;
 			this.deps.emit({ type: "gen_changed" });
-		});
+		};
+		const worker: Worker = new Worker(family, python, [script], env, this.logger(family), onExit, this.deps.workerStartTimeoutMs);
 		this.deps.emit({ type: "gen_changed" });
 		void worker.ready.then(() => this.deps.emit({ type: "gen_changed" }), () => {});
 		return worker;
@@ -348,8 +370,13 @@ export class GenService {
 			this.changed(job);
 			for (const stream of [proc.stdout, proc.stderr]) {
 				createInterface({ input: stream }).on("line", (line) => {
-					if (line.startsWith("RESULT: ")) result = JSON.parse(line.slice(8));
-					else {
+					if (line.startsWith("RESULT: ")) {
+						try {
+							result = JSON.parse(line.slice(8));
+						} catch {
+							lastError = `unreadable result line: ${line.slice(0, 200)}`; // thrown here it would be uncaught, in the main process
+						}
+					} else {
 						log(line);
 						if (/Error|SystemExit|could not/.test(line)) lastError = line;
 					}

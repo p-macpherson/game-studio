@@ -3,11 +3,25 @@ import type { Target } from "../../shared/types";
 import { findAgentType } from "../../shared/agents";
 import { call } from "../api";
 import { type NewSessionPreset, useStudio } from "../store";
+import { useShallow } from "zustand/react/shallow";
 
 const TARGET_LABEL: Record<Target, string> = { project: "Game project", engine: "Engine", studio: "Game Studio" };
 
 export function NewSessionDialog({ preset }: { preset: NewSessionPreset }) {
-	const { agentTypes, models, project, openNewSession, openSettings, selectSession, showError, selected, worktrees, selectWorktree } = useStudio();
+	const { agentTypes, models, project, openNewSession, openSettings, selectSession, showError, selected, worktrees, selectWorktree } = useStudio(
+		useShallow((s) => ({
+			agentTypes: s.agentTypes,
+			models: s.models,
+			project: s.project,
+			openNewSession: s.openNewSession,
+			openSettings: s.openSettings,
+			selectSession: s.selectSession,
+			showError: s.showError,
+			selected: s.selected,
+			worktrees: s.worktrees,
+			selectWorktree: s.selectWorktree,
+		})),
+	);
 	const picked = worktrees.find((w) => w.id === selected);
 	const [typeId, setTypeId] = useState(
 		(preset.agentType && findAgentType(agentTypes, preset.agentType)?.id) ?? agentTypes.find((t) => t.id === "chief-director")?.id ?? agentTypes[0]?.id,

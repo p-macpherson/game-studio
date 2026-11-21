@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { LoginNotice, LoginPrompt, ProviderInfo } from "../../shared/types";
 import { call, onEvent } from "../api";
 import { useStudio } from "../store";
+import { useShallow } from "zustand/react/shallow";
 
 /** Shown first; everything else Pi supports sits under "More providers". */
 const FEATURED = ["anthropic", "openai-codex", "openai", "google", "github-copilot", "openrouter"];
@@ -133,7 +134,7 @@ function ProviderRow({ p, onLogin, onLogout }: { p: ProviderInfo; onLogin(type: 
 
 /** AI accounts and the models they unlock: the Accounts tab of Settings. */
 export function AccountsPanel() {
-	const { models, refreshModels, showError } = useStudio();
+	const { models, refreshModels, showError } = useStudio(useShallow((s) => ({ models: s.models, refreshModels: s.refreshModels, showError: s.showError })));
 	const [providers, setProviders] = useState<ProviderInfo[]>([]);
 	const [login, setLogin] = useState<{ provider: ProviderInfo; type: "oauth" | "api_key" } | null>(null);
 	const [showAll, setShowAll] = useState(false);

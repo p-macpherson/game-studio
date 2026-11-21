@@ -3,6 +3,7 @@ import type { GitCommit, GitFileStatus, GitStatus, Target } from "../../shared/t
 import { call, relativeTime } from "../api";
 import { useStudio } from "../store";
 import { Diff } from "./Diff";
+import { useShallow } from "zustand/react/shallow";
 
 /** The studio's own records (sessions and worktrees), listed apart from the user's changes. */
 const isRecord = (path: string) => path.startsWith(".studio/sessions/") || path.startsWith(".studio/worktrees/");
@@ -35,7 +36,7 @@ function FileRow({ f, staged, selected, onSelect, onToggle, onDiscard }: {
 }
 
 export function SourceControl() {
-	const { project, showError } = useStudio();
+	const { project, showError } = useStudio(useShallow((s) => ({ project: s.project, showError: s.showError })));
 	const [target, setTarget] = useState<Target>(project ? "project" : "engine");
 	const [status, setStatus] = useState<GitStatus | null>(null);
 	const [commits, setCommits] = useState<GitCommit[]>([]);

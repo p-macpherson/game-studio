@@ -12,6 +12,7 @@ import { AssetBrowser, type AssetContentProps } from "../../renderer/views/Asset
 import { runInWorktree } from "../../renderer/workspace";
 import { leafName } from "../../shared/asset-names";
 import { soundName } from "./info";
+import { useShallow } from "zustand/react/shallow";
 
 const bumpAssets = () => useStudio.setState((s) => ({ assetsVersion: s.assetsVersion + 1 }));
 /** A take whose CLAP score is this far below its batch's median is flagged (as the pipeline does for agents). */
@@ -160,7 +161,7 @@ interface Take {
 }
 
 function SoundDetail({ asset, text, checkout }: AssetContentProps) {
-	const { showAsset, showError } = useStudio();
+	const { showAsset, showError } = useStudio(useShallow((s) => ({ showAsset: s.showAsset, showError: s.showError })));
 	const name = soundName(asset.path);
 	const dir = `assets/sounds/${name}`;
 	const { sound, problems } = useMemo(() => parseSound(text), [text]);

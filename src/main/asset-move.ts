@@ -7,6 +7,7 @@ import { dirname, join, posix } from "node:path";
 import { leafName, nameFromPath } from "../shared/asset-names";
 import type { ModuleInfo, MoveResult } from "../shared/modules";
 import { safeJoin } from "./assets";
+import { handler, type StepInfo, type StudioRequestHandlers } from "./studio-requests";
 
 const PART = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const FILE_PART = /^[\w][\w .-]*$/;
@@ -20,7 +21,7 @@ const CODE = /^(game|tests)\//;
  * exists, leaves the root, nests an asset inside another, or changes a file's type.
  */
 export function moveAsset(root: string, info: ModuleInfo, from: string, to: string): MoveResult {
-	const manifest = info.extensions.every((e) => e.startsWith("/")) ? info.extensions[0].slice(1) : null;
+	const manifest = manifestOf(info);
 	const base = info.roots.find((r) => from === r || from.startsWith(`${r}/`));
 	if (!base || from === base) throw new Error(`${from} isn't in ${info.name}`);
 	if (to !== base && !to.startsWith(`${base}/`)) throw new Error(`${to} has to stay in ${base}/`);
@@ -142,3 +143,32 @@ function removeEmpty(dir: string, deep = true): void {
 	if (readdirSync(dir).length === 0) rmdirSync(dir);
 }
 
+/** A folder-shaped asset's manifest name ("model.json"), or null for a section whose assets are single files. */
+const manifestOf = (info: ModuleInfo) => (info.extensions.every((e) => e.startsWith("/")) ? info.extensions[0].slice(1) : null);
+
+/** Agents' `move_asset` (see studio-requests.ts): the section is found from the path. */
+export function assetRequests(modules: ModuleInfo[]): StudioRequestHandlers {
+	return {
+		move_asset: handler(
+			(ctx, p: { from: string; to: string }) => {
+				const info = modules.find((m) => m.roots.some((r) => p.from.startsWith(`${r}/`)));
+				if (!info) throw new Error(`${p.from} isn't a studio asset (or a folder of them)`);
+				return moveAsset(ctx.cwd, info, p.from, p.to);
+			},
+			(p) => moveStep(modules, p.from, p.to),
+		),
+	};
+}
+
+/** Moving `from` to `to` as an undo step: both places (a folder-shaped asset's whole folder), and every file that can refer to them. */
+export function moveStep(modules: ModuleInfo[], from: string, to: string): StepInfo {
+	const manifests = new Set(modules.map(manifestOf).filter((m): m is string => !!m));
+	const leaf = (path: string) => path.slice(path.lastIndexOf("/") + 1).replace(/\.json$/, "");
+	const place = (p: string) => (manifests.has(p.slice(p.lastIndexOf("/") + 1)) ? p.slice(0, p.lastIndexOf("/")) : p);
+	const [a, b] = [place(from), place(to)];
+	const sameFolder = a.slice(0, a.lastIndexOf("/")) === b.slice(0, b.lastIndexOf("/"));
+	return {
+		label: sameFolder ? `Renamed ${leaf(a)} → ${leaf(b)}` : `Moved ${leaf(a)} to ${b.slice(0, b.lastIndexOf("/"))}`,
+		scopes: [{ path: a }, { path: b }, { path: "assets", only: /\.json$/ }, { path: "game", only: /\.(odin|json|jsonl)$/ }, { path: "tests" }, { path: "docs", only: /\.md$/ }],
+	};
+}

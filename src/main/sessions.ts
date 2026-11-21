@@ -2,7 +2,7 @@
 // the session host. See the vault note "Sessions & Worktrees".
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { HostEvent, PromptMode, StudioRequestMethod } from "../shared/host";
 import type { StudioEvent } from "../shared/ipc";
@@ -10,6 +10,7 @@ import type { AgentTypeInfo, GitCommit, NewSessionRequest, PendingQuestion, Sess
 import { findAgentType } from "../shared/agents";
 import * as g from "./git";
 import type { HostLink } from "./host-link";
+import { writeJsonAtomic } from "./json-file";
 import { type FileChange, type Worktree, WORKTREES_DIR, WorktreeStore } from "./worktrees";
 
 export const SESSIONS_DIR = ".studio/sessions";
@@ -124,7 +125,7 @@ export class SessionService {
 	private save(e: Entry): void {
 		e.record.updatedAt = new Date().toISOString();
 		mkdirSync(this.sessionDir(e), { recursive: true });
-		writeFileSync(join(this.sessionDir(e), "session.json"), `${JSON.stringify(e.record, null, "\t")}\n`);
+		writeJsonAtomic(join(this.sessionDir(e), "session.json"), e.record);
 		this.deps.emit({ type: "sessions_changed" });
 		if (!isRunning(e.record.status)) {
 			const waiters = this.settleWaiters.get(e.record.id);
@@ -164,10 +165,17 @@ export class SessionService {
 				const file = join(dir, id, "session.json");
 				if (!existsSync(file)) continue;
 				const known = this.entries.get(id);
-				let record: SessionRecord = known && known.repoPath === path ? known.record : { ...JSON.parse(readFileSync(file, "utf8")), target };
-				if (!record.worktreeId) {
-					record = this.migrate(record as unknown as LegacySession, path);
-					if (record.status === "done") migrated.push(join(SESSIONS_DIR, id));
+				let record: SessionRecord;
+				try {
+					record = known && known.repoPath === path ? known.record : { ...JSON.parse(readFileSync(file, "utf8")), target };
+					if (!record.worktreeId) {
+						record = this.migrate(record as unknown as LegacySession, path);
+						if (record.status === "done") migrated.push(join(SESSIONS_DIR, id));
+					}
+				} catch (err) {
+					// One unreadable record (a crash mid-write, a bad merge) mustn't stop the studio loading the rest, or starting.
+					console.error(`skipping session record ${file}:`, err);
+					continue;
 				}
 				const entry = { record, repoPath: path };
 				this.entries.set(id, entry);
@@ -207,7 +215,7 @@ export class SessionService {
 		}
 		const record: SessionRecord = { ...rest, worktreeId: old.id };
 		const dir = join(repoPath, SESSIONS_DIR, old.id);
-		writeFileSync(join(dir, "session.json"), `${JSON.stringify(record, null, "\t")}\n`);
+		writeJsonAtomic(join(dir, "session.json"), record);
 		return record;
 	}
 
@@ -217,29 +225,35 @@ export class SessionService {
 		return e;
 	}
 
+	private summary(e: Entry): SessionSummary {
+		const w = this.worktrees.find(e.record.worktreeId);
+		return {
+			...e.record,
+			repoPath: e.repoPath,
+			worktreePath: w ? this.worktrees.path(w) : "",
+			worktreeLabel: w?.record.label ?? "",
+			branch: w?.record.branch ?? "",
+			baseBranch: w?.record.baseBranch ?? "",
+			worktree: w && this.worktrees.hasCheckout(w) ? ("active" as const) : ("removed" as const),
+			live: this.live.has(e.record.id),
+			pendingQuestion: this.questions.get(e.record.id),
+		};
+	}
+
 	list(): SessionSummary[] {
-		return [...this.entries.values()]
-			.map((e) => {
-				const w = this.worktrees.find(e.record.worktreeId);
-				return {
-					...e.record,
-					repoPath: e.repoPath,
-					worktreePath: w ? this.worktrees.path(w) : "",
-					worktreeLabel: w?.record.label ?? "",
-					branch: w?.record.branch ?? "",
-					baseBranch: w?.record.baseBranch ?? "",
-					worktree: w && this.worktrees.hasCheckout(w) ? ("active" as const) : ("removed" as const),
-					live: this.live.has(e.record.id),
-					pendingQuestion: this.questions.get(e.record.id),
-				};
-			})
-			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+		return [...this.entries.values()].map((e) => this.summary(e)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 	}
 
 	get(id: string): SessionSummary {
-		const summary = this.list().find((s) => s.id === id);
-		if (!summary) throw new Error(`Unknown session ${id}`);
-		return summary;
+		return this.summary(this.entry(id));
+	}
+
+	/** The folder of a checked-out worktree, by its id or by the id of a session working in it. */
+	checkoutPath(id: string): string {
+		const w = this.worktrees.find(id) ?? this.worktrees.find(this.entries.get(id)?.record.worktreeId ?? "");
+		if (!w) throw new Error(`Unknown session ${id}`);
+		if (w.record.checkout !== "active") throw new Error(`Worktree "${w.record.label}" isn't checked out; reopen it first`);
+		return this.worktrees.path(w);
 	}
 
 	// ── creating and driving sessions ───────────────────────────────────────────────────────────────
@@ -464,7 +478,13 @@ export class SessionService {
 		return raw
 			.split("\n")
 			.filter(Boolean)
-			.map((line) => JSON.parse(line) as { type: string; message?: { role: string } })
+			.flatMap((line) => {
+				try {
+					return [JSON.parse(line) as { type: string; message?: { role: string } }];
+				} catch {
+					return []; // a line cut short when the host died mid-write: the rest of the transcript is still good
+				}
+			})
 			.filter((entry) => entry.type === "message" && entry.message && entry.message.role !== "system")
 			.map((entry) => entry.message as unknown);
 	}
@@ -489,10 +509,11 @@ export class SessionService {
 	// ── worktrees ────────────────────────────────────────────────────────────────────────────────────
 
 	listWorktrees(): WorktreeSummary[] {
-		const sessions = this.list();
+		const sessionIds = new Map<string, string[]>();
+		for (const s of this.list()) sessionIds.set(s.worktreeId, [...(sessionIds.get(s.worktreeId) ?? []), s.id]);
 		return this.worktrees
 			.all()
-			.map((w) => ({ ...w.record, repoPath: w.repoPath, path: this.worktrees.path(w), sessionIds: sessions.filter((s) => s.worktreeId === w.record.id).map((s) => s.id) }))
+			.map((w) => ({ ...w.record, repoPath: w.repoPath, path: this.worktrees.path(w), sessionIds: sessionIds.get(w.record.id) ?? [] }))
 			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 	}
 
@@ -522,7 +543,8 @@ export class SessionService {
 	/** The commits on a worktree's branch since it was made (newest first), e.g. each agent's work. */
 	async worktreeCommits(id: string): Promise<GitCommit[]> {
 		const w = this.worktrees.get(id);
-		return g.log(w.repoPath, 500, `${w.record.baseCommit}..${w.record.branch}`);
+		// From where it last matched main, like its changed files: after an update from main, main's commits aren't its own.
+		return g.log(w.repoPath, 500, `${await this.worktrees.base(w)}..${w.record.branch}`);
 	}
 
 	/** How many commits main has that the worktree doesn't, and the conflicts of an update from main in progress. */
@@ -714,7 +736,7 @@ export class SessionService {
 	async discardWorktree(id: string): Promise<void> {
 		const w = this.worktrees.get(id);
 		const sessions = this.sessionsIn(id);
-		for (const e of sessions) if (e.record.status === "in_progress") await this.abort(e.record.id);
+		for (const e of sessions) if (isRunning(e.record.status)) await this.abort(e.record.id);
 		await this.worktrees.discard(w);
 		for (const e of sessions) this.end(e, "discarded");
 		await this.commitRecords(w, sessions, "discarded");

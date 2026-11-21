@@ -13,6 +13,7 @@ import { editCheckout, runInWorktree } from "../../renderer/workspace";
 import { JobProgress, useSessionJobs } from "../3d-models/view";
 import { TexturePreview3D } from "./TexturePreview3D";
 import { textureName } from "./info";
+import { useShallow } from "zustand/react/shallow";
 
 const bumpAssets = () => useStudio.setState((s) => ({ assetsVersion: s.assetsVersion + 1 }));
 type MapKind = "colour" | "normal" | "roughness";
@@ -31,7 +32,7 @@ function Tiled({ url, n, size, testid }: { url: string; n: number; size?: number
 
 export function TexturesView({ module }: { module: ModuleInfo }) {
 	const [creating, setCreating] = useState(false);
-	const { assetsVersion } = useStudio();
+	const { assetsVersion } = useStudio(useShallow((s) => ({ assetsVersion: s.assetsVersion })));
 	return (
 		<>
 			<AssetBrowser
@@ -53,7 +54,7 @@ export function TexturesView({ module }: { module: ModuleInfo }) {
 }
 
 function TextureDetail({ asset, text, checkout }: AssetContentProps) {
-	const { showError, assetsVersion } = useStudio();
+	const { showError, assetsVersion } = useStudio(useShallow((s) => ({ showError: s.showError, assetsVersion: s.assetsVersion })));
 	const name = textureName(asset.path);
 	const dir = `assets/textures/${name}`;
 	const leaf = leafName(name);
@@ -210,7 +211,7 @@ function TextureDetail({ asset, text, checkout }: AssetContentProps) {
 }
 
 function NewTextureDialog({ onClose }: { onClose(): void }) {
-	const { showAsset, showError } = useStudio();
+	const { showAsset, showError } = useStudio(useShallow((s) => ({ showAsset: s.showAsset, showError: s.showError })));
 	const [prompt, setPrompt] = useState("");
 	const [name, setName] = useState("");
 	const [count, setCount] = useState(2);

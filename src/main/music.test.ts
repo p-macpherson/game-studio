@@ -4,8 +4,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { GenService } from "./gen";
-import { generationRequests, ModelPipeline } from "./models";
-import { MusicPipeline, readWav, SongError, songHash, toMidi } from "./music";
+import { studioRequests } from "./studio-requests";
+import { MusicPipeline, musicRequests, readWav, SongError, songHash, toMidi } from "./music";
 import { parseSong } from "../shared/song";
 import { SessionService } from "./sessions";
 import { inProcessHost, makeRepo, tempDir, waitFor } from "./test-helpers";
@@ -190,7 +190,7 @@ describe.skipIf(!canRender)("MusicPipeline", () => {
 			agentTypes: () => [{ id: "music-composer", name: "Music", description: "", targets: ["project"], skills: [], prompt: "", source: "builtin" }],
 			skillsDir: join(root, "skills"),
 			emit: () => {},
-			...generationRequests(new ModelPipeline(gen), gen, { music: new MusicPipeline({ soundfont: () => soundfont }) }),
+			...studioRequests(gen, musicRequests(new MusicPipeline({ soundfont: () => soundfont }))),
 		});
 		try {
 			const s = await sessions.create({ agentType: "music-composer", target: "project", model: "faux/echo", prompt: 'tool render_song {"name": "loop-test"}' });

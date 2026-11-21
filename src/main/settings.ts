@@ -1,7 +1,8 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Settings } from "../shared/types";
+import { writeJsonAtomic } from "./json-file";
 
 export function defaultSettings(): Settings {
 	const home = homedir();
@@ -34,7 +35,7 @@ export class SettingsStore {
 	update(patch: Partial<Settings>): Settings {
 		this.value = { ...this.value, ...patch };
 		mkdirSync(dirname(this.file), { recursive: true });
-		writeFileSync(this.file, `${JSON.stringify(this.value, null, "\t")}\n`);
+		writeJsonAtomic(this.file, this.value);
 		return this.get();
 	}
 

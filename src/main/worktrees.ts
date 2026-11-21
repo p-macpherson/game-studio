@@ -2,10 +2,11 @@
 // edits) happen in and that merge as a whole. See the vault notes "Sessions & Worktrees" and "M8 Workflow & Sessions".
 //   <repo>/.studio/worktrees/<id>.json      the record (committed with the repo, like session records)
 //   <worktreeRoot>/<repo name>/<id>/         the checkout, on branch studio/<id>
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { Settings, Target, WorktreeRecord } from "../shared/types";
 import * as g from "./git";
+import { writeJsonAtomic } from "./json-file";
 
 export const WORKTREES_DIR = ".studio/worktrees";
 
@@ -42,7 +43,14 @@ export class WorktreeStore {
 			for (const f of readdirSync(dir).filter((f) => f.endsWith(".json"))) {
 				const id = f.slice(0, -5);
 				const known = this.items.get(id);
-				const record: WorktreeRecord = known && known.repoPath === path ? known.record : { ...JSON.parse(readFileSync(join(dir, f), "utf8")), target };
+				let record: WorktreeRecord;
+				try {
+					record = known && known.repoPath === path ? known.record : { ...JSON.parse(readFileSync(join(dir, f), "utf8")), target };
+				} catch (err) {
+					// One unreadable record (a crash mid-write, a bad merge) mustn't take every worktree and session with it.
+					console.error(`skipping worktree record ${join(dir, f)}:`, err);
+					continue;
+				}
 				this.items.set(id, { record, repoPath: path });
 				seen.add(id);
 			}
@@ -67,7 +75,7 @@ export class WorktreeStore {
 	save(w: Worktree): void {
 		w.record.updatedAt = new Date().toISOString();
 		mkdirSync(join(w.repoPath, WORKTREES_DIR), { recursive: true });
-		writeFileSync(this.file(w), `${JSON.stringify(w.record, null, "\t")}\n`);
+		writeJsonAtomic(this.file(w), w.record);
 		this.deps.changed();
 	}
 

@@ -3,19 +3,21 @@ import { join, resolve, sep } from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 import { leafName } from "../shared/asset-names";
 import { EditHistory } from "./edit-history";
-import { manualStep, moveStep } from "./edit-steps";
 import type { StudioApi, StudioEvent, StudioMethod } from "../shared/ipc";
 import type { ProjectInfo, Target } from "../shared/types";
-import { loadAgentTypes } from "./agent-types";
+import { agentTypeCache } from "./agent-types";
 import { AssetService, MODULES } from "./assets";
 import * as g from "./git";
 import { utilityHostLink } from "./host-link";
 import { createProject, readProject, publishProject } from "./project";
 import { GenService, soundfontPath } from "./gen";
-import { generationRequests, ModelPipeline } from "./models";
-import { MusicPipeline } from "./music";
-import { SoundPipeline, soundUsages } from "./sounds";
-import { TexturePipeline } from "./textures";
+import { assetRequests, moveStep } from "./asset-move";
+import { modelRequests, ModelPipeline } from "./models";
+import { MusicPipeline, musicRequests } from "./music";
+import { sceneRequests } from "./scenes";
+import { SoundPipeline, soundRequests, soundUsages } from "./sounds";
+import { studioRequests } from "./studio-requests";
+import { TexturePipeline, textureRequests } from "./textures";
 import { texturePaths } from "../modules/textures/info";
 import { RunService, type SceneView } from "./runner";
 import { SessionService } from "./sessions";
@@ -64,7 +66,8 @@ async function main(): Promise<void> {
 	await app.whenReady();
 	// Sub-agents run side by side in the one session host, each maybe with a codemode script (Pi's default is 2 workers).
 	const host = await utilityHostLink(piDir, { PI_CODEMODE_MAX_WORKERS: "8", ...(process.env.GAME_STUDIO_FAUX === "1" ? { GAME_STUDIO_FAUX: "1" } : {}) });
-	const agentTypes = () => loadAgentTypes(join(appRoot, "agent-types"), project?.path);
+	const cachedAgentTypes = agentTypeCache(join(appRoot, "agent-types"));
+	const agentTypes = () => cachedAgentTypes(project?.path);
 	const genRoot = process.env.GAME_STUDIO_GEN ?? join(app.getPath("home"), ".local/share/game-studio/gen");
 	const gen = new GenService({
 		root: genRoot,
@@ -76,13 +79,17 @@ async function main(): Promise<void> {
 	const music = new MusicPipeline({ soundfont: () => soundfontPath(genRoot) });
 	const sounds = new SoundPipeline({ gen });
 	const textures = new TexturePipeline(gen);
-	const genRequests = generationRequests(pipeline, gen, {
-		preview: (sessionId, name) => previewModel(sessionId, name),
-		music,
-		sounds,
-		textures,
-		previewScene: (sessionId, _cwd, p) => runner.previewScene(sessionId, String(p.scene), p.views as SceneView[] | undefined),
-	});
+	// Every part of the studio brings its own requests: a new section adds a line here.
+	const moduleInfos = MODULES.map((m) => m.info);
+	const requests = studioRequests(
+		gen,
+		modelRequests(pipeline, (sessionId, name) => previewModel(sessionId, name)),
+		musicRequests(music),
+		soundRequests(sounds),
+		textureRequests(textures),
+		sceneRequests((sessionId, p) => runner.previewScene(sessionId, String(p.scene), p.views as SceneView[] | undefined)),
+		assetRequests(moduleInfos),
+	);
 	const sessions = new SessionService({
 		host,
 		settings: () => settings.get(),
@@ -91,7 +98,8 @@ async function main(): Promise<void> {
 		skillsDir: join(appRoot, "skills"),
 		emit,
 		idleTimeoutMs: 10 * 60_000,
-		...genRequests,
+		studioRequest: requests.studioRequest,
+		cancelStudioRequest: requests.cancelStudioRequest,
 	});
 
 	const runner = new RunService({ projectPath: () => project?.path ?? null, sessions, emit });
@@ -101,9 +109,7 @@ async function main(): Promise<void> {
 			if (!project) throw new Error("No project is open");
 			return project.path;
 		}
-		const w = sessions.listWorktrees().find((x) => x.id === checkout) ?? sessions.listWorktrees().find((x) => x.id === sessions.get(checkout).worktreeId);
-		if (!w || w.checkout !== "active") throw new Error(`Worktree "${w?.label ?? checkout}" isn't checked out; reopen it first`);
-		return w.path;
+		return sessions.checkoutPath(checkout);
 	};
 	serveStudioFiles(checkoutRoot);
 	const assets = new AssetService(checkoutRoot, sessions);
@@ -215,7 +221,7 @@ async function main(): Promise<void> {
 		"assets.search": async (moduleId, query, checkout) => assets.search(moduleId, query, checkout ?? null),
 		"assets.links": async (checkout) => assets.links(checkout ?? null),
 		"assets.move": async (moduleId, checkout, from, to) => {
-			const step = moveStep(from, to);
+			const step = moveStep(moduleInfos, from, to);
 			return history.record(checkout, checkoutRoot(checkout), step.label, step.scopes, async () => assets.move(moduleId, checkout, from, to));
 		},
 
@@ -237,8 +243,8 @@ async function main(): Promise<void> {
 		// A section's step: a person's manual edit, recorded for undo (previews change nothing and aren't).
 		"worktrees.run": (worktreeId, method, params) => {
 			const cwd = checkoutRoot(worktreeId);
-			const run = () => genRequests.studioRequest({ sessionId: worktreeId, requestId: `ui-${Date.now()}`, cwd, method, params, progress: () => {} });
-			const step = manualStep(method, params);
+			const run = () => requests.studioRequest({ sessionId: worktreeId, requestId: `ui-${Date.now()}`, cwd, method, params, progress: () => {} });
+			const step = requests.step(method, params);
 			return step ? history.record(worktreeId, cwd, step.label, step.scopes, run) : run();
 		},
 		"worktrees.commits": (id) => sessions.worktreeCommits(id),
@@ -354,10 +360,10 @@ async function main(): Promise<void> {
 
 	app.on("window-all-closed", () => {
 		runner.dispose();
-		void gen.dispose();
 		sessions.dispose();
 		host.kill();
-		app.quit();
+		// Model workers hold the GPU: wait (a few seconds at most) until they have really gone before quitting.
+		void Promise.race([gen.dispose(), new Promise((r) => setTimeout(r, 6000))]).finally(() => app.quit());
 	});
 }
 

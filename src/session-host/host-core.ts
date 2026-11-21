@@ -39,6 +39,45 @@ export interface HostCoreOptions {
 /** Event payloads are forwarded over structured clone; strip anything that isn't plain JSON. */
 const sanitize = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 
+const UPDATE_INTERVAL_MS = 50;
+
+/**
+ * While a model streams, Pi emits `message_update` with the whole message so far for every token; forwarding each
+ * one costs time proportional to the message's length, per token. This forwards only the latest update, at most every
+ * UPDATE_INTERVAL_MS. Any other event sends a waiting update first, so events arrive in the order Pi emitted them.
+ */
+export function throttleUpdates<E extends { type: string }>(send: (event: E) => void, intervalMs = UPDATE_INTERVAL_MS) {
+	let waiting: E | undefined;
+	let timer: NodeJS.Timeout | undefined;
+	let lastSent = 0;
+	const flush = () => {
+		clearTimeout(timer);
+		timer = undefined;
+		if (!waiting) return;
+		const event = waiting;
+		waiting = undefined;
+		lastSent = Date.now();
+		send(event);
+	};
+	return {
+		push(event: E) {
+			if (event.type !== "message_update") {
+				flush();
+				send(event);
+				return;
+			}
+			waiting = event;
+			timer ??= setTimeout(flush, Math.max(0, intervalMs - (Date.now() - lastSent)));
+		},
+		/** Drops a waiting update (the session is closing). */
+		cancel() {
+			clearTimeout(timer);
+			timer = undefined;
+			waiting = undefined;
+		},
+	};
+}
+
 export class HostCore implements HostApi {
 	private readonly sessions = new Map<string, Live>();
 	private readonly logins = new Map<string, (value: string | null) => void>();
@@ -199,9 +238,12 @@ export class HostCore implements HostApi {
 			settingsManager,
 			customTools: tools,
 		});
-		const unsubscribe = session.subscribe((event) => {
-			this.opts.post({ type: "session_event", id: spec.id, event: sanitize(event) as { type: string } });
-		});
+		const events = throttleUpdates((event: { type: string }) => this.opts.post({ type: "session_event", id: spec.id, event: sanitize(event) }));
+		const stop = session.subscribe((event) => events.push(event));
+		const unsubscribe = () => {
+			stop();
+			events.cancel();
+		};
 		this.sessions.set(spec.id, { session, unsubscribe });
 		const file = session.sessionFile;
 		if (!file) throw new Error("Pi did not create a session file");

@@ -11,6 +11,7 @@ import { call, relativeTime } from "../api";
 import { type NewSessionPreset, useStudio } from "../store";
 import { editCheckout } from "../workspace";
 import { StatusBadge } from "./Sessions";
+import { useShallow } from "zustand/react/shallow";
 
 export interface AssetContentProps {
 	asset: AssetSummary;
@@ -80,7 +81,21 @@ export function Highlight({ text, query }: { text: string; query: string }) {
 
 export function AssetBrowser(props: AssetBrowserProps) {
 	const { module } = props;
-	const { focus, showAsset, assetsVersion, sessions, openNewSession, selectSession, showError, project, worktree, worktrees, modules } = useStudio();
+	const { focus, showAsset, assetsVersion, sessions, openNewSession, selectSession, showError, project, worktree, worktrees, modules } = useStudio(
+		useShallow((s) => ({
+			focus: s.focus,
+			showAsset: s.showAsset,
+			assetsVersion: s.assetsVersion,
+			sessions: s.sessions,
+			openNewSession: s.openNewSession,
+			selectSession: s.selectSession,
+			showError: s.showError,
+			project: s.project,
+			worktree: s.worktree,
+			worktrees: s.worktrees,
+			modules: s.modules,
+		})),
+	);
 	const [assets, setAssets] = useState<AssetSummary[] | null>(null);
 	const [query, setQuery] = useState("");
 	const [hits, setHits] = useState<AssetSearchHit[]>([]);

@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { GenJob, ModelManifest } from "../shared/gen";
 import type { StudioEvent } from "../shared/ipc";
 import { GenService } from "./gen";
-import { generationRequests, ModelPipeline } from "./models";
+import { modelRequests, ModelPipeline } from "./models";
+import { studioRequests } from "./studio-requests";
 import { SessionService } from "./sessions";
 import { inProcessHost, makeRepo, tempDir, waitFor } from "./test-helpers";
 
@@ -97,7 +98,7 @@ describe("generation tools", () => {
 			agentTypes: () => [{ id: "3d-modeller", name: "3D", description: "", targets: ["project"], skills: [], prompt: "", source: "builtin" }],
 			skillsDir: join(root, "skills"),
 			emit: () => {},
-			...generationRequests(new ModelPipeline(gen), gen),
+			...studioRequests(gen, modelRequests(new ModelPipeline(gen))),
 		});
 		try {
 			const s = await sessions.create({

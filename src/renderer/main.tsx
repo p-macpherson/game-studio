@@ -15,6 +15,7 @@ import { SettingsView } from "./views/Settings";
 import { SourceControl } from "./views/SourceControl";
 import { ChangeCountsLabel } from "./views/AssetBrowser";
 import { WorktreePicker } from "./views/Worktrees";
+import { useShallow } from "zustand/react/shallow";
 
 const NAV: { view: View; label: string; icon: string }[] = [
 	{ view: "sessions", label: "Sessions", icon: "💬" },
@@ -22,7 +23,23 @@ const NAV: { view: View; label: string; icon: string }[] = [
 ];
 
 function App() {
-	const { project, view, setView, sessions, modules, error, refresh, handleEvent, newSession, run, worktreeChanges, notice, merging } = useStudio();
+	const { project, view, setView, sessions, modules, error, refresh, handleEvent, newSession, run, worktreeChanges, notice, merging } = useStudio(
+		useShallow((s) => ({
+			project: s.project,
+			view: s.view,
+			setView: s.setView,
+			sessions: s.sessions,
+			modules: s.modules,
+			error: s.error,
+			refresh: s.refresh,
+			handleEvent: s.handleEvent,
+			newSession: s.newSession,
+			run: s.run,
+			worktreeChanges: s.worktreeChanges,
+			notice: s.notice,
+			merging: s.merging,
+		})),
+	);
 	/** How many of a section's assets the selected worktree added, modified and removed. */
 	const changesIn = (m: (typeof modules)[number]) => {
 		const owned = worktreeChanges.filter((c) => moduleOwns(m, c.path));

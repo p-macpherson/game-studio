@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { call } from "../api";
 import { useStudio } from "../store";
+import { useShallow } from "zustand/react/shallow";
 
 async function run(action: () => Promise<unknown>) {
 	try {
@@ -58,7 +59,7 @@ function NewProjectDialog({ onClose }: { onClose(): void }) {
 }
 
 export function ProjectPicker({ onSkip }: { onSkip(): void }) {
-	const { settings } = useStudio();
+	const { settings } = useStudio(useShallow((s) => ({ settings: s.settings })));
 	const [creating, setCreating] = useState(false);
 	return (
 		<div className="picker">
@@ -91,7 +92,7 @@ export function ProjectPicker({ onSkip }: { onSkip(): void }) {
 }
 
 export function ProjectMenu() {
-	const { project, settings } = useStudio();
+	const { project, settings } = useStudio(useShallow((s) => ({ project: s.project, settings: s.settings })));
 	const [open, setOpen] = useState(false);
 	const [creating, setCreating] = useState(false);
 	return (

@@ -12,6 +12,7 @@ import { AssetBrowser, type AssetContentProps } from "../../renderer/views/Asset
 import { editCheckout, runInWorktree } from "../../renderer/workspace";
 import { leafName } from "../../shared/asset-names";
 import { addPartBrief, formatTime, GM_FAMILIES, pieceName, recomposeBrief, trackIdFor } from "./info";
+import { useShallow } from "zustand/react/shallow";
 
 const COLOURS = ["#e8a33d", "#5aa9e6", "#7bc47f", "#d8737f", "#b48ee8", "#4fc1b4", "#e6d45a", "#e58f5a"];
 const bumpAssets = () => useStudio.setState((s) => ({ assetsVersion: s.assetsVersion + 1 }));
@@ -39,7 +40,13 @@ type RenderState = { kind: "loading" } | { kind: "none" } | { kind: "stale" } | 
 const sketchOf = (name: string) => /^(.+)-sketch-\d+$/.exec(name)?.[1] ?? null;
 
 function PieceDetail({ asset, text, checkout }: AssetContentProps) {
-	const { showAsset, showError, openNewSession } = useStudio();
+	const { showAsset, showError, openNewSession } = useStudio(
+		useShallow((s) => ({
+			showAsset: s.showAsset,
+			showError: s.showError,
+			openNewSession: s.openNewSession,
+		})),
+	);
 	const name = pieceName(asset.path);
 	const dir = `assets/music/${name}`;
 	const parsed = useMemo(() => {
@@ -1173,7 +1180,7 @@ function RecomposePanel({
 
 /** Every General MIDI instrument by family (and the drum kit), each previewable, for a part the composer then writes. */
 function AddInstrumentDialog({ taken, busy, onClose, onCompose }: { taken: string[]; busy: boolean; onClose(): void; onCompose(instrument: string, id: string, notes: string): void }) {
-	const { showError } = useStudio();
+	const { showError } = useStudio(useShallow((s) => ({ showError: s.showError })));
 	const [search, setSearch] = useState("");
 	const [chosen, setChosen] = useState<string | null>(null);
 	const [notes, setNotes] = useState("");

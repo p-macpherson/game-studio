@@ -2,11 +2,12 @@ import type { ModuleInfo } from "../../shared/modules";
 import { useStudio } from "../../renderer/store";
 import { AssetBrowser } from "../../renderer/views/AssetBrowser";
 import { CodeView } from "../../renderer/views/CodeView";
+import { useShallow } from "zustand/react/shallow";
 
 const mainFirst = <T extends { path: string }>(files: T[]) => files.find((f) => f.path === "game/main.odin") ?? files[0];
 
 export function GameCodeView({ module }: { module: ModuleInfo }) {
-	const { openPlay, startRun, runTests } = useStudio();
+	const { openPlay, startRun, runTests } = useStudio(useShallow((s) => ({ openPlay: s.openPlay, startRun: s.startRun, runTests: s.runTests })));
 	return (
 		<AssetBrowser
 			module={module}

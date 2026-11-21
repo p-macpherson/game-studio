@@ -4,6 +4,7 @@ import { findAgentType } from "../../shared/agents";
 import { relativeTime } from "../api";
 import { isOpenWorktree, useStudio } from "../store";
 import { SessionDetail } from "./SessionDetail";
+import { useShallow } from "zustand/react/shallow";
 
 type StatusFilter = "in_progress" | "idle" | "done";
 const STATUS_GROUP: Record<SessionStatus, StatusFilter> = {
@@ -36,7 +37,17 @@ export function TargetBadge({ target }: { target: Target }) {
 }
 
 export function Sessions() {
-	const { sessions, agentTypes, selectedSession, selectSession, openNewSession, selected: picked, worktrees } = useStudio();
+	const { sessions, agentTypes, selectedSession, selectSession, openNewSession, selected: picked, worktrees } = useStudio(
+		useShallow((s) => ({
+			sessions: s.sessions,
+			agentTypes: s.agentTypes,
+			selectedSession: s.selectedSession,
+			selectSession: s.selectSession,
+			openNewSession: s.openNewSession,
+			selected: s.selected,
+			worktrees: s.worktrees,
+		})),
+	);
 	// Which sessions: the selected worktree's (game, engine or studio); with main selected, those in no open worktree
 	// (finished, merged or discarded work).
 	const current = worktrees.find((w) => w.id === picked && isOpenWorktree(w));

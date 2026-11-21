@@ -8,13 +8,26 @@ import { confirmDiscard } from "../workspace";
 import { Chat } from "./Chat";
 import { Diff } from "./Diff";
 import { StatusBadge, TargetBadge } from "./Sessions";
+import { useShallow } from "zustand/react/shallow";
 
 type Tab = "chat" | "changes" | "raw";
 const STATUS_SHORT: Record<SessionSummary["status"], string> = { starting: "starting", in_progress: "working", idle: "idle", interrupted: "interrupted", done: "done" };
 
 export function SessionDetail({ session: s }: { session: SessionSummary }) {
-	const { transcripts, agentTypes, models, showError, loadTranscript, openPlay, sessions, selectWorktree, selectSession } = useStudio();
-	const transcript = transcripts[s.id];
+	const { agentTypes, models, showError, loadTranscript, openPlay, sessions, selectWorktree, selectSession } = useStudio(
+		useShallow((st) => ({
+			agentTypes: st.agentTypes,
+			models: st.models,
+			showError: st.showError,
+			loadTranscript: st.loadTranscript,
+			openPlay: st.openPlay,
+			sessions: st.sessions,
+			selectWorktree: st.selectWorktree,
+			selectSession: st.selectSession,
+		})),
+	);
+	// Only this session's transcript: other sessions streaming must not redraw this page.
+	const transcript = useStudio((st) => st.transcripts[s.id]);
 	const [tab, setTab] = useState<Tab>("chat");
 	const [draft, setDraft] = useState("");
 	const [busy, setBusy] = useState(false);

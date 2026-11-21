@@ -6,6 +6,7 @@ import { call } from "../api";
 import type { Target } from "../../shared/types";
 import { isOpenWorktree, useStudio } from "../store";
 import { confirmDiscard, saveMessage } from "../workspace";
+import { useShallow } from "zustand/react/shallow";
 
 const otherFiles = <T extends { path: string }>(files: T[]) => files.filter((f) => !f.path.startsWith(".studio/"));
 /** The selector's groups: the game's worktrees, then the engine's and the studio's (shown when there are any). */
@@ -17,7 +18,22 @@ const GROUPS: { target: Target; label: string }[] = [
 const megabytes = (bytes: number) => (bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1024 ** 2))} MB`);
 
 export function WorktreePicker() {
-	const { project, selected, worktrees, sessions, assetsVersion, selectWorktree, refreshWorktrees, showError, history, refreshHistory, undo, redo } = useStudio();
+	const { project, selected, worktrees, sessions, assetsVersion, selectWorktree, refreshWorktrees, showError, history, refreshHistory, undo, redo } = useStudio(
+		useShallow((s) => ({
+			project: s.project,
+			selected: s.selected,
+			worktrees: s.worktrees,
+			sessions: s.sessions,
+			assetsVersion: s.assetsVersion,
+			selectWorktree: s.selectWorktree,
+			refreshWorktrees: s.refreshWorktrees,
+			showError: s.showError,
+			history: s.history,
+			refreshHistory: s.refreshHistory,
+			undo: s.undo,
+			redo: s.redo,
+		})),
+	);
 	const [showSteps, setShowSteps] = useState(false);
 	const [saving, setSaving] = useState<string | null>(null);
 	// How far main has moved on, and an update's conflicts.

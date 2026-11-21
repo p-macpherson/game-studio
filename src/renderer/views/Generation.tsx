@@ -3,11 +3,18 @@ import { useEffect, useRef, useState } from "react";
 import type { GenJob, GenStatus } from "../../shared/gen";
 import { call, onEvent, relativeTime } from "../api";
 import { useStudio } from "../store";
+import { useShallow } from "zustand/react/shallow";
 
 const ACTIVE = new Set(["queued", "running"]);
 
 export function AssetGeneration() {
-	const { showError, selectSession, sessions } = useStudio();
+	const { showError, selectSession, sessions } = useStudio(
+		useShallow((s) => ({
+			showError: s.showError,
+			selectSession: s.selectSession,
+			sessions: s.sessions,
+		})),
+	);
 	const [status, setStatus] = useState<GenStatus | null>(null);
 	const [jobs, setJobs] = useState<GenJob[]>([]);
 	const [log, setLog] = useState("");

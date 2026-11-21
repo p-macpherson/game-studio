@@ -5,6 +5,7 @@ import { type SettingsTab, useStudio } from "../store";
 import { AccountsPanel } from "./Accounts";
 import { AppearanceSettings } from "./Appearance";
 import { AssetGeneration } from "./Generation";
+import { useShallow } from "zustand/react/shallow";
 
 const TABS: { id: SettingsTab; label: string }[] = [
 	{ id: "general", label: "General" },
@@ -20,7 +21,7 @@ const FIELDS: { key: "engineRepo" | "studioRepo" | "worktreeRoot"; label: string
 ];
 
 export function SettingsView() {
-	const { settingsTab, openSettings } = useStudio();
+	const { settingsTab, openSettings } = useStudio(useShallow((s) => ({ settingsTab: s.settingsTab, openSettings: s.openSettings })));
 	return (
 		<div className="page">
 			<h2>Settings</h2>
@@ -45,7 +46,7 @@ export function SettingsView() {
 }
 
 function GeneralSettings() {
-	const { settings, showError, refresh } = useStudio();
+	const { settings, showError, refresh } = useStudio(useShallow((s) => ({ settings: s.settings, showError: s.showError, refresh: s.refresh })));
 	const [draft, setDraft] = useState<Settings | null>(settings);
 	const [host, setHost] = useState("");
 	useEffect(() => setDraft(settings), [settings]);
@@ -103,7 +104,7 @@ function GeneralSettings() {
 
 /** The agent types, which repos they work in, and the delegation graph: who each may hand tasks to. */
 function AgentTypes() {
-	const { agentTypes } = useStudio();
+	const { agentTypes } = useStudio(useShallow((s) => ({ agentTypes: s.agentTypes })));
 	const name = (id: string) => agentTypes.find((t) => t.id === id)?.name ?? id;
 	const delegatedBy = (id: string) => agentTypes.filter((t) => t.delegatesTo?.includes(id)).map((t) => t.name);
 	return (

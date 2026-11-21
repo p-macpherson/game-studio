@@ -8,7 +8,7 @@ import type { GenJobKind } from "../shared/gen";
 import { type CandidateRecord, formatTexture, parseTexture, TEXTURE_DEFAULTS, type TextureFile, textureFiles, validateTexture } from "../shared/texture";
 import { safeJoin } from "./assets";
 import type { GenService } from "./gen";
-import type { PipelineContext } from "./models";
+import { handler, type PipelineContext, type StudioRequestHandlers } from "./studio-requests";
 
 export const TEXTURES_DIR = "assets/textures";
 
@@ -107,3 +107,11 @@ export class TexturePipeline {
 	}
 }
 
+/** The Textures section's requests (see studio-requests.ts). */
+export function textureRequests(textures: TexturePipeline): StudioRequestHandlers {
+	const step = (name: string, what: string) => ({ label: `Texture ${name}: ${what}`, scopes: [{ path: `${TEXTURES_DIR}/${name}` }] });
+	return {
+		generate_texture: handler((ctx, p: Parameters<TexturePipeline["candidates"]>[1]) => textures.candidates(ctx, p), (p) => step(p.name, "new candidates")),
+		make_texture: handler((ctx, p: Parameters<TexturePipeline["make"]>[1]) => textures.make(ctx, p), (p) => step(p.name, "made")),
+	};
+}

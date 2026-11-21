@@ -5,9 +5,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { composeVariants } from "../shared/sound";
 import { decodeWav, encodeWav, synth, toDb } from "./audio-dsp";
 import { GenService } from "./gen";
-import { generationRequests, ModelPipeline } from "./models";
+import { studioRequests } from "./studio-requests";
 import { SessionService } from "./sessions";
-import { SoundError, SoundPipeline } from "./sounds";
+import { SoundError, SoundPipeline, soundRequests } from "./sounds";
 import { inProcessHost, makeRepo, tempDir, waitFor } from "./test-helpers";
 
 const has = (cmd: string) => (process.env.PATH ?? "").split(":").some((d) => d && existsSync(join(d, cmd)));
@@ -131,7 +131,7 @@ describe.skipIf(!has("ffmpeg"))("SoundPipeline", () => {
 			agentTypes: () => [{ id: "sound-designer", name: "Sound", description: "", targets: ["project"], skills: [], prompt: "", source: "builtin" }],
 			skillsDir: join(root, "skills"),
 			emit: () => {},
-			...generationRequests(new ModelPipeline(gen), gen, { sounds: new SoundPipeline({ gen }) }),
+			...studioRequests(gen, soundRequests(new SoundPipeline({ gen }))),
 		});
 		try {
 			const prompt = 'tool generate_sound_takes {"name": "gold", "prompt": "coins clinking", "seconds": 1, "count": 2}';
