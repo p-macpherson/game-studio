@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { StudioEvent } from "../shared/ipc";
@@ -93,8 +93,10 @@ describe("SessionService", () => {
 		expect(existsSync(s.worktreePath)).toBe(false);
 		expect(sh(project, "log", "-1", "--format=%s")).toMatch(/^studio: worktree .* merged/);
 		expect(sh(project, "status", "--porcelain")).toBe("");
+		// Its branch is deleted: main has its work.
+		expect(sh(project, "branch", "--list", s.branch).trim()).toBe("");
 
-		// Resume recreates the worktree on the up-to-date branch and the conversation continues.
+		// Resume recreates the worktree (a new branch from main, which has its work) and the conversation continues.
 		await service.resume(s.id);
 		expect(service.get(s.id).status).toBe("idle");
 		expect(readFileSync(join(s.worktreePath, "faux-notes.md"), "utf8")).toBe("add a note\n");
@@ -103,6 +105,35 @@ describe("SessionService", () => {
 		expect(readFileSync(join(s.worktreePath, "faux-notes.md"), "utf8")).toBe("add a note\nsecond note\n");
 		const messages = (await service.messages(s.id)) as { role: string }[];
 		expect(messages.filter((m) => m.role === "user")).toHaveLength(2);
+	});
+
+	it("frees a worktree's disk space only when nothing exists only in its folder; selecting it again brings it back", async () => {
+		const s = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: "a note" });
+		await settled(s.id);
+		writeFileSync(join(s.worktreePath, "draft.md"), "only here\n");
+		expect(await service.worktreeUnloadBlocker(s.worktreeId)).toMatch(/unsaved changes \(1 file\)/);
+		await expect(service.unloadWorktree(s.worktreeId)).rejects.toThrow(/unsaved changes/);
+		expect(readFileSync(join(s.worktreePath, "draft.md"), "utf8")).toBe("only here\n");
+		rmSync(join(s.worktreePath, "draft.md"));
+		expect(await service.worktreeUnloadBlocker(s.worktreeId, true)).toMatch(/generation job/);
+		expect(await service.worktreeUnloadBlocker(s.worktreeId)).toBeNull();
+		expect(await service.worktreeBytes(s.worktreeId)).toBeGreaterThan(0);
+
+		await service.unloadWorktree(s.worktreeId);
+		expect(existsSync(s.worktreePath)).toBe(false);
+		expect(service.listWorktrees().find((w) => w.id === s.worktreeId)).toMatchObject({ status: "active", checkout: "removed" });
+		expect(service.get(s.id).status).toBe("idle");
+		await service.loadWorktree(s.worktreeId);
+		expect(readFileSync(join(s.worktreePath, "faux-notes.md"), "utf8")).toBe("a note\n");
+	});
+
+	it("deletes the branches of worktrees merged before merging deleted them, when it loads", async () => {
+		const s = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: "a note" });
+		await settled(s.id);
+		await service.merge(s.id);
+		sh(project, "branch", s.branch, "main"); // as an older studio left it
+		service.load();
+		await waitFor(() => sh(project, "branch", "--list", s.branch).trim() === "");
 	});
 
 	it("discards a session, keeping its branch so it can still be resumed", async () => {

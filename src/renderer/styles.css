@@ -2149,3 +2149,15 @@ textarea {
 .scope-banner.scope-main {
 	background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
+
+/* Worktree menu: a row per worktree with its size and the free-up-space button */
+.worktree-option-row {
+	gap: 2px;
+	align-items: center;
+}
+.worktree-option-row > .icon {
+	flex-shrink: 0;
+}
+.worktree-space-total {
+	padding: 4px 10px 2px;
+}

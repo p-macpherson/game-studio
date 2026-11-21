@@ -7,6 +7,7 @@ import { isOpenProjectWorktree, useStudio } from "../store";
 import { confirmDiscard, saveMessage } from "../workspace";
 
 const otherFiles = <T extends { path: string }>(files: T[]) => files.filter((f) => !f.path.startsWith(".studio/"));
+const megabytes = (bytes: number) => (bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1024 ** 2))} MB`);
 
 export function WorktreePicker() {
 	const { project, worktree, worktrees, sessions, assetsVersion, selectWorktree, refreshWorktrees, showError, history, refreshHistory, undo, redo } = useStudio();
@@ -15,6 +16,17 @@ export function WorktreePicker() {
 	// How far main has moved on, and an update's conflicts.
 	const [status, setStatus] = useState<{ behind: number; conflicts: string[] | null } | null>(null);
 	const [open, setOpen] = useState(false);
+	// The menu's disk use per worktree, and why each can't be freed (fetched when it opens).
+	const [space, setSpace] = useState<{ id: string; bytes: number | null; blocker: string | null }[] | null>(null);
+	useEffect(() => {
+		if (!open) return;
+		let live = true;
+		setSpace(null); // not the last opening's numbers (worktrees come and go)
+		call("worktrees.space").then((s) => live && setSpace(s), () => {});
+		return () => {
+			live = false;
+		};
+	}, [open, worktrees]);
 	const [naming, setNaming] = useState<"new" | "rename" | null>(null);
 	const [label, setLabel] = useState("");
 	const [busy, setBusy] = useState(false);
@@ -93,6 +105,14 @@ export function WorktreePicker() {
 				const s = await call("worktrees.resolveConflicts", current.id);
 				useStudio.getState().selectSession(s.id);
 			}
+		});
+	};
+	const unload = (w: WorktreeSummary, bytes: number | null) => {
+		if (!window.confirm(`Free up space by removing the folder of “${w.label}”${bytes ? ` (${megabytes(bytes)})` : ""}?\n\nNothing is lost: its work is committed on its branch, and its sessions stay. Selecting it (or resuming one of its sessions) brings the folder back.`)) return;
+		void act(async () => {
+			await call("worktrees.unload", w.id);
+			setSpace(await call("worktrees.space"));
+			useStudio.getState().notify(`Freed “${w.label}”`);
 		});
 	};
 	const abortUpdate = () =>
@@ -259,17 +279,39 @@ export function WorktreePicker() {
 						<span className="grow">main</span>
 						<span className="muted small">in the game</span>
 					</button>
-					{list.map((w) => (
-						<button key={w.id} className={`ghost nav-item ${w.id === current?.id ? "active" : ""}`} onClick={() => (selectWorktree(w.id), setOpen(false))} data-testid="worktree-option">
-							<span className="grow ellipsis" title={w.label}>
-								{w.label}
-							</span>
-							{working(w) && <span className="count">●</span>}
-							<span className="muted small">
-								{w.sessionIds.length} session{w.sessionIds.length === 1 ? "" : "s"}
-							</span>
-						</button>
-					))}
+					{list.map((w) => {
+						const sp = space?.find((x) => x.id === w.id);
+						const blocker = w.id === current?.id ? "it's selected: switch to another worktree first" : sp?.blocker;
+						return (
+							<div key={w.id} className="row worktree-option-row">
+								<button className={`ghost nav-item grow ${w.id === current?.id ? "active" : ""}`} onClick={() => (selectWorktree(w.id), setOpen(false))} data-testid="worktree-option">
+									<span className="grow ellipsis" title={w.label}>
+										{w.label}
+									</span>
+									{working(w) && <span className="count">●</span>}
+									<span className="muted small" data-testid="worktree-size">
+										{w.checkout === "removed" ? "unloaded" : sp?.bytes ? megabytes(sp.bytes) : ""} · {w.sessionIds.length} session{w.sessionIds.length === 1 ? "" : "s"}
+									</span>
+								</button>
+								{w.checkout !== "removed" && (
+									<button
+										className="small icon"
+										disabled={busy || !sp || !!blocker}
+										title={blocker ? `Can't free its space: ${blocker}` : `Free up space: remove its folder${sp?.bytes ? ` (${megabytes(sp.bytes)})` : ""}. Its work is on its branch; selecting it brings the folder back.`}
+										onClick={() => unload(w, sp?.bytes ?? null)}
+										data-testid="worktree-unload"
+									>
+										⏏
+									</button>
+								)}
+							</div>
+						);
+					})}
+					{!!space?.length && (
+						<span className="muted small worktree-space-total" data-testid="worktree-space-total">
+							Open worktrees use {megabytes(space.reduce((n, s) => n + (s.bytes ?? 0), 0))} on disk
+						</span>
+					)}
 					<button className="ghost nav-item" onClick={() => (setOpen(false), setNaming("new"), setLabel(""))} data-testid="worktree-new">
 						+ New worktree…
 					</button>

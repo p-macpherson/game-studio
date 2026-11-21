@@ -134,6 +134,11 @@ export interface StudioApi {
 	"worktrees.abortUpdate"(id: string): Promise<void>;
 	/** Starts the Conflict Resolver on an update's conflicts, briefed with the worktree's sessions. */
 	"worktrees.resolveConflicts"(id: string, model?: string): Promise<SessionSummary>;
+	/** Each open project worktree's disk use (null: unloaded) and why it can't be unloaded (null: it can). */
+	"worktrees.space"(): Promise<{ id: string; bytes: number | null; blocker: string | null }[]>;
+	/** Removes an open worktree's checkout to free space; selecting it (or resuming a session in it) reloads it. */
+	"worktrees.unload"(id: string): Promise<void>;
+	"worktrees.load"(id: string): Promise<void>;
 	"worktrees.merge"(id: string): Promise<void>;
 	"worktrees.discard"(id: string): Promise<void>;
 	"worktrees.changedFiles"(id: string): Promise<{ path: string; change: "added" | "modified" | "deleted" }[]>;

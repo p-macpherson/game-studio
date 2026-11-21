@@ -130,6 +130,10 @@ export class WorktreeStore {
 				r.baseCommit = await g.revParse(w.repoPath, r.baseBranch);
 			}
 			await g.worktreeAdd(w.repoPath, dir, r.branch);
+		} else if (r.status === "merged") {
+			// Its branch was deleted after the merge (its work is in the base now): start again from the base.
+			r.baseCommit = await g.revParse(w.repoPath, r.baseBranch);
+			await g.worktreeAdd(w.repoPath, dir, r.branch, r.baseCommit);
 		} else {
 			await g.worktreeAdd(w.repoPath, dir, r.branch, r.baseCommit);
 		}
@@ -222,6 +226,57 @@ export class WorktreeStore {
 			throw new Error(`Merge failed, nothing was changed: ${(err as Error).message}`);
 		}
 		await this.close(w, "merged");
+		await this.deleteMergedBranch(w);
+	}
+
+	/** A merged worktree's branch is history main already has: delete it (`-d` refuses anything not merged). */
+	private async deleteMergedBranch(w: Worktree): Promise<boolean> {
+		const r = w.record;
+		if (r.status !== "merged" || !(await g.branchExists(w.repoPath, r.branch))) return false;
+		if (!(await g.isAncestor(w.repoPath, r.branch, r.baseBranch))) return false;
+		return g.git(w.repoPath, ["branch", "-d", "-q", r.branch]).then(
+			() => true,
+			() => false,
+		);
+	}
+
+	/** Deletes the branches of worktrees merged before branches were deleted on merge; returns how many. */
+	async deleteMergedBranches(): Promise<number> {
+		let n = 0;
+		for (const w of this.all()) if (await this.deleteMergedBranch(w)) n++;
+		return n;
+	}
+
+	/**
+	 * Why an open worktree's checkout can't be removed to free space, or null if it can: nothing may exist only in the
+	 * folder (unsaved or untracked files, an update in progress, edits in a submodule such as engine/). Ignored build
+	 * output doesn't count: it's rebuilt. (Sessions and generation jobs are checked by the callers.)
+	 */
+	async unloadBlocker(w: Worktree): Promise<string | null> {
+		if (!this.hasCheckout(w)) return "already unloaded";
+		const dir = this.path(w);
+		if (await g.git(dir, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]).then(() => true, () => false)) return "it's being updated from main";
+		const own = (await g.git(dir, ["--no-optional-locks", "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=none"])).trim();
+		if (own) return `it has unsaved changes (${own.split("\n").length} file${own.split("\n").length > 1 ? "s" : ""})`;
+		const subs = existsSync(join(dir, ".gitmodules"))
+			? (await g.git(dir, ["config", "-f", ".gitmodules", "--get-regexp", "^submodule\\..*\\.path$"]).catch(() => "")).split("\n").map((l) => l.split(" ")[1]).filter(Boolean)
+			: [];
+		for (const s of subs) {
+			if (!existsSync(join(dir, s))) continue;
+			const inside = (await g.git(join(dir, s), ["--no-optional-locks", "status", "--porcelain", "--untracked-files=all"]).catch(() => "?")).trim();
+			if (inside) return `${s}/ has changes of its own`;
+		}
+		return null;
+	}
+
+	/** Removes an open worktree's checkout to free space; it stays open, and loading it again rebuilds it from the branch. */
+	async unload(w: Worktree): Promise<void> {
+		const blocker = await this.unloadBlocker(w);
+		if (blocker) throw new Error(`Can't free “${w.record.label}”: ${blocker}`);
+		// --force only because git refuses any worktree holding a submodule; unloadBlocker has just checked it all.
+		await g.worktreeRemove(w.repoPath, this.path(w));
+		w.record.checkout = "removed";
+		this.save(w);
 	}
 
 	/** Removes the checkout and keeps the branch, so the work can be reopened. */

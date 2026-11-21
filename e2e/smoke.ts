@@ -591,6 +591,22 @@ try {
 	await page.getByTestId("agent-type-card").filter({ hasText: "Delegates to: Game Designer, Art Director, Audio Director" }).waitFor();
 	await step("33-agent-types", page);
 
+	// Free up space: the menu shows each worktree's size; a clean, idle one's folder can go, and selecting it brings
+	// it back with its committed work.
+	await selectMain(page);
+	await page.getByTestId("worktree-current").click();
+	const noteRow = page.locator(".worktree-option-row").filter({ hasText: "add a note" });
+	await noteRow.getByTestId("worktree-size").filter({ hasText: "MB" }).waitFor({ timeout: 15_000 });
+	await page.getByTestId("worktree-space-total").waitFor();
+	await step("50-worktree-space", page);
+	await noteRow.getByTestId("worktree-unload").click();
+	await noteRow.getByTestId("worktree-size").filter({ hasText: "unloaded" }).waitFor({ timeout: 15_000 });
+	await noteRow.getByTestId("worktree-option").click();
+	await page.getByTestId("worktree-current").filter({ hasText: "add a note" }).waitFor({ timeout: 30_000 });
+	const notePath = await page.evaluate(async () => ((await window.studio.call("worktrees.list")) as { label: string; path: string; status: string }[]).find((w) => w.label === "add a note" && w.status === "active")!.path);
+	await page.waitForFunction(async (p) => ((await window.studio.call("worktrees.list")) as { path: string; checkout: string }[]).some((w) => w.path === p && w.checkout === "active"), notePath, { timeout: 30_000 });
+	if (readFileSync(join(notePath, "faux-notes.md"), "utf8") !== "add a note\nsecond note\n") throw new Error("the reloaded worktree lost its work");
+
 	// Appearance: a theme and fonts apply at once (the page's variables), survive a reload, and Simple Dark comes back.
 	await page.getByRole("button", { name: "Appearance", exact: true }).click();
 	await page.locator("[data-testid=theme-card][data-theme-id=catppuccin-mocha]").waitFor();

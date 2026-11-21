@@ -1,5 +1,6 @@
 // The session orchestrator: owns session records, worktrees and the lifecycle, and drives Pi sessions in
 // the session host. See the vault note "Sessions & Worktrees".
+import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -153,6 +154,8 @@ export class SessionService {
 		const seen = new Set<string>();
 		const repos = this.repos();
 		this.worktrees.load(repos);
+		// Branches of worktrees merged before merging deleted them (`git branch -d`: only fully merged ones).
+		void this.worktrees.deleteMergedBranches().catch((err) => console.error("could not delete merged branches:", err));
 		for (const { target, path } of repos) {
 			const dir = join(path, SESSIONS_DIR);
 			if (!existsSync(dir)) continue;
@@ -622,6 +625,44 @@ export class SessionService {
 		}
 		if (drifted.length) await this.initSubmodules(dir);
 		return drifted;
+	}
+
+	/**
+	 * Why an open worktree can't be unloaded (its checkout removed to free space), or null: an agent working in it,
+	 * a generation job for it (`busy`), or anything that exists only in its folder (see WorktreeStore.unloadBlocker).
+	 */
+	async worktreeUnloadBlocker(id: string, busy = false): Promise<string | null> {
+		const w = this.worktrees.get(id);
+		if (w.record.status !== "active") return "it isn't open";
+		if (this.sessionsIn(id).some((e) => e.record.status === "in_progress" || e.record.status === "starting")) return "an agent is working in it";
+		if (busy) return "a generation job is running for it";
+		if (this.worktrees.hasCheckout(w)) await this.syncSubmodules(this.worktrees.path(w)); // a drifted engine/ isn't an edit
+		return this.worktrees.unloadBlocker(w);
+	}
+
+	/** Frees an open worktree's disk space: its checkout goes (its branch, sessions and label stay); selecting it reloads it. */
+	async unloadWorktree(id: string, busy = false): Promise<void> {
+		const blocker = await this.worktreeUnloadBlocker(id, busy);
+		if (blocker) throw new Error(`Can't free “${this.worktrees.get(id).record.label}”: ${blocker}`);
+		for (const e of this.sessionsIn(id)) this.close(e.record.id);
+		await this.worktrees.unload(this.worktrees.get(id));
+		this.deps.emit({ type: "sessions_changed" });
+	}
+
+	/** Recreates an unloaded worktree's checkout from its branch. */
+	async loadWorktree(id: string): Promise<void> {
+		await this.worktrees.ensureCheckout(this.worktrees.get(id), (dir) => this.initSubmodules(dir));
+		this.deps.emit({ type: "sessions_changed" });
+	}
+
+	/** Disk used by an open worktree's checkout, in bytes (null when unloaded). */
+	async worktreeBytes(id: string): Promise<number | null> {
+		const w = this.worktrees.get(id);
+		if (!this.worktrees.hasCheckout(w)) return null;
+		// du exits non-zero when files change under it (a build running there) but still prints the total.
+		const out = await new Promise<string>((done) => execFile("du", ["-sk", this.worktrees.path(w)], (_err, stdout) => done(String(stdout ?? ""))));
+		const kb = Number(out.split(/\s/)[0]);
+		return Number.isFinite(kb) && kb > 0 ? kb * 1024 : null;
 	}
 
 	/** Commits a worktree's unsaved changes (a person's edits in the sections) as one commit. */

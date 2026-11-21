@@ -107,6 +107,9 @@ async function main(): Promise<void> {
 	};
 	serveStudioFiles(checkoutRoot);
 	const assets = new AssetService(checkoutRoot, sessions);
+	/** A generation job queued or running for a worktree (a section's step, or one of its sessions' tools). */
+	const generating = (w: { id: string; sessionIds: string[] }) =>
+		gen.list().some((j) => (j.status === "queued" || j.status === "running") && !!j.sessionId && (j.sessionId === w.id || w.sessionIds.includes(j.sessionId)));
 	// Undo/redo of people's manual edits, per worktree, in memory (snapshots under userData, cleared at each launch).
 	const history = new EditHistory(join(app.getPath("userData"), "edit-history"));
 	/** A model rendered by the game's engine (for the In engine tab and the agents' preview_model tool). */
@@ -237,6 +240,16 @@ async function main(): Promise<void> {
 		},
 		"worktrees.commits": (id) => sessions.worktreeCommits(id),
 		"worktrees.status": (id) => sessions.worktreeStatus(id),
+		"worktrees.space": async () => {
+			const open = sessions.listWorktrees().filter((w) => w.target === "project" && w.status === "active");
+			return Promise.all(open.map(async (w) => ({ id: w.id, bytes: await sessions.worktreeBytes(w.id), blocker: await sessions.worktreeUnloadBlocker(w.id, generating(w)) })));
+		},
+		"worktrees.unload": async (id) => {
+			const w = sessions.listWorktrees().find((x) => x.id === id);
+			await sessions.unloadWorktree(id, !!w && generating(w));
+			history.clear(id);
+		},
+		"worktrees.load": (id) => sessions.loadWorktree(id),
 		"worktrees.update": async (id) => {
 			const r = await sessions.updateWorktree(id);
 			history.clear(id); // the merge changed files under the manual-edit history

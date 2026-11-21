@@ -124,7 +124,8 @@ interface State {
 const emptyTranscript = (): Transcript => ({ messages: [], runningTools: {}, raw: [] });
 
 /** A worktree of the game project that's still being worked on: one the selector offers. */
-export const isOpenProjectWorktree = (w: WorktreeSummary) => w.target === "project" && w.status === "active" && w.checkout === "active";
+/** Open: not merged or discarded (its folder may be unloaded to free space; selecting it loads it). */
+export const isOpenProjectWorktree = (w: WorktreeSummary) => w.target === "project" && w.status === "active";
 const RAW_LIMIT = 500;
 
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -208,6 +209,15 @@ export const useStudio = create<State>((set, get) => ({
 		if (selected && !worktrees.some((w) => w.id === selected && isOpenProjectWorktree(w))) get().selectWorktree(null);
 	},
 	selectWorktree(id) {
+		// An unloaded worktree (its folder removed to free space) is rebuilt from its branch first.
+		const unloaded = id ? get().worktrees.find((w) => w.id === id && w.status === "active" && w.checkout === "removed") : undefined;
+		if (unloaded) {
+			get().notify(`Loading “${unloaded.label}”…`);
+			void call("worktrees.load", unloaded.id)
+				.then(() => get().refreshWorktrees())
+				.then(() => get().selectWorktree(unloaded.id), (err) => get().showError(err));
+			return;
+		}
 		const project = get().project;
 		if (project) {
 			if (id) localStorage.setItem(`worktree:${project.path}`, id);
