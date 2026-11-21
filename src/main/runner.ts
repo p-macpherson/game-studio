@@ -19,6 +19,7 @@ import {
 } from "../shared/run";
 import { parseScene, type SceneEntity, validateScene } from "../shared/scene";
 import { safeJoin, walk } from "./assets";
+import { normalizeSceneFile } from "./scenes";
 import { EngineClient, freePort } from "./engine-client";
 import type { SessionService } from "./sessions";
 
@@ -269,8 +270,13 @@ export class RunService {
 		const co = this.checkout(sessionId);
 		const file = safeJoin(co.cwd, path);
 		if (!existsSync(file)) throw new Error(`No ${path} in this checkout`);
+		const reformatted = normalizeSceneFile(file);
 		const { scene, errors } = parseScene(readFileSync(file, "utf8"));
-		const problems = [...errors, ...(scene ? validateScene(scene) : [])];
+		const problems = [
+			...(reformatted ? [`${path} was rewritten in another layout; it's back to one entity per line (keep that layout when you edit it, so diffs stay small)`] : []),
+			...errors,
+			...(scene ? validateScene(scene) : []),
+		];
 		const built = await this.exec(co, ["build"]);
 		if (built.code !== 0) {
 			throw new Error(`The game doesn't build, so it can't show the scene:\n${(built.stdout + built.stderr).trim().split("\n").slice(-12).join("\n")}`);

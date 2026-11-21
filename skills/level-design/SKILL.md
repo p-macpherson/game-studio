@@ -23,7 +23,9 @@ A scene is `assets/scenes/<name>.json`; the game loads it by its path under `ass
 
 ## Rules Game Studio relies on
 - **Plain JSON**, one entity per line, as above. No comments: put them in `"notes"` (on the file or on an entity).
-  The Scenes section rewrites files in this layout, so keep it to keep diffs small.
+  The Scenes section rewrites files in this layout, so keep it to keep diffs small: change the lines you mean to
+  change (the Edit tool), and never rewrite a whole scene with a script (`json.dump` pretty-prints it, and the diff
+  becomes the whole file). `preview_scene` puts a rewritten file back in this layout and says so.
 - **ids** are positive whole numbers, unique in the file, and **stable**: never renumber. New entities take an
   unused id (grouping by tens, as above, is fine). `Transform.parent` refers to a parent by its id.
 - **Keep prefab instances as references**: `{"id": 21, "prefab": "prefabs/chest.json", "Transform": {...}}`. Any

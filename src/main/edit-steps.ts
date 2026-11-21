@@ -31,9 +31,22 @@ export function manualStep(method: string, params: Record<string, unknown>): { l
 		return { label: `Texture ${name}: ${method === "generate_texture" ? "new candidates" : "made"}`, scopes: [{ path: `assets/textures/${name}` }] };
 	}
 	if (method === "edit_song" || method === "render_song") {
-		return { label: `Music ${name}: ${method === "render_song" ? "rendered" : "edited"}`, scopes: [{ path: `assets/music/${name}` }] };
+		return { label: `Music ${name}: ${method === "render_song" ? "rendered" : describeSongEdit(params)}`, scopes: [{ path: `assets/music/${name}` }] };
 	}
 	return null;
+}
+
+/** What an edit_song changed, for the history ("space hall, tempo 96"). */
+function describeSongEdit(p: Record<string, unknown>): string {
+	const parts = [
+		p.space !== undefined && `space ${p.space}`,
+		p.tempo !== undefined && `tempo ${p.tempo}`,
+		p.humanize !== undefined && `feel ${p.humanize}`,
+		...Object.entries((p.instruments as Record<string, { program?: unknown; volume?: unknown }>) ?? {}).map(
+			([id, c]) => `${id} ${[c.program !== undefined && String(c.program), c.volume !== undefined && `volume ${c.volume}`].filter(Boolean).join(", ")}`,
+		),
+	].filter(Boolean);
+	return parts.join(", ") || "edited";
 }
 
 function describeSceneEdit(e: SceneEdit): string {

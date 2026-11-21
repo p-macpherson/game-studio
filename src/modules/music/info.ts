@@ -91,10 +91,11 @@ export function recomposeBrief(p: { name: string; song: Song; timeline: Timeline
 		return `- section "${x.section}", its ${span} of ${sectionBars} (piece bar ${x.at}${x.first === x.last ? "" : `-${x.at + x.last - x.first}`})${repeats.length ? `. "${x.section}" also plays at ${repeats.join(", ")}: its pattern is shared, so the change is heard there too; if it should only change here, copy the section under a new name and use the copy at this point of the arrangement` : ""}`;
 	});
 	const which = p.range.from === p.range.to ? `bar ${p.range.from}` : `bars ${p.range.from}-${p.range.to}`;
+	const shared = lines.some((l) => l.includes("also plays at"));
 	return `Recompose the \`${p.track}\` part (${sound}) of ${songPath(p.name)} in ${which} of the piece only:
 ${lines.join("\n")}
 
-Rewrite only those bars of \`${p.track}\`. If its pattern in a section is shorter than the section (it repeats to fill it), write it out in full first, so only the chosen bars change. ${keep} The new bars should lead in from the bar before and into the bar after.${userNotes(p.feedback)}${closing(p.name)}`;
+Rewrite only those bars of \`${p.track}\`. If its pattern in a section is shorter than the section (it repeats to fill it), write it out in full first, so only the chosen bars change. ${keep}${shared ? " (A copied section, as above, is the one change to the form allowed.)" : ""} The new bars should lead in from the bar before and into the bar after.${userNotes(p.feedback)}${closing(p.name)}`;
 }
 
 /** The Music Composer's brief for a new part on `instrument` (a General MIDI name or "drums"), as track `id`. */

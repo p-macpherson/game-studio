@@ -30,6 +30,7 @@ describe("music briefs", () => {
 		expect(brief).toContain("assets/music/theme/song.json in bars 5-6 of the piece only");
 		expect(brief).toContain('section "A", its bars 3-4 of 4 (piece bar 5-6). "A" also plays at bar 9');
 		expect(brief).toContain("write it out in full first");
+		expect(brief).toContain("A copied section, as above, is the one change to the form allowed");
 		expect(brief).toContain("> more playful,\n> fewer long notes");
 		expect(recomposeBrief({ name: "theme", song: SONG, timeline, track: "flute", range: { from: 7, to: 7 } })).not.toContain("also plays");
 		expect(recomposeBrief({ name: "theme", song: SONG, timeline, track: "perc" })).toContain("whole piece");

@@ -1,6 +1,6 @@
 // End-to-end: drives the built app through creating a project and a full session lifecycle with the
-// scripted faux/echo model. Uses a temp user-data dir, temp worktree root and temp project; the engine repo
-// from default settings is only read (cloned as the project's submodule).
+// scripted faux/echo model. Uses a temp user-data dir, temp worktree root, temp project and a clone of the engine
+// repo (the real one is only read).
 // Run: npm run build && node e2e/smoke.ts [screenshot-dir]
 import { execSync } from "node:child_process";
 import { readFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -15,10 +15,17 @@ const root = mkdtempSync(join(tmpdir(), "game-studio-e2e-"));
 const userData = join(root, "user-data");
 const projectPath = join(root, "e2e-game");
 mkdirSync(userData);
+// A clone of the engine, so the real repo's own sessions and worktrees (an agent may be working in it) never show up
+// here, and nothing here touches it. Its built libraries are linked in, not rebuilt.
+const realEngine = process.env.ENGINE_REPO ?? join(homedir(), "Projects/headless-game-engine");
+const engineRepo = join(root, "engine");
+execSync(`git clone -q --shared ${JSON.stringify(realEngine)} ${JSON.stringify(engineRepo)}`);
+execSync(`ln -s ${JSON.stringify(join(realEngine, "third_party/lib"))} ${JSON.stringify(join(engineRepo, "third_party/lib"))}`);
+writeFileSync(join(engineRepo, ".git/info/exclude"), "/third_party/lib\n", { flag: "a" });
 writeFileSync(
 	join(userData, "settings.json"),
 	JSON.stringify({
-		engineRepo: process.env.ENGINE_REPO ?? join(homedir(), "Projects/headless-game-engine"),
+		engineRepo,
 		studioRepo: resolve("."),
 		worktreeRoot: join(root, "worktrees"),
 		recentProjects: [],

@@ -168,6 +168,12 @@ export class WorktreeStore {
 
 	/** The branch's changes since it was made, including uncommitted work in the checkout. */
 	async diff(w: Worktree): Promise<string> {
+		if (!this.hasCheckout(w) && !(await g.branchExists(w.repoPath, w.record.branch))) {
+			// Merged, and its branch deleted: its changes are the merge commit's.
+			const merge = (await g.git(w.repoPath, ["log", "--merges", "-1", "--format=%H", "--fixed-strings", `--grep=(worktree ${w.record.id})`, w.record.baseBranch]).catch(() => "")).trim();
+			if (merge) return g.git(w.repoPath, ["diff", `${merge}^1`, merge]);
+			return `(“${w.record.label}” was ${w.record.status} and its branch is gone: no changes to show)\n`;
+		}
 		const base = await this.base(w);
 		if (!this.hasCheckout(w)) return g.git(w.repoPath, ["diff", base, w.record.branch]);
 		const dir = this.path(w);

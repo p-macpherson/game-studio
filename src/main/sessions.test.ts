@@ -93,8 +93,9 @@ describe("SessionService", () => {
 		expect(existsSync(s.worktreePath)).toBe(false);
 		expect(sh(project, "log", "-1", "--format=%s")).toMatch(/^studio: worktree .* merged/);
 		expect(sh(project, "status", "--porcelain")).toBe("");
-		// Its branch is deleted: main has its work.
+		// Its branch is deleted: main has its work; its diff is still there (the merge commit's).
 		expect(sh(project, "branch", "--list", s.branch).trim()).toBe("");
+		expect(await service.diff(s.id)).toContain("+add a note");
 
 		// Resume recreates the worktree (a new branch from main, which has its work) and the conversation continues.
 		await service.resume(s.id);
