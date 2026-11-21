@@ -58,6 +58,8 @@ export type StudioRequestMethod =
 	| "make_ui_art"
 	| "edit_ui"
 	| "preview_ui"
+	| "check_shader"
+	| "preview_shader"
 	| "generate_concepts"
 	| "generate_model"
 	| "retexture_model"

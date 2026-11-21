@@ -158,6 +158,32 @@ describe.skipIf(!existsSync(join(engineRepo, "third_party/lib")))("RunService", 
 		}
 	}, 60_000);
 
+	it("checks a material shader and previews it over time in the game's engine", async () => {
+		const dir = join(project, "assets/shaders");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(
+			join(dir, "wave.glsl"),
+			"// @param float height = 0.3 [0, 1]\n// @bounds 0.4\nvoid vertex(inout Vertex v) { v.position.y += sin(v.position.x * 3.0 + u_time * 3.0) * height; }\nvoid surface(inout Surface s) { s.albedo = vec3(0.1, 0.4, 0.8); }\n",
+		);
+		writeFileSync(join(dir, "broken.glsl"), "void surface(inout Surface s) {\n    s.albedo = nope;\n}\n");
+		try {
+			expect(await runner.checkShader(null, "wave")).toMatchObject({ ok: true, errors: [], params: [{ name: "height", kind: "float", default: 0.3 }], hooks: { vertex: true, surface: true } });
+			const broken = await runner.checkShader(null, "broken");
+			expect(broken.ok).toBe(false);
+			expect(broken.errors[0].line).toBe(2);
+
+			const r = await runner.previewShader(null, { shader: "wave", params: { height: 0.4, speed: 2 }, times: [0, 1] });
+			expect(r.frames.map((f) => f.time)).toEqual([0, 1]);
+			expect(r.frames[0].image).toMatch(/^data:image\/jpeg;base64,/);
+			// The game is paused: only the pinned shader time moves the waves.
+			expect(r.frames[0].image).not.toBe(r.frames[1].image);
+			expect(r.shader).toEqual({ ok: true, errors: [] });
+			expect(r.problems).toEqual(["params.speed: the shader has no such @param (it has height)"]);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	}, 90_000);
+
 	it("opens a scene paused for the Scenes editor, with file ids and picking", async () => {
 		const run = await runner.start(null, "hidden", { scene: "scenes/main.json" });
 		expect(run).toMatchObject({ state: "running", scene: "scenes/main.json" });

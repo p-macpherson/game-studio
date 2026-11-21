@@ -1,7 +1,8 @@
 // Scenes: structured edits to scene and prefab files in a checkout (the Scenes section's buttons, run in a
 // session's worktree through `workspace.run`). The file is the truth; see src/shared/scene.ts.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { applyEdits, formatScene, parseScene, type SceneEdit, stripJson5, validateScene } from "../shared/scene";
+import { applyEdits, formatScene, parseScene, type SceneEdit, type SceneFile, stripJson5, validateScene } from "../shared/scene";
+import { sceneShaderProblems, validatePost } from "../shared/shader";
 import { safeJoin } from "./assets";
 import { handler, type StudioRequestHandlers } from "./studio-requests";
 
@@ -36,7 +37,16 @@ export function editScene(cwd: string, p: { path: string; edits: SceneEdit[] }):
 	const r = applyEdits(parsed.scene, p.edits);
 	writeFileSync(file, formatScene(r.scene));
 	const prefabs = r.scene.entities.flatMap((e) => (e.prefab ? [e.prefab] : [])).filter((x) => !existsSync(safeJoin(cwd, `assets/${x}`)));
-	return { created: r.created, deleted: r.deleted, problems: [...validateScene(r.scene), ...prefabs.map((x) => `prefab ${x} not found`)] };
+	return { created: r.created, deleted: r.deleted, problems: [...validateScene(r.scene), ...prefabs.map((x) => `prefab ${x} not found`), ...shaderProblems(cwd, r.scene)] };
+}
+
+/** Material shaders a scene uses that are missing or given params they don't declare, and a bad `post` block. */
+export function shaderProblems(cwd: string, scene: SceneFile): string[] {
+	const read = (path: string) => {
+		const file = safeJoin(cwd, `assets/${path}`);
+		return existsSync(file) ? readFileSync(file, "utf8") : null;
+	};
+	return [...sceneShaderProblems(scene.entities, read), ...validatePost(scene.environment?.post)];
 }
 
 /** The Scenes section's requests (see studio-requests.ts). `preview` shows a scene in the game's engine (RunService.previewScene). */

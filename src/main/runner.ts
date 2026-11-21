@@ -19,7 +19,8 @@ import {
 } from "../shared/run";
 import { parseScene, type SceneEntity, validateScene } from "../shared/scene";
 import { safeJoin, walk } from "./assets";
-import { normalizeSceneFile } from "./scenes";
+import { parseShader, type ShaderInfo, shaderPath, validateShaderParams } from "../shared/shader";
+import { normalizeSceneFile, shaderProblems } from "./scenes";
 import { readScreen } from "./ui";
 import { screenInterface } from "../shared/ui-screen";
 import { EngineClient, freePort } from "./engine-client";
@@ -86,6 +87,24 @@ interface ExecResult {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** What preview_shader shows: a shader (by name) on a mesh, or in a scene, at some moments. */
+export interface ShaderPreview {
+	shader: string;
+	params?: Record<string, unknown>;
+	/** A built-in mesh ("sphere", "cube", "grid", "plane", …) or a model path ("models/fern/fern.glb"). Default: grid when it moves vertices, else sphere. */
+	mesh?: string;
+	transparent?: boolean;
+	/** Shader times (seconds) to show; default 0, 0.5, 1, 1.5; at most 8. */
+	times?: number[];
+	/** Show it in this scene (repo-relative) as the scene uses it, instead of on a mesh. */
+	scene?: string;
+	view?: { position: number[]; target: number[] };
+	/** Post-processing for the preview (the environment's `post`). */
+	post?: Record<string, unknown>;
+}
+
+const hooks = (info: ShaderInfo) => ({ vertex: info.hasVertex, surface: info.hasSurface, depth_fade: info.usesDepth, bounds: info.bounds });
 
 export class RunService {
 	private run: ActiveRun | null = null;
@@ -289,7 +308,7 @@ export class RunService {
 		const problems = [
 			...(reformatted ? [`${path} was rewritten in another layout; it's back to one entity per line (keep that layout when you edit it, so diffs stay small)`] : []),
 			...errors,
-			...(scene ? validateScene(scene) : []),
+			...(scene ? [...validateScene(scene), ...shaderProblems(co.cwd, scene)] : []),
 		];
 		const built = await this.exec(co, ["build"]);
 		if (built.code !== 0) {
@@ -363,6 +382,119 @@ export class RunService {
 			return await this.shoot(co, file, entities as SceneEntity[], [{ position: [-2.6, 2.4, -2.6], target: [0.4, 0, 0.4] }, { position: [0.2, 7, -0.3], target: [0, 0, 0] }], []);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
+		}
+	}
+
+	/**
+	 * Compiles a material shader (`assets/shaders/<name>.glsl`) in the game's engine without using it: its params as
+	 * declared, compile errors with the line in the file, and whether it defines vertex() and surface().
+	 */
+	async checkShader(sessionId: CheckoutId, name: string) {
+		const co = this.checkout(sessionId);
+		const { info } = this.readShader(co, name);
+		return this.withEngine(co, ["--mode=hidden", "--width=320", "--height=180", "--fps=60", "--paused"], async (client) => {
+			const r = (await this.shaderCall(client, "shader_check", { path: shaderPath(name) })) as { ok: boolean; errors: { line: number; message: string }[] };
+			return { ok: r.ok, errors: r.errors, params: info.params, hooks: hooks(info) };
+		});
+	}
+
+	/**
+	 * A material shader in the game's engine at several moments (its `u_time` pinned), so motion shows as a sequence:
+	 * on a mesh under a sun (a temp scene outside the checkout), or in one of the game's scenes as it is. Returns the
+	 * frames, the shader's compile state and params, and problems with the params given.
+	 */
+	async previewShader(sessionId: CheckoutId, p: ShaderPreview) {
+		const co = this.checkout(sessionId);
+		const { info } = this.readShader(co, p.shader);
+		const problems = validateShaderParams(info, p.params);
+		const times = (p.times?.length ? p.times : [0, 0.5, 1, 1.5]).slice(0, 8);
+		let scene: string;
+		let dir: string | undefined;
+		let camera: { position: number[]; target: number[] } | undefined = p.view;
+		if (p.scene) {
+			if (!existsSync(safeJoin(co.cwd, p.scene))) throw new Error(`No ${p.scene} in this checkout`);
+			scene = p.scene.replace(/^assets\//, "");
+		} else {
+			const mesh = p.mesh ?? (info.hasVertex ? "grid" : "sphere");
+			const flat = mesh === "plane" || mesh === "grid";
+			const subject = {
+				id: 3,
+				Name: "Subject",
+				// Lifted clear of the ground by how far it may move vertices, so troughs don't sink into it.
+				Transform: flat ? { position: [0, info.hasVertex ? Math.max(info.bounds, 0.3) + 0.05 : 0.05, 0], scale: [3, 1, 3] } : { position: [0, mesh.includes("/") ? 0 : 0.75, 0], scale: mesh.includes("/") ? [1, 1, 1] : [1.3, 1.3, 1.3] },
+				Mesh_Renderer: { mesh, material: { shader: shaderPath(p.shader), ...(p.params ? { params: p.params } : {}), ...(p.transparent || info.usesDepth ? { transparent: true } : {}) } },
+			};
+			const entities = [
+				{ id: 1, Name: "Sun", Transform: { rotation: [40, 35, 0] }, Light: { kind: "Directional", intensity: 1.1, shadows: true } },
+				{ id: 2, Name: "Ground", Transform: { position: [0, -0.5, 0], scale: [12, 1, 12] }, Mesh_Renderer: { mesh: "cube", material: { color: [0.45, 0.45, 0.42, 1], roughness: 0.9 } } },
+				subject,
+				// Something to sit in or behind the subject, so transparency and depth_fade show.
+				{ id: 4, Name: "Stone", Transform: { position: [0.6, 0, 0.4], scale: [0.6, 0.5, 0.6] }, Mesh_Renderer: { mesh: "sphere", material: { color: [0.55, 0.5, 0.45, 1] } } },
+			];
+			dir = mkdtempSync(join(tmpdir(), "gs-shader-"));
+			scene = join(dir, "preview.json");
+			writeFileSync(scene, JSON.stringify({ ...(p.post ? { environment: { post: p.post } } : {}), entities }));
+			camera ??= flat ? { position: [0, 3.2, -3.4], target: [0, 0, 0.2] } : { position: [1.4, 1.7, -2.8], target: [0, 0.7, 0] };
+		}
+		try {
+			return await this.withEngine(co, ["--mode=hidden", "--width=640", "--height=360", "--fps=60", "--paused", `--scene=${scene}`], async (client) => {
+				await client.call("debug", { game_ui: false });
+				if (p.scene && p.post) await client.call("environment", { value: { post: p.post } });
+				await client.call("camera", camera ? { ...camera, fov: 50 } : { reset: true });
+				const frames: { time: number; image: string }[] = [];
+				for (const time of times) {
+					await this.shaderCall(client, "shader_time", { value: time });
+					await client.call("wait", { frames: 3 });
+					const shot = (await client.call("screenshot", { inline: true, format: "jpeg", quality: 85 })) as { jpeg_base64: string };
+					frames.push({ time, image: `data:image/jpeg;base64,${shot.jpeg_base64}` });
+				}
+				const loaded = (await client.call("shaders")) as { path: string; ok: boolean; errors: { line: number; message: string }[]; variants: string[] }[];
+				const state = loaded.find((s) => s.path === shaderPath(p.shader));
+				const logs = (await client.call("logs")) as { level: string; text: string }[];
+				return {
+					frames,
+					shader: state ? { ok: state.ok, errors: state.errors } : { ok: false, errors: [{ line: 0, message: "nothing in the view drew with it" }] },
+					params: info.params,
+					hooks: hooks(info),
+					problems,
+					warnings: logs.filter((l) => ["warn", "error"].includes(l.level.trim()) && !/u32 to u16|^shader /.test(l.text)).map((l) => l.text),
+				};
+			});
+		} finally {
+			if (dir) rmSync(dir, { recursive: true, force: true });
+		}
+	}
+
+	private readShader(co: CheckoutInfo, name: string): { info: ShaderInfo } {
+		const file = safeJoin(co.cwd, `assets/${shaderPath(name)}`);
+		if (!existsSync(file)) throw new Error(`No assets/${shaderPath(name)} in this checkout`);
+		return { info: parseShader(readFileSync(file, "utf8")) };
+	}
+
+	/** Builds the game, runs it with `args` and a control port, and gives `use` the client; always quits it. */
+	private async withEngine<T>(co: CheckoutInfo, args: string[], use: (client: EngineClient) => Promise<T>): Promise<T> {
+		const built = await this.exec(co, ["build"]);
+		if (built.code !== 0) throw new Error(`The game doesn't build, so its engine can't run:\n${(built.stdout + built.stderr).trim().split("\n").slice(-12).join("\n")}`);
+		const port = await freePort();
+		const proc = await this.launch(co, [...args, `--control=${port}`]);
+		let client: EngineClient | undefined;
+		try {
+			client = await EngineClient.connect(port, () => proc.exitCode === null);
+			return await use(client);
+		} finally {
+			await client?.call("quit").catch(() => {});
+			client?.close();
+			setTimeout(() => proc.exitCode === null && proc.kill("SIGKILL"), 2000);
+		}
+	}
+
+	/** A shader command, with a clear error from an engine older than material shaders. */
+	private async shaderCall(client: EngineClient, cmd: string, args: Record<string, unknown>): Promise<unknown> {
+		try {
+			return await client.call(cmd, args);
+		} catch (e) {
+			if (/unknown command/i.test(String(e))) throw new Error(`This game's engine predates material shaders: update the engine (Game Code → Update engine) first`);
+			throw e;
 		}
 	}
 

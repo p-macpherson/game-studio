@@ -367,6 +367,43 @@ export function studioTools(ctx: StudioToolContext) {
 			},
 		}),
 		defineTool({
+			name: "check_shader",
+			label: "Check a material shader",
+			description:
+				"Compile a material shader (assets/shaders/<name>.glsl) in the game's own engine without using it. Returns ok, compile errors with the line in " +
+				"your file, the @params as the studio reads them (name, kind, default, range, line) and which hooks it defines (vertex, surface, depth_fade, " +
+				"bounds). Run it after every edit to a shader file; fix errors before previewing.",
+			parameters: Type.Object({ shader: Type.String({ description: "The shader's name: 'water' for assets/shaders/water.glsl, 'nature/wind' for a folder" }) }),
+			async execute(_id, params, signal, onUpdate) {
+				return ok(JSON.stringify(await ctx.request("check_shader", params, signal, progressTo(onUpdate)), null, 2));
+			},
+		}),
+		defineTool({
+			name: "preview_shader",
+			label: "Preview a material shader",
+			description:
+				"See a material shader in the game's own engine at several moments (its time pinned), so motion shows as a sequence of frames: on a mesh under " +
+				"a sun beside a stone (default: a 3 m grid if it moves vertices, else a sphere), or with scene: in one of the game's scenes as that scene uses it " +
+				"(its own camera, or view). Pass params to try values before writing them into a material, and post to try post-processing. Returns the frames " +
+				"(640x360, in time order), compile errors (line in your file), problems with the params, and engine warnings. Compare frames to judge motion: " +
+				"too fast, too uniform, popping.",
+			parameters: Type.Object({
+				shader: Type.String({ description: "The shader's name: 'water' for assets/shaders/water.glsl" }),
+				params: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: "Values for its @params, e.g. {\"wave_height\": 0.05, \"deep\": \"#1d4a5a\"}" })),
+				mesh: Type.Optional(Type.String({ description: "A built-in mesh (sphere, cube, cylinder, cone, plane, grid) or a model path ('models/fern/fern.glb')" })),
+				transparent: Type.Optional(Type.Boolean({ description: "Alpha-blend the material (needed for depth_fade; on automatically when the shader uses it)" })),
+				times: Type.Optional(Type.Array(Type.Number(), { description: "Shader times in seconds (default [0, 0.5, 1, 1.5]; at most 8)" })),
+				scene: Type.Optional(Type.String({ description: "Show it in this scene as the scene uses it, e.g. 'assets/scenes/clearing.json'" })),
+				view: Type.Optional(Type.Object({ position: Type.Array(Type.Number()), target: Type.Array(Type.Number()) })),
+				post: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: "Post-processing to try, as the environment's post block: {\"bloom\": 0.6, \"vignette\": 0.3}" })),
+			}),
+			async execute(_id, params, signal, onUpdate) {
+				const { frames, ...rest } = (await ctx.request("preview_shader", params, signal, progressTo(onUpdate))) as { frames: { time: number; image: string }[] };
+				const text = `${JSON.stringify(rest, null, 2)}\nFrames at t = ${frames.map((f) => f.time).join(", ")} s, in order:`;
+				return { content: [{ type: "text" as const, text }, ...frames.flatMap((f) => image(f.image))], details: {} };
+			},
+		}),
+		defineTool({
 			name: "move_asset",
 			label: "Move asset",
 			description:

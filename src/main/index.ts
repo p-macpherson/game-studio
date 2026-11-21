@@ -19,6 +19,7 @@ import { sceneRequests } from "./scenes";
 import { SoundPipeline, soundRequests, soundUsages } from "./sounds";
 import { studioRequests } from "./studio-requests";
 import { TexturePipeline, textureRequests } from "./textures";
+import { shaderRequests } from "./shaders";
 import { UiArtPipeline, uiRequests } from "./ui";
 import { texturePaths } from "../modules/textures/info";
 import { RunService, type SceneView } from "./runner";
@@ -94,6 +95,7 @@ async function main(): Promise<void> {
 		textureRequests(textures),
 		sceneRequests((sessionId, p) => runner.previewScene(sessionId, String(p.scene), p.views as SceneView[] | undefined)),
 		uiRequests(uiArt, (sessionId, p) => runner.previewUi(sessionId, p.screen, p.values)),
+		shaderRequests({ check: (sessionId, name) => runner.checkShader(sessionId, name), preview: (sessionId, p) => runner.previewShader(sessionId, p) }),
 		assetRequests(moduleInfos),
 	);
 	const sessions = new SessionService({

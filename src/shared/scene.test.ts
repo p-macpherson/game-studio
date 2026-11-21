@@ -10,6 +10,7 @@ import {
 	parseScene,
 	quatToEuler,
 	setComponent,
+	setEnvironment,
 	validateScene,
 	type ComponentSchema,
 	type SceneFile,
@@ -133,5 +134,13 @@ describe("lenient parsing", () => {
 		const { scene } = parseScene('{"entities": [{"id": 1, "Squad": {"members": [1, 7, 0]}}]}');
 		const schemas = [{ name: "Squad", flags: [], fields: [{ name: "members", type: "[3]Entity" }] }];
 		expect(validateScene(scene!, { schemas })).toEqual(["entity 1 (#1): Squad.members refers to unknown id 7"]);
+	});
+});
+
+describe("setEnvironment", () => {
+	it("merges into the post block instead of replacing it; null removes a key", () => {
+		const scene: SceneFile = { environment: { exposure: 1.1, post: { bloom: 0.5, vignette: 0.3 } }, entities: [] };
+		const next = setEnvironment(scene, { post: { vignette: null, contrast: 0.1 }, fog_density: 0.01 });
+		expect(next.environment).toEqual({ exposure: 1.1, post: { bloom: 0.5, contrast: 0.1 }, fog_density: 0.01 });
 	});
 });

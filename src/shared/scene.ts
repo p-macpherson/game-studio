@@ -287,12 +287,18 @@ export function setEntityNotes(scene: SceneFile, id: number, notes: string): Sce
 }
 
 export function setEnvironment(scene: SceneFile, patch: Record<string, unknown>): SceneFile {
-	const env: Record<string, unknown> = { ...(scene.environment ?? {}) };
+	return { ...scene, environment: mergePatch(scene.environment ?? {}, patch) };
+}
+
+/** A patch over an object: null removes a key, objects (`post`) merge into the ones already there, the rest replace. */
+function mergePatch(base: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
+	const out: Record<string, unknown> = { ...base };
 	for (const [k, v] of Object.entries(patch)) {
-		if (v === null) delete env[k];
-		else env[k] = v;
+		if (v === null) delete out[k];
+		else if (isObject(v) && isObject(out[k])) out[k] = mergePatch(out[k] as Record<string, unknown>, v);
+		else out[k] = v;
 	}
-	return { ...scene, environment: env };
+	return out;
 }
 
 /** Adds an entity (its id assigned unless given) after the last entity; returns the new scene and the id. */
