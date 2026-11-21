@@ -310,6 +310,8 @@ export class RunService {
 		let client: EngineClient | undefined;
 		try {
 			client = await EngineClient.connect(port, () => proc.exitCode === null);
+			// The game's own UI (a title it shows at start, a HUD) would cover the model.
+			await client.call("debug", { game_ui: false });
 			const at = [800, 0, 800];
 			const size = Math.max(height, 0.5);
 			await client.call("spawn", { name: "StudioPreviewGround", position: at, components: { Mesh_Renderer: { mesh: "plane", material: { color: [0.36, 0.38, 0.42, 1] } } } });

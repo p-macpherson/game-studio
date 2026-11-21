@@ -158,6 +158,27 @@ describe.skipIf(!existsSync(join(engineRepo, "third_party/lib")))("RunService", 
 		}
 	}, 60_000);
 
+	it("previews a model with the game's own screens hidden (a title shown at start covered it)", async () => {
+		const main = join(project, "game/main.odin");
+		const code = readFileSync(main, "utf8");
+		mkdirSync(join(project, "assets/ui"), { recursive: true });
+		mkdirSync(join(project, "assets/models/biped"), { recursive: true });
+		writeFileSync(join(project, "assets/models/biped/biped.glb"), readFileSync(resolve("gen/workers/fixtures/biped.glb")));
+		try {
+			const plain = await runner.preview(null, "assets/models/biped/biped.glb", 1.6);
+			// A full-screen magenta title, shown by the game as it starts.
+			writeFileSync(join(project, "assets/ui/title.json"), JSON.stringify({ elements: [{ id: "bg", type: "panel", color: "#ff00ff", anchor: "center", size: [4000, 4000] }] }));
+			writeFileSync(main, code.replace('cube = engine.find("Cube")', 'cube = engine.find("Cube")\n\tengine.ui_show("title")'));
+			const titled = await runner.preview(null, "assets/models/biped/biped.glb", 1.6);
+			// Covered, a frame is flat magenta: a far smaller JPEG than the model on its ground.
+			titled.images.forEach((img, i) => expect(img.length).toBeGreaterThan(plain.images[i].length * 0.8));
+		} finally {
+			writeFileSync(main, code);
+			rmSync(join(project, "assets/ui"), { recursive: true, force: true });
+			rmSync(join(project, "assets/models/biped"), { recursive: true, force: true });
+		}
+	}, 90_000);
+
 	it("checks a material shader and previews it over time in the game's engine", async () => {
 		const dir = join(project, "assets/shaders");
 		mkdirSync(dir, { recursive: true });
