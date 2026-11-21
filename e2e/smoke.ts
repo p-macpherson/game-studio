@@ -839,6 +839,35 @@ try {
 	await page.getByTestId("variant-row").nth(1).waitFor();
 	await step("30-sound-merged", page);
 
+	// Voice Lines: "New voice" starts a Voice Director session that performs a line (fake worker); the section shows the
+	// voice and the line's takes; a second line is added and performed by hand there, and another take of it is chosen.
+	await nav.getByRole("button", { name: "Voice Lines" }).click();
+	await page.getByRole("button", { name: "+ New voice" }).click();
+	await page.locator(".agent-type.on", { hasText: "Voice Director" }).waitFor();
+	await page.getByTestId("new-session-prompt").fill('tool generate_voice_takes {"name": "e2e-narrator", "line": "intro", "text": "Long ago, in a forest.", "direction": "Calm.", "voice": "An old storyteller with a deep voice.", "count": 2, "seed": 11}');
+	await page.getByRole("button", { name: "Start session" }).click();
+	await page.getByTestId("chat").getByText(/^Result:[\s\S]*intro\.ogg/).waitFor({ timeout: 60_000 });
+	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
+	await nav.getByRole("button", { name: "Voice Lines" }).click();
+	await page.getByTestId("asset-item").filter({ hasText: "e2e-narrator" }).click();
+	const intro = page.locator('[data-testid=voice-line][data-line=intro][data-state=ok]');
+	await intro.getByTestId("voice-take").nth(1).waitFor({ timeout: 30_000 });
+	await intro.getByTestId("line-play").waitFor();
+	await page.getByTestId("new-line-id").fill("warning");
+	await page.getByTestId("new-line-text").fill("Run!");
+	await page.getByTestId("new-line-direction").fill("Shouting.");
+	await page.getByTestId("new-line-perform").click();
+	const warning = page.locator("[data-testid=voice-line][data-line=warning]");
+	await warning.getByTestId("voice-take").nth(3).waitFor({ timeout: 60_000 });
+	await warning.getByTestId("take-match").first().filter({ hasText: /^\d\.\d{3}/ }).waitFor();
+	const before = await warning.locator(".voice-take.chosen").getAttribute("data-take");
+	await warning.getByTestId("take-use").first().click();
+	await page.waitForFunction((was) => { const now = document.querySelector("[data-line=warning] .voice-take.chosen")?.getAttribute("data-take"); return !!now && now !== was; }, before, { timeout: 30_000 });
+	await step("52-voice-lines", page);
+	await page.getByTestId("worktree-merge").click();
+	await page.getByTestId("merge-confirm").click();
+	await page.getByTestId("asset-item").filter({ hasText: "e2e-narrator" }).getByTestId("change-label").waitFor({ state: "detached", timeout: 30_000 });
+
 	// Sub-agents: a session delegates a task; the Sessions list shows the child under its parent, and the child
 	// links back to it.
 	await nav.getByRole("button", { name: "Sessions" }).click();

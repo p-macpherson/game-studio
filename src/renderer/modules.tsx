@@ -8,6 +8,7 @@ import { EffectsView } from "../modules/effects/view";
 import { ScenesView } from "../modules/scenes/view";
 import { ShadersView } from "../modules/shaders/view";
 import { SoundsView } from "../modules/sounds/view";
+import { VoicesView } from "../modules/voices/view";
 import { TexturesView } from "../modules/textures/view";
 import { UiView } from "../modules/ui/view";
 import type { ModuleInfo } from "../shared/modules";
@@ -21,6 +22,7 @@ export const MODULE_VIEWS: Record<string, ComponentType<{ module: ModuleInfo }>>
 	effects: EffectsView,
 	shaders: ShadersView,
 	sounds: SoundsView,
+	voices: VoicesView,
 	textures: TexturesView,
 	ui: UiView,
 };

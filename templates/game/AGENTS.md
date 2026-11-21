@@ -10,7 +10,7 @@ submodule. Read `engine/README.md`, `engine/docs/making-a-game.md` (game API) an
 |---|---|
 | `docs/design/` | The design docs (markdown): the user's decisions about the game, each with a `status` (`not-established`, `draft`, `established`). The source of truth for what the game should be; changed only with the user, in a Game Designer session |
 | `game/` | The game's Odin package |
-| `assets/` | `models/` (glTF), `textures/`, `music/`, `sounds/`, `scenes/` and `prefabs/` (engine JSON) |
+| `assets/` | `models/` (glTF), `textures/`, `music/`, `sounds/`, `voices/` (characters' voice lines), `scenes/` and `prefabs/` (engine JSON) |
 | `tests/` | Control-protocol scripts (`.jsonl`) run by `./build.sh test` |
 | `engine/` | Engine submodule: **don't edit it here**. Engine changes are made in an engine session |
 | `.studio/` | Game Studio metadata and session records: **don't edit** |

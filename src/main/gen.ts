@@ -14,6 +14,7 @@ const WORKER_SCRIPT: Record<GenFamily, string> = {
 	hunyuan3d: "hunyuan_worker.py",
 	unirig: "unirig_worker.py",
 	"stable-audio": "audio_worker.py",
+	voice: "voice_worker.py",
 	surface: "surface_worker.py",
 };
 /** The Python environment a family runs in, when it isn't one of its own. */
@@ -237,6 +238,11 @@ export class GenService {
 						"envs/stable-audio/bin/python",
 						"models/stabilityai/stable-audio-open-small/model.safetensors",
 						"models/laion/larger_clap_general/pytorch_model.bin",
+					]),
+					component("voice", "Voice lines (Qwen3-TTS VoiceDesign)", [
+						"envs/voice/bin/python",
+						"models/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign/model.safetensors",
+						"models/Qwen/Qwen3-TTS-speaker-encoder/model.safetensors",
 					]),
 				];
 		components.push(musicComponent(soundfontPath(root)));

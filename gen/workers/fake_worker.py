@@ -1,7 +1,7 @@
 """Fake worker for tests (GAME_STUDIO_GEN_FAKE=1): speaks the real protocol but writes fixture files instead of
 running models, so the queue, tools and UI can be exercised without a GPU. Runs on any Python 3.
 
-Ops: image, surface, surface_make, shape, texture, rig, sound (same params and result shapes as the real workers). For testing the service
+Ops: image, surface, surface_make, shape, texture, rig, sound, voice (same params and result shapes as the real workers). For testing the service
 itself, any op accepts "crash", "fail" and "sleep" params (see step). FAKE_WORKER_DELAY sets the default delay.
 """
 import math
@@ -166,6 +166,27 @@ def sound(job: Job, p: dict) -> dict:
     return {"takes": takes, "model": "fake"}
 
 
+def voice(job: Job, p: dict) -> dict:
+    step(job, "voice", p)
+    # A stand-in take per seed: a short tone, with a voiceprint near one fixed "voice". A seed divisible by 5 drifts
+    # (its voiceprint leans away), so matching and the drift flag have something to find.
+    takes = []
+    os.makedirs(p["out_dir"], exist_ok=True)
+    for seed in p["seeds"]:
+        rng = random.Random(seed)
+        freq, rate = 150 + rng.random() * 200, 24000
+        seconds = 0.4 + 0.05 * len(p["text"].split())
+        path = os.path.join(p["out_dir"], f"{p['name']}-{seed}.wav")
+        with wave.open(path, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(rate)
+            w.writeframes(b"".join(struct.pack("<h", int(0.4 * math.sin(2 * math.pi * freq * i / rate) * min(1, i / 400) * 32767)) for i in range(int(seconds * rate))))
+        near, far = (0.3, 1.0) if seed % 5 == 0 else (1.0, 0.0)
+        takes.append({"seed": seed, "path": path, "voiceprint": [round((near if i < 4 else far) + rng.uniform(-0.02, 0.02), 4) for i in range(8)]})
+    return {"takes": takes, "model": "fake"}
+
+
 def rig(job: Job, p: dict) -> dict:
     step(job, "rig", p)
     # A small rigged stick figure shaped like UniRig's output (fixtures/make_biped.py), so animate.py has a biped.
@@ -173,4 +194,4 @@ def rig(job: Job, p: dict) -> dict:
 
 
 if __name__ == "__main__":
-    serve({"image": image, "surface": surface, "surface_make": surface_make, "ui_cut": ui_cut, "ui_make": ui_make, "particle_cut": particle_cut, "particle_make": particle_make, "shape": shape, "texture": texture, "rig": rig, "sound": sound})
+    serve({"image": image, "surface": surface, "surface_make": surface_make, "ui_cut": ui_cut, "ui_make": ui_make, "particle_cut": particle_cut, "particle_make": particle_make, "shape": shape, "texture": texture, "rig": rig, "sound": sound, "voice": voice})

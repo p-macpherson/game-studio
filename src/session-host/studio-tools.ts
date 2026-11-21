@@ -238,6 +238,44 @@ export function studioTools(ctx: StudioToolContext) {
 			},
 		}),
 		defineTool({
+			name: "generate_voice_takes",
+			label: "Generate voice takes",
+			description:
+				"Have a local model (Qwen3-TTS VoiceDesign, a few seconds a take) perform one line of a character's voice several times, into " +
+				"assets/voices/<name>/takes/<line>-<seed>.wav. The voice is the character's description in voice.json plus this line's direction, and every take " +
+				"is a fresh performance by a slightly different voice. You can't listen, so each take comes back with its measurements and its match: how close " +
+				"its voice measures to the character's other chosen lines (1 = identical; a rough guide for comparing a line's takes, since a character's own " +
+				"takes score 0.94-0.99 but another character's can too; drifted marks a take plainly not the character's; a voice's first line has no match). When the line has no take of what it now says, the best-matching take is chosen and rendered to " +
+				"<line>.ogg. A new voice needs 'voice'; a new line needs 'text'. If the chosen take is drifted, generate again (other seeds) before changing the " +
+				"description. See the voice-lines skill.",
+			parameters: Type.Object({
+				name: Type.String({ description: "The voice's folder under assets/voices/, lower-kebab-case, with '/' for folders: e.g. 'narrator', 'villagers/merchant'" }),
+				line: Type.String({ description: "The line's id, lower-kebab-case: it names the file the game plays, e.g. 'greeting' -> greeting.ogg" }),
+				text: Type.Optional(Type.String({ description: "The words spoken (needed for a new line; changes an existing one)" })),
+				direction: Type.Optional(Type.String({ description: "How this line is said, e.g. 'Shouting in alarm, urgent, at the top of his voice.'" })),
+				voice: Type.Optional(Type.String({ description: "The voice's description (needed for a new voice; changes an existing one, which outdates its lines), e.g. 'An older British man with a deep, warm, slightly gravelly voice; an unhurried storyteller.'" })),
+				language: Type.Optional(Type.String({ description: "Default English" })),
+				count: Type.Optional(Type.Number({ description: "How many takes (1-8, default 4)" })),
+				seed: Type.Optional(Type.Number({ description: "First seed (default random); takes use seed, seed+1, …" })),
+			}),
+			async execute(_id, params, signal, onUpdate) {
+				return ok(JSON.stringify(await ctx.request("generate_voice", params, signal, progressTo(onUpdate)), null, 2));
+			},
+		}),
+		defineTool({
+			name: "render_voice",
+			label: "Render voice",
+			description:
+				"Validate assets/voices/<name>/voice.json (see the voice-lines skill) and render each line's chosen take, trimmed and levelled, into <line>.ogg. " +
+				"The game plays one with engine.play_sound(\"voices/<name>/<line>.ogg\"). Returns every line with its measurements, its voice match against the " +
+				"character's other lines (drifted: plainly not the same voice) and outdated (its take is of an earlier text, direction or voice: generate takes " +
+				"again). Run it after editing voice.json by hand, e.g. after choosing another take.",
+			parameters: Type.Object({ name: Type.String({ description: "The voice's folder name under assets/voices/" }) }),
+			async execute(_id, params, signal, onUpdate) {
+				return ok(JSON.stringify(await ctx.request("render_voice", params, signal, progressTo(onUpdate)), null, 2));
+			},
+		}),
+		defineTool({
 			name: "render_sound",
 			label: "Render sound",
 			description:

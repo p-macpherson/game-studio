@@ -1609,6 +1609,38 @@ button.link {
 	overflow: auto;
 	height: 100%;
 }
+.voice-detail .warn {
+	color: var(--yellow);
+}
+.voice-detail textarea,
+.voice-detail .card > input {
+	width: 100%;
+	box-sizing: border-box;
+	font: inherit;
+}
+.voice-takes {
+	gap: 4px;
+}
+.voice-take {
+	gap: 10px;
+	align-items: center;
+	padding: 2px 6px;
+	border-radius: 6px;
+}
+.voice-take.chosen {
+	background: color-mix(in srgb, var(--green) 12%, transparent);
+}
+.voice-take .waveform {
+	flex: 0 1 260px;
+	height: 28px;
+}
+.voice-match {
+	width: 96px;
+	font-family: var(--mono);
+}
+.voice-chosen {
+	color: var(--green);
+}
 .sound-head {
 	align-items: flex-start;
 	gap: 12px;

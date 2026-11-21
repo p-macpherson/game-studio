@@ -106,6 +106,8 @@ export interface StudioApi {
 	"effects.textureCandidates"(checkout: string | null, name: string): Promise<{ source: string; seed?: number }[]>;
 	/** A made texture on a plane and a sphere in the game's engine. */
 	"textures.preview"(checkout: string | null, name: string): Promise<{ images: { view: string; image: string }[]; warnings: string[] }>;
+	/** A voice's takes (how each was made, how well its voice matches the character's other lines) and what each line's file was rendered from. */
+	"voices.takes"(checkout: string | null, name: string): Promise<import("../main/voices").VoiceTakes>;
 	"sounds.usages"(checkout: string | null, name: string): Promise<{ path: string; line: number; text: string }[]>;
 
 	"sessions.list"(): Promise<SessionSummary[]>;

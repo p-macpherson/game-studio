@@ -82,6 +82,9 @@ export type StudioRequestMethod =
 	| "preview_scene"
 	| "generate_sound"
 	| "render_sound"
+	| "generate_voice"
+	| "render_voice"
+	| "edit_voice"
 	| "edit_sound"
 	| "delegate";
 

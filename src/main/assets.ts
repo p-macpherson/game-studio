@@ -9,6 +9,7 @@ import { models3d, summarizeModel } from "../modules/3d-models/info";
 import { music, summarizeSong } from "../modules/music/info";
 import { scenes, summarizeScene } from "../modules/scenes/info";
 import { sounds, summarizeSound } from "../modules/sounds/info";
+import { summarizeVoice, voices } from "../modules/voices/info";
 import { summarizeTexture, textures } from "../modules/textures/info";
 import { effects, summarizeEffect } from "../modules/effects/info";
 import { shaders, summarizeShader } from "../modules/shaders/info";
@@ -29,6 +30,7 @@ export const MODULES: ModuleBackend[] = [
 	{ info: models3d, summarize: summarizeModel },
 	{ info: music, summarize: summarizeSong },
 	{ info: sounds, summarize: summarizeSound },
+	{ info: voices, summarize: summarizeVoice },
 	{ info: scenes, summarize: summarizeScene },
 	{ info: textures, summarize: summarizeTexture },
 	{ info: ui, summarize: summarizeUi },

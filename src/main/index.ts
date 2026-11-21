@@ -18,6 +18,7 @@ import { modelRequests, ModelPipeline } from "./models";
 import { MusicPipeline, musicRequests } from "./music";
 import { sceneRequests } from "./scenes";
 import { SoundPipeline, soundRequests, soundUsages } from "./sounds";
+import { VoicePipeline, voiceRequests } from "./voices";
 import { studioRequests } from "./studio-requests";
 import { TexturePipeline, textureRequests } from "./textures";
 import { effectRequests, ParticleTexturePipeline } from "./effects";
@@ -85,6 +86,7 @@ async function main(): Promise<void> {
 	const audio = workerAudio(join(import.meta.dirname, "audio-worker.js"));
 	const music = new MusicPipeline({ soundfont: () => soundfontPath(genRoot), audio });
 	const sounds = new SoundPipeline({ gen, audio });
+	const voices = new VoicePipeline({ gen, audio });
 	const textures = new TexturePipeline(gen);
 	const uiArt = new UiArtPipeline(gen);
 	// Every part of the studio brings its own requests: a new section adds a line here.
@@ -95,6 +97,7 @@ async function main(): Promise<void> {
 		modelRequests(pipeline, (sessionId, name) => previewModel(sessionId, name)),
 		musicRequests(music),
 		soundRequests(sounds),
+		voiceRequests(voices),
 		textureRequests(textures),
 		sceneRequests((sessionId, p) => runner.previewScene(sessionId, String(p.scene), p.views as SceneView[] | undefined)),
 		uiRequests(uiArt, (sessionId, p) => runner.previewUi(sessionId, p.screen, p.values)),
@@ -313,6 +316,7 @@ async function main(): Promise<void> {
 			return runner.previewTexture(checkout, texturePaths(name), t?.tile ?? 2);
 		},
 		"sounds.usages": async (checkout, name) => soundUsages(checkoutRoot(checkout), name),
+		"voices.takes": async (checkout, name) => voices.takes(checkoutRoot(checkout), name),
 
 		"gen.image": async (path) => {
 			// Only images from generation outputs, the open project or session worktrees.

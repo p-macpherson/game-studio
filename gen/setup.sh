@@ -113,6 +113,9 @@ get laion/larger_clap_general ada0c23a36c4e8582805bb38fec3905903f18b41
 # The model's T5 text encoder is loaded by name; the worker runs offline from this cache.
 HF_HOME="$GEN/hf" "${HF_CLI[@]}" download t5-base --revision a9723ea7f1b39c1eae772870f3b547bf6ef7e6c1 config.json spiece.model tokenizer.json model.safetensors >/dev/null
 
+step "Voice lines: Qwen3-TTS VoiceDesign (Apache-2.0)"
+get Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign 5ecdb67327fd37bb2e042aab12ff7391903235d3
+
 step "Environment: image (FLUX.2 Klein)"
 mkenv image
 pip image "${TORCH_CU130[@]}" torch==2.14.1 torchvision
@@ -166,10 +169,23 @@ if [[ ! -x "$(env_python stable-audio)" ]]; then uv venv -q --python 3.10 "$GEN/
 pip stable-audio --index-url https://download.pytorch.org/whl/cu128 --extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match \
 	torch==2.7.1 torchaudio==2.7.1 stable-audio-tools==0.0.20 pytorch_lightning==2.5.5 'numpy<2' soundfile
 
+step "Environment: voice (voice lines)"
+# qwen-tts pins transformers 4.57.3; setuptools < 81 for a dependency that still imports pkg_resources.
+mkenv voice
+pip voice qwen-tts==0.1.1 'setuptools<81'
+# Voiceprints use Qwen3-TTS's speaker encoder, which ships only inside the Base model (4.5 GB): fetch that once, keep
+# the encoder (about 30 MB) and drop the rest.
+if [[ ! -f "$GEN/models/Qwen/Qwen3-TTS-speaker-encoder/model.safetensors" ]]; then
+	get Qwen/Qwen3-TTS-12Hz-1.7B-Base fd4b254389122332181a7c3db7f27e918eec64e3 config.json model.safetensors
+	"$(env_python voice)" "$HERE/workers/voice_worker.py" --extract-speaker-encoder "$GEN/models/Qwen/Qwen3-TTS-12Hz-1.7B-Base" "$GEN/models/Qwen/Qwen3-TTS-speaker-encoder"
+	rm -rf "$GEN/models/Qwen/Qwen3-TTS-12Hz-1.7B-Base"
+fi
+
 step "Checking the environments"
 "$(env_python image)" -c 'import torch, diffusers; assert torch.cuda.is_available(); print("   image ok", torch.__version__)'
 "$(env_python hunyuan3d)" -c 'import torch, hy3dgen, custom_rasterizer, mesh_processor; assert torch.cuda.is_available(); print("   hunyuan3d ok", torch.__version__)'
 "$(env_python unirig)" -c 'import torch, flash_attn, spconv.pytorch, torch_scatter, bpy; assert torch.cuda.is_available(); print("   unirig ok", torch.__version__)'
 "$(env_python stable-audio)" -c 'import torch, stable_audio_tools.inference.generation, transformers; assert torch.cuda.is_available(); print("   stable-audio ok", torch.__version__)'
+"$(env_python voice)" -c 'import torch, qwen_tts; assert torch.cuda.is_available(); print("   voice ok", torch.__version__)'
 du -sh "$GEN/models" | sed 's/^/   weights: /'
 echo "Asset generation is ready."

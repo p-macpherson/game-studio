@@ -7,7 +7,7 @@ import { git, hasCommits, isRepo } from "./git";
 import { ensureStudioIgnore, linkEngineLibs } from "./sessions";
 
 export const PROJECT_FILE = ".studio/project.json";
-const ASSET_DIRS = ["models", "textures", "music", "sounds", "scenes", "prefabs"];
+const ASSET_DIRS = ["models", "textures", "music", "sounds", "voices", "scenes", "prefabs"];
 
 export function readProject(path: string): ProjectInfo {
 	const file = join(path, PROJECT_FILE);

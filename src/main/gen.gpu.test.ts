@@ -7,6 +7,7 @@ import { GenService } from "./gen";
 import { ModelPipeline } from "./models";
 import { SoundPipeline } from "./sounds";
 import { tempDir } from "./test-helpers";
+import { VoicePipeline } from "./voices";
 
 describe.runIf(process.env.GAME_STUDIO_GEN_GPU === "1")("generation on the GPU", () => {
 	it("makes a textured, rigged, engine-ready character from a prompt", async () => {
@@ -40,6 +41,27 @@ describe.runIf(process.env.GAME_STUDIO_GEN_GPU === "1")("generation on the GPU",
 			await gen.dispose();
 		}
 	}, 900_000);
+
+	it("performs a character's voice lines with Qwen3-TTS, matching later lines to the first", async () => {
+		const gen = new GenService({ root: process.env.GAME_STUDIO_GEN ?? join(process.env.HOME!, ".local/share/game-studio/gen"), codeDir: resolve("gen"), emit: () => {} });
+		const voices = new VoicePipeline({ gen });
+		const cwd = tempDir();
+		const ctx = { cwd, progress: (t: string) => console.log(t) };
+		try {
+			const voice = "An older British man with a deep, warm, slightly gravelly voice; an unhurried storyteller.";
+			const first = await voices.generateTakes(ctx, { name: "narrator", line: "intro", text: "Long before the first lantern was lit, the forest kept its gold in silence.", direction: "Calm, grave narration, slow.", voice, count: 2, seed: 100 });
+			expect(first.takes).toHaveLength(2);
+			expect(first.line.seconds).toBeGreaterThan(2);
+			expect(first.line.peak_db).toBeCloseTo(-1, 0);
+			const second = await voices.generateTakes(ctx, { name: "narrator", line: "warning", text: "Run! Run, all of you, the bridge is coming down!", direction: "Shouting in alarm, urgent, at the top of his voice.", count: 3, seed: 200 });
+			console.log(JSON.stringify({ first, second }, null, 1), `\noutputs in ${cwd}`);
+			// Real voiceprints: takes of the same described voice are close (a shout against one calm line: about 0.91-0.96).
+			for (const t of second.takes) expect(t.match).toBeGreaterThan(0.85);
+			expect(second.chosen).toBe([...second.takes].sort((a, b) => b.match! - a.match!)[0].id);
+		} finally {
+			await gen.dispose();
+		}
+	}, 300_000);
 
 	it("makes a sound effect's takes with Stable Audio Open Small and renders the chosen one", async () => {
 		const gen = new GenService({ root: process.env.GAME_STUDIO_GEN ?? join(process.env.HOME!, ".local/share/game-studio/gen"), codeDir: resolve("gen"), emit: () => {} });

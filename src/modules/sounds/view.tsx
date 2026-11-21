@@ -82,7 +82,7 @@ function decode(url: string): Promise<Decoded> {
 /** One sound plays at a time across the section. */
 let playing: { stop(): void } | null = null;
 
-function usePlayer() {
+export function usePlayer() {
 	const [current, setCurrent] = useState<string | null>(null);
 	useEffect(() => () => playing?.stop(), []);
 	/** Plays a file (`level`: trimmed and brought up to -1 dBFS, as a variant would be). Again stops it. */
@@ -109,10 +109,10 @@ function usePlayer() {
 	return { current, toggle };
 }
 
-type Player = ReturnType<typeof usePlayer>;
+export type Player = ReturnType<typeof usePlayer>;
 
 /** A waveform (sqrt scale, as the agents' images); `level` draws only the trimmed part, scaled to its peak. */
-function Waveform({ url, level, onDecoded }: { url: string; level?: boolean; onDecoded?(d: Decoded): void }) {
+export function Waveform({ url, level, onDecoded }: { url: string; level?: boolean; onDecoded?(d: Decoded): void }) {
 	const canvas = useRef<HTMLCanvasElement>(null);
 	useEffect(() => {
 		let live = true;
