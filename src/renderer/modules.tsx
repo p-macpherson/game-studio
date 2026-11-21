@@ -5,6 +5,7 @@ import { GameCodeView } from "../modules/game-code/view";
 import { ModelsView } from "../modules/3d-models/view";
 import { MusicView } from "../modules/music/view";
 import { ScenesView } from "../modules/scenes/view";
+import { ShadersView } from "../modules/shaders/view";
 import { SoundsView } from "../modules/sounds/view";
 import { TexturesView } from "../modules/textures/view";
 import { UiView } from "../modules/ui/view";
@@ -16,6 +17,7 @@ export const MODULE_VIEWS: Record<string, ComponentType<{ module: ModuleInfo }>>
 	"3d-models": ModelsView,
 	music: MusicView,
 	scenes: ScenesView,
+	shaders: ShadersView,
 	sounds: SoundsView,
 	textures: TexturesView,
 	ui: UiView,

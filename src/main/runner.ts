@@ -72,6 +72,8 @@ interface ActiveRun {
 	info: RunInfo;
 	proc?: ChildProcess;
 	client?: EngineClient;
+	/** Removes what the run needed outside the checkout (the Shaders view's temp scene). */
+	cleanup?(): void;
 }
 
 export interface RunServiceDeps {
@@ -102,6 +104,30 @@ export interface ShaderPreview {
 	view?: { position: number[]; target: number[] };
 	/** Post-processing for the preview (the environment's `post`). */
 	post?: Record<string, unknown>;
+}
+
+/**
+ * The scene shaders are previewed in: a sun, a ground, the shader on `Subject` (a flat mesh lifted clear of the ground
+ * by how far it may move vertices) and a stone beside it, so transparency and depth_fade show; and a camera for it.
+ */
+export function shaderPreviewScene(info: ShaderInfo, p: { shader: string; params?: Record<string, unknown>; mesh?: string; transparent?: boolean }) {
+	const mesh = p.mesh ?? (info.hasVertex ? "grid" : "sphere");
+	const flat = mesh === "plane" || mesh === "grid";
+	const model = mesh.includes("/");
+	const subject = {
+		id: 3,
+		Name: "Subject",
+		Transform: flat ? { position: [0, info.hasVertex ? Math.max(info.bounds, 0.3) + 0.05 : 0.05, 0], scale: [3, 1, 3] } : { position: [0, model ? 0 : 0.75, 0], scale: model ? [1, 1, 1] : [1.3, 1.3, 1.3] },
+		Mesh_Renderer: { mesh, material: { shader: shaderPath(p.shader), ...(p.params ? { params: p.params } : {}), ...(p.transparent || info.usesDepth ? { transparent: true } : {}) } },
+	};
+	const entities = [
+		{ id: 1, Name: "Sun", Transform: { rotation: [40, 35, 0] }, Light: { kind: "Directional", intensity: 1.1, shadows: true } },
+		{ id: 2, Name: "Ground", Transform: { position: [0, -0.5, 0], scale: [12, 1, 12] }, Mesh_Renderer: { mesh: "cube", material: { color: [0.45, 0.45, 0.42, 1], roughness: 0.9 } } },
+		subject,
+		{ id: 4, Name: "Stone", Transform: { position: [0.6, 0, 0.4], scale: [0.6, 0.5, 0.6] }, Mesh_Renderer: { mesh: "sphere", material: { color: [0.55, 0.5, 0.45, 1] } } },
+	];
+	const camera = flat ? { position: [0, 3.2, -3.4], target: [0, 0, 0.2] } : { position: [1.4, 1.7, -2.8], target: [0, 0.7, 0] };
+	return { entities, camera };
 }
 
 const hooks = (info: ShaderInfo) => ({ vertex: info.hasVertex, surface: info.hasSurface, depth_fade: info.usesDepth, bounds: info.bounds });
@@ -165,6 +191,7 @@ export class RunService {
 				startedAt: new Date().toISOString(),
 				scene: options.scene,
 				screen: options.screen,
+				shader: options.shader?.name,
 			},
 		};
 		this.run = run;
@@ -188,7 +215,17 @@ export class RunService {
 		const port = await freePort();
 		const args = [`--mode=${mode}`, `--control=${port}`];
 		if (mode === "hidden") args.push("--fps=60");
-		if (options.scene) args.push("--paused", `--scene=${options.scene}`);
+		let shaderCamera: { position: number[]; target: number[] } | undefined;
+		if (options.shader) {
+			// A temp scene outside the checkout, gone when the run ends.
+			const { info } = this.readShader(co, options.shader.name);
+			const built = shaderPreviewScene(info, { shader: options.shader.name, mesh: options.shader.mesh });
+			const dir = mkdtempSync(join(tmpdir(), "gs-shader-live-"));
+			writeFileSync(join(dir, "preview.json"), JSON.stringify({ entities: built.entities }));
+			run.cleanup = () => rmSync(dir, { recursive: true, force: true });
+			shaderCamera = built.camera;
+			args.push("--paused", `--scene=${join(dir, "preview.json")}`);
+		} else if (options.scene) args.push("--paused", `--scene=${options.scene}`);
 		else if (options.screen) args.push("--paused");
 		const proc = await this.launch(co, args);
 		run.proc = proc;
@@ -200,6 +237,7 @@ export class RunService {
 		proc.on("error", (err) => this.output(run, `${err.message}\n`));
 		proc.on("exit", (code) => {
 			run.client?.close();
+			run.cleanup?.();
 			run.info.state = "exited";
 			run.info.exitCode = code;
 			this.changed(run);
@@ -213,7 +251,12 @@ export class RunService {
 			return run.info;
 		}
 		if (run.info.state !== "starting") return run.info;
-		if (options.scene) await run.client.call("debug", { game_ui: false }).catch(() => {});
+		if (options.scene || options.shader) await run.client.call("debug", { game_ui: false }).catch(() => {});
+		if (shaderCamera) {
+			await run.client.call("camera", { ...shaderCamera, fov: 50 }).catch(() => {});
+			// Paused, so the game stands still; the shader's own time runs.
+			await run.client.call("shader_time", { mode: "real" }).catch(() => {});
+		}
 		if (options.screen) {
 			// The game's own screens (a title it shows at start) make way for the one being edited.
 			await run.client.call("wait", { frames: 2 }).catch(() => {});
@@ -415,26 +458,11 @@ export class RunService {
 			if (!existsSync(safeJoin(co.cwd, p.scene))) throw new Error(`No ${p.scene} in this checkout`);
 			scene = p.scene.replace(/^assets\//, "");
 		} else {
-			const mesh = p.mesh ?? (info.hasVertex ? "grid" : "sphere");
-			const flat = mesh === "plane" || mesh === "grid";
-			const subject = {
-				id: 3,
-				Name: "Subject",
-				// Lifted clear of the ground by how far it may move vertices, so troughs don't sink into it.
-				Transform: flat ? { position: [0, info.hasVertex ? Math.max(info.bounds, 0.3) + 0.05 : 0.05, 0], scale: [3, 1, 3] } : { position: [0, mesh.includes("/") ? 0 : 0.75, 0], scale: mesh.includes("/") ? [1, 1, 1] : [1.3, 1.3, 1.3] },
-				Mesh_Renderer: { mesh, material: { shader: shaderPath(p.shader), ...(p.params ? { params: p.params } : {}), ...(p.transparent || info.usesDepth ? { transparent: true } : {}) } },
-			};
-			const entities = [
-				{ id: 1, Name: "Sun", Transform: { rotation: [40, 35, 0] }, Light: { kind: "Directional", intensity: 1.1, shadows: true } },
-				{ id: 2, Name: "Ground", Transform: { position: [0, -0.5, 0], scale: [12, 1, 12] }, Mesh_Renderer: { mesh: "cube", material: { color: [0.45, 0.45, 0.42, 1], roughness: 0.9 } } },
-				subject,
-				// Something to sit in or behind the subject, so transparency and depth_fade show.
-				{ id: 4, Name: "Stone", Transform: { position: [0.6, 0, 0.4], scale: [0.6, 0.5, 0.6] }, Mesh_Renderer: { mesh: "sphere", material: { color: [0.55, 0.5, 0.45, 1] } } },
-			];
+			const built = shaderPreviewScene(info, p);
 			dir = mkdtempSync(join(tmpdir(), "gs-shader-"));
 			scene = join(dir, "preview.json");
-			writeFileSync(scene, JSON.stringify({ ...(p.post ? { environment: { post: p.post } } : {}), entities }));
-			camera ??= flat ? { position: [0, 3.2, -3.4], target: [0, 0, 0.2] } : { position: [1.4, 1.7, -2.8], target: [0, 0.7, 0] };
+			writeFileSync(scene, JSON.stringify({ ...(p.post ? { environment: { post: p.post } } : {}), entities: built.entities }));
+			camera ??= built.camera;
 		}
 		try {
 			return await this.withEngine(co, ["--mode=hidden", "--width=640", "--height=360", "--fps=60", "--paused", `--scene=${scene}`], async (client) => {

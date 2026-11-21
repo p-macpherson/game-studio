@@ -222,3 +222,71 @@ export function sceneShaderProblems(entities: { id: number; [k: string]: unknown
 	}
 	return out;
 }
+
+/** Starting points for a new shader. */
+export const SHADER_TEMPLATES: { id: string; label: string; source: string }[] = [
+	{
+		id: "surface",
+		label: "Surface (colour, shine, glow)",
+		source: `// What this material looks like, in a line or two.
+// @param color tint = #ffffff
+// @param float shine = 0.5 [0, 1]
+
+void surface(inout Surface s) {
+    s.albedo *= tint;
+    s.roughness = mix(0.9, 0.1, shine);
+}
+`,
+	},
+	{
+		id: "vertex",
+		label: "Moving vertices (waves, wind)",
+		source: `// What moves, and how.
+// @param float amount = 0.1 [0, 1]
+// @param float speed = 1.5 [0, 5]
+// @bounds 0.2
+
+void vertex(inout Vertex v) {
+    float h = clamp(v.local.y + 0.5, 0.0, 1.0); // 0 at the bottom of a built-in mesh, 1 at the top
+    v.position.x += sin(u_time * speed + v.position.z) * amount * h;
+}
+
+void surface(inout Surface s) {
+}
+`,
+	},
+	{
+		id: "glow",
+		label: "Glow (pulsing emission, blooms)",
+		source: `// A glow that breathes over time.
+// @param color glow = #ffb347
+// @param float strength = 4 [0, 20]
+// @param float speed = 2 [0, 10]
+
+void surface(inout Surface s) {
+    s.emission = glow * strength * (0.75 + 0.25 * sin(u_time * speed));
+}
+`,
+	},
+];
+
+/** A value as it is written after `=` in an @param line. */
+export function formatParamDefault(kind: ShaderParamKind, v: ShaderParamValue): string {
+	const n = (x: number) => String(Math.round(x * 1000) / 1000);
+	if (kind === "texture" || kind === "color") return String(v);
+	return Array.isArray(v) ? v.map(n).join(", ") : n(Number(v));
+}
+
+/** The source with these values as its @params' defaults (ranges and the rest of each line kept). */
+export function setParamDefaults(src: string, values: Record<string, ShaderParamValue>): string {
+	const info = parseShader(src);
+	const lines = src.split("\n");
+	for (const p of info.params) {
+		if (!(p.name in values)) continue;
+		const line = lines[p.line - 1];
+		const head = line.slice(0, line.indexOf(p.name) + p.name.length);
+		const range = /\[[^\]]*\]\s*$/.exec(line)?.[0];
+		lines[p.line - 1] = `${head} = ${formatParamDefault(p.kind, values[p.name])}${range ? ` ${range}` : ""}`;
+	}
+	return lines.join("\n");
+}

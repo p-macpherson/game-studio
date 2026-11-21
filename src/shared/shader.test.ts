@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseShader, sceneShaderProblems, validatePost, validateShaderParams } from "./shader";
+import { parseShader, sceneShaderProblems, setParamDefaults, validatePost, validateShaderParams } from "./shader";
 
 const WATER = `// Water
 // @param float wave_height = 0.05 [0, 0.3]
@@ -75,5 +75,14 @@ describe("sceneShaderProblems", () => {
 			"entity 2: material: shaders/water.glsl uses depth_fade, which only works on a transparent material",
 			"entity 3: material.shader: no assets/shaders/lava.glsl",
 		]);
+	});
+});
+
+describe("setParamDefaults", () => {
+	it("rewrites only the given params' defaults, keeping ranges and adding a default where there was none", () => {
+		const src = "// @param float speed = 1 [0, 5]\n// @param color tint\n// @param vec2 dir = 1, 0\nvoid surface(inout Surface s) {}";
+		const out = setParamDefaults(src, { speed: 2.5, tint: "#ff8800" });
+		expect(out).toBe("// @param float speed = 2.5 [0, 5]\n// @param color tint = #ff8800\n// @param vec2 dir = 1, 0\nvoid surface(inout Surface s) {}");
+		expect(parseShader(out).params.map((p) => p.default)).toEqual([2.5, "#ff8800", [1, 0]]);
 	});
 });

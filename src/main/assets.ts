@@ -10,6 +10,7 @@ import { music, summarizeSong } from "../modules/music/info";
 import { scenes, summarizeScene } from "../modules/scenes/info";
 import { sounds, summarizeSound } from "../modules/sounds/info";
 import { summarizeTexture, textures } from "../modules/textures/info";
+import { shaders, summarizeShader } from "../modules/shaders/info";
 import { summarizeUi, ui } from "../modules/ui/info";
 import type { AssetLinks } from "../shared/asset-links";
 import { assetLinks } from "./asset-links";
@@ -30,6 +31,7 @@ export const MODULES: ModuleBackend[] = [
 	{ info: scenes, summarize: summarizeScene },
 	{ info: textures, summarize: summarizeTexture },
 	{ info: ui, summarize: summarizeUi },
+	{ info: shaders, summarize: summarizeShader },
 ];
 
 export function walk(dir: string, base: string, out: string[] = []): string[] {

@@ -20,6 +20,7 @@ import {
 	type UiElement,
 	type UiScreen,
 } from "../../shared/ui-screen";
+import { isEditorRun } from "../../shared/run";
 import { call, studioFile } from "../../renderer/api";
 import { useStudio } from "../../renderer/store";
 import { AssetBrowser, type AssetContentProps } from "../../renderer/views/AssetBrowser";
@@ -104,7 +105,7 @@ function ScreenDetail({ asset, text, checkout: shownCheckout, onNewArt }: AssetC
 	const ours = !!run && run.screen === name && run.sessionId === checkout;
 	const live = ours && run.state === "running";
 	// Another editor's live view (Scenes, another screen) gives way; a game in Play & Test is asked about first.
-	const otherGame = !!run && !ours && !run.scene && !run.screen && ["building", "starting", "running"].includes(run.state);
+	const otherGame = !!run && !ours && !isEditorRun(run) && ["building", "starting", "running"].includes(run.state);
 	const [selected, setSelected] = useState<string | null>(null);
 	const [nodes, setNodes] = useState<Node[]>([]);
 	const [busy, setBusy] = useState(false);

@@ -2571,3 +2571,82 @@ textarea {
 	font-size: 12px;
 	letter-spacing: 0.04em;
 }
+
+/* Shaders: code beside the live view and the params */
+.shader-editor {
+	display: grid;
+	grid-template-columns: minmax(360px, 1fr) minmax(0, 1.3fr);
+	height: max(560px, calc(100vh - 150px));
+	border-bottom: 1px solid var(--border);
+}
+.shader-code {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 8px;
+	min-width: 0;
+	min-height: 0;
+	border-right: 1px solid var(--border);
+}
+.code-edit {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--sunken);
+	overflow: hidden;
+	font: 12.5px/1.55 var(--mono);
+}
+.code-gutter {
+	flex: none;
+	width: 40px;
+	padding: 8px 8px 8px 0;
+	overflow: hidden;
+	text-align: right;
+	color: color-mix(in srgb, var(--muted) 70%, var(--bg));
+	user-select: none;
+}
+.code-gutter .bad {
+	color: var(--red);
+	font-weight: 600;
+	background: color-mix(in srgb, var(--red) 14%, transparent);
+}
+.code-edit textarea {
+	flex: 1;
+	min-width: 0;
+	padding: 8px;
+	border: none;
+	border-radius: 0;
+	background: transparent;
+	color: var(--text);
+	font: inherit;
+	tab-size: 4;
+	white-space: pre;
+	overflow: auto;
+	resize: none;
+	outline: none;
+}
+.shader-errors {
+	max-height: 120px;
+	overflow: auto;
+	font-size: 12px;
+}
+.shader-errors.bad {
+	color: var(--red);
+}
+.shader-params {
+	flex: none;
+	max-height: 40%;
+	overflow: auto;
+	gap: 6px;
+	border-top: 1px solid var(--border);
+	padding-top: 8px;
+}
+.shader-params h3 {
+	margin: 0;
+}
+.param-value {
+	min-width: 38px;
+	text-align: right;
+}

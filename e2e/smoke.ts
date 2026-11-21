@@ -3,7 +3,7 @@
 // repo (the real one is only read).
 // Run: npm run build && node e2e/smoke.ts [screenshot-dir]
 import { execSync } from "node:child_process";
-import { readFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { _electron as electron, type Page } from "playwright";
@@ -60,6 +60,7 @@ const step = async (name: string, page: Page) => {
 	console.log(`✓ ${name}`);
 };
 
+let passed = false;
 try {
 	const page = await app.firstWindow();
 	page.on("dialog", (d) => void d.accept());
@@ -708,6 +709,50 @@ try {
 	await page.getByTestId("ui-frame").selectOption("ui/art/wood-frame/wood-frame.png");
 	await fileIn("UI: hud", "assets/ui/hud.json", (t) => t.includes('"frame": "ui/art/wood-frame/wood-frame.png"'));
 
+	// Shaders: a new shader opens beside its live view; a typo shows on its line before anything is saved; the fix
+	// saves (Ctrl+S); a parameter tried with its slider reaches the engine; "Make these the defaults" writes it in.
+	await selectMain(page);
+	await nav.getByRole("button", { name: "Shaders", exact: true }).click();
+	await page.getByRole("button", { name: "+ New shader" }).click();
+	await page.getByTestId("shader-new-name").fill("glow");
+	await page.getByTestId("shader-new-template").selectOption("glow");
+	await page.getByTestId("shader-new-create").click();
+	await page.getByTestId("shader-viewport").locator("img").waitFor({ timeout: 90_000 });
+	const source = page.getByTestId("shader-source");
+	const template = await source.inputValue();
+	await source.fill(template.replace("s.emission = glow", "s.emission = glo"));
+	await page.locator(".code-gutter .bad", { hasText: "7" }).waitFor({ timeout: 20_000 });
+	await page.getByTestId("shader-errors").filter({ hasText: "line 7" }).waitFor();
+	await step("54-shader-error", page);
+	await source.fill(template.replace("0.25 * sin", "0.4 * sin"));
+	await page.getByTestId("shader-errors").filter({ hasText: "Compiles." }).waitFor({ timeout: 20_000 });
+	await source.press("Control+s");
+	await fileIn("Shader: glow", "assets/shaders/glow.glsl", (t) => t.includes("0.4 * sin"));
+	await page.getByTestId("shader-param-strength").focus();
+	for (let i = 0; i < 10; i++) await page.keyboard.press("ArrowRight");
+	for (let tries = 0; ; tries++) {
+		const e = JSON.stringify(await page.evaluate(() => window.studio.call("run.call", "entity", { entity: "Subject" })));
+		if (/"strength":5\b/.test(e)) break;
+		if (tries > 50) throw new Error(`the tried value never reached the engine: ${e}`);
+		await page.waitForTimeout(200);
+	}
+	await page.waitForTimeout(500);
+	await step("55-shader-editor", page);
+	await page.getByTestId("shader-make-defaults").click();
+	await fileIn("Shader: glow", "assets/shaders/glow.glsl", (t) => t.includes("// @param float strength = 5 [0, 20]"));
+
+	// Post-processing in the Scenes environment: a bloom slider writes the scene's post block.
+	await nav.getByRole("button", { name: "Scenes" }).click();
+	await page.getByTestId("asset-item").filter({ hasText: "main" }).click();
+	await page.getByText("Environment", { exact: true }).click();
+	await page.locator("[data-testid=scene-viewport] img").waitFor({ timeout: 60_000 });
+	await page.getByTestId("post-panel").waitFor({ timeout: 30_000 });
+	await page.getByTestId("post-bloom").focus();
+	for (let i = 0; i < 60; i++) await page.keyboard.press("ArrowRight");
+	await fileIn("Shader: glow", "assets/scenes/main.json", (t) => /"post": ?\{ ?"bloom": ?0\.[1-9]/.test(t));
+	await page.waitForTimeout(800);
+	await step("56-scene-post", page);
+
 	// The menu collapses to an icon rail; its buttons keep their names (as tooltips).
 	await page.getByTestId("sidebar-toggle").click();
 	await nav.getByRole("button", { name: "Scenes" }).click();
@@ -848,6 +893,7 @@ try {
 	await page.locator("[data-testid=theme-card][data-theme-id=simple-dark]").click();
 	await page.getByTestId("font-option").filter({ hasText: "System" }).first().click();
 	console.log(`passed; screenshots in ${shots}`);
+	passed = true;
 } catch (err) {
 	const page = await app.firstWindow();
 	await page.screenshot({ path: join(shots, "failed.png") });
@@ -863,4 +909,7 @@ try {
 		console.error("app.close() hung; killing the app");
 		app.process().kill("SIGKILL");
 	}
+	// The temp project, worktrees and engine clone (~150 MB in /tmp, which is RAM): kept only to debug a failure.
+	if (passed) rmSync(root, { recursive: true, force: true });
+	else console.error(`kept ${root} for debugging`);
 }

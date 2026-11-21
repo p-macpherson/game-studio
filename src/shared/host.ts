@@ -59,6 +59,7 @@ export type StudioRequestMethod =
 	| "edit_ui"
 	| "preview_ui"
 	| "check_shader"
+	| "write_shader"
 	| "preview_shader"
 	| "generate_concepts"
 	| "generate_model"

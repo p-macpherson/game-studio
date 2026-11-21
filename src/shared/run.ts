@@ -42,13 +42,20 @@ export interface RunInfo {
 	scene?: string;
 	/** Set for the UI section's run: the screen (assets/ui/<screen>.json) shown alone over the game, paused. */
 	screen?: string;
+	/** Set for the Shaders section's run: the shader's name (assets/shaders/<name>.glsl), shown on a preview mesh. */
+	shader?: string;
 }
+
+/** A section's live view (Scenes, UI, Shaders) rather than the game run from Play & Test: other sections may take it over. */
+export const isEditorRun = (run: { scene?: string; screen?: string; shader?: string }) => !!(run.scene || run.screen || run.shader);
 
 export interface RunOptions {
 	/** Open this scene or prefab (assets-relative) paused, as the Scenes editor's live view. */
 	scene?: string;
 	/** Open the game paused with only this UI screen shown (the UI section's live view). */
 	screen?: string;
+	/** Open a material shader on a mesh beside a stone, its time running (the Shaders section's live view). */
+	shader?: { name: string; mesh?: string };
 }
 
 export interface TestStep {

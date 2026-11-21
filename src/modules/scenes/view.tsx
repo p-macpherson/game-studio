@@ -21,11 +21,13 @@ import {
 	subtree,
 	validateScene,
 } from "../../shared/scene";
+import { isEditorRun } from "../../shared/run";
 import { call, studioFile } from "../../renderer/api";
 import { useStudio } from "../../renderer/store";
 import { AssetBrowser, type AssetContentProps } from "../../renderer/views/AssetBrowser";
 import { runInWorktree } from "../../renderer/workspace";
 import { leafName, nameFromPath } from "../../shared/asset-names";
+import { POST_FIELDS, validatePost } from "../../shared/shader";
 import { parseTexture } from "../../shared/texture";
 import { textureName, texturePaths } from "../textures/info";
 import { enginePath, isPrefab, type PrefabInfo, prefabIndex } from "./info";
@@ -129,7 +131,7 @@ function SceneDetail({ asset, text, checkout: shownCheckout, assets }: AssetCont
 	const checkout = shownCheckout ?? null;
 	const ours = !!run && run.scene === scenePath && run.sessionId === checkout;
 	const live = ours && run.state === "running";
-	const otherGame = !!run && !ours && !run.scene && !run.screen && ["building", "starting", "running"].includes(run.state);
+	const otherGame = !!run && !ours && !isEditorRun(run) && ["building", "starting", "running"].includes(run.state);
 
 	const [schemas, setSchemas] = useState<ComponentSchema[] | null>(null);
 	const ids = useRef(new Map<number, number>());
@@ -249,7 +251,10 @@ function SceneDetail({ asset, text, checkout: shownCheckout, assets }: AssetCont
 		const touched = new Set<number>(result.created);
 		for (const e of edits) {
 			if (e.op === "environment") {
-				await call("run.call", "environment", { value: Object.fromEntries(Object.entries(e.value).filter(([, v]) => v !== null)) });
+				// The engine ignores nulls: post goes whole, with what was removed at zero (off).
+				const value = Object.fromEntries(Object.entries(e.value).filter(([k, v]) => v !== null && k !== "post"));
+				if ("post" in e.value) value.post = fullPost(next.environment?.post);
+				await call("run.call", "environment", { value });
 			} else if ("id" in e && e.op !== "delete" && e.op !== "duplicate") touched.add(e.id);
 		}
 		const done = new Set<number>();
@@ -445,7 +450,11 @@ function SceneDetail({ asset, text, checkout: shownCheckout, assets }: AssetCont
 						checkout={shownCheckout}
 					/>
 				) : (
-					<EnvironmentPanel scene={scene} onEdit={(value) => void edit([{ op: "environment", value }])} />
+					<EnvironmentPanel
+				scene={scene}
+				onEdit={(value) => void edit([{ op: "environment", value }])}
+				onCompare={live ? (off) => void quiet(call("run.call", "environment", { value: { post: fullPost(off ? {} : scene.environment?.post) } })) : undefined}
+			/>
 				)}
 			</div>
 		</div>
@@ -1029,7 +1038,13 @@ function envDefaults(env: Record<string, unknown>): Record<string, unknown> {
 	};
 }
 
-function EnvironmentPanel({ scene, onEdit }: { scene: SceneFile; onEdit(value: Record<string, unknown>): void }) {
+/** Every post field, unset ones at zero: what the live engine is sent so removed effects turn off. */
+function fullPost(post: unknown): Record<string, unknown> {
+	const p = (post ?? {}) as Record<string, unknown>;
+	return Object.fromEntries(POST_FIELDS.map((f) => [f.name, p[f.name] ?? (f.kind === "number" ? 0 : [0, 0, 0])]));
+}
+
+function EnvironmentPanel({ scene, onEdit, onCompare }: { scene: SceneFile; onEdit(value: Record<string, unknown>): void; onCompare?(off: boolean): void }) {
 	const env = scene.environment ?? {};
 	const live = envDefaults(env);
 	const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -1064,7 +1079,92 @@ function EnvironmentPanel({ scene, onEdit }: { scene: SceneFile; onEdit(value: R
 					</div>
 				);
 			})}
+			<PostPanel post={(env.post ?? {}) as Record<string, unknown>} onEdit={(post) => onEdit({ post })} later={(post) => later({ post })} onCompare={onCompare} problems={validatePost(env.post)} />
 			<div className="muted small">Select something in the view or the outline to inspect it. Values in grey aren't set in the file: they're the engine's defaults.</div>
+		</div>
+	);
+}
+
+/** The environment's post-processing (bloom, outlines, grade, lens): sliders over the engine's ranges; zero is off. */
+function PostPanel({
+	post,
+	onEdit,
+	later,
+	onCompare,
+	problems,
+}: {
+	post: Record<string, unknown>;
+	onEdit(v: Record<string, unknown>): void;
+	later(v: Record<string, unknown>): void;
+	onCompare?(off: boolean): void;
+	problems: string[];
+}) {
+	const [comparing, setComparing] = useState(false);
+	const compare = (on: boolean) => {
+		if (!onCompare || on === comparing) return;
+		setComparing(on);
+		onCompare(on);
+	};
+	return (
+		<div className="col" data-testid="post-panel">
+			<div className="row">
+				<h3 className="grow">Post-processing</h3>
+				{onCompare && (
+					<button
+						className={comparing ? "on" : ""}
+						onPointerDown={() => compare(true)}
+						onPointerUp={() => compare(false)}
+						onPointerLeave={() => compare(false)}
+						title="Hold to see the scene without post-processing"
+						data-testid="post-compare"
+					>
+						Hold: before
+					</button>
+				)}
+			</div>
+			{POST_FIELDS.map((f) => {
+				const set = post[f.name] !== undefined;
+				const v = post[f.name];
+				return (
+					<div className="field-row" key={f.name} title={f.about}>
+						<span className={`field-name ${set ? "" : "muted"}`}>{f.name.replace(/_/g, " ")}</span>
+						{f.kind === "number" ? (
+							<span className="row">
+								<input
+									type="range"
+									className="grow"
+									min={f.min}
+									max={f.max}
+									step={(f.max - f.min) / 200}
+									defaultValue={Number(v ?? 0)}
+									key={String(v ?? 0)}
+									onChange={(e) => later({ [f.name]: Math.round(Number(e.target.value) * 1000) / 1000 })}
+									data-testid={`post-${f.name}`}
+								/>
+								<span className="small param-value">{Math.round(Number(v ?? 0) * 100) / 100}</span>
+							</span>
+						) : f.kind === "color" ? (
+							<input type="color" defaultValue={toHex(v ?? [0.05, 0.04, 0.06])} key={toHex(v)} onChange={(e) => later({ [f.name]: fromHex(e.target.value) })} />
+						) : (
+							<FieldEditor name={f.name} type="[3]f32" value={v ?? [0, 0, 0]} inherited={!set} onCommit={(x) => onEdit({ [f.name]: x })} />
+						)}
+						{set ? (
+							<button className="icon" title="Off" onClick={() => onEdit({ [f.name]: null })}>
+								↺
+							</button>
+						) : (
+							<span className="icon-space" />
+						)}
+					</div>
+				);
+			})}
+			{problems.length > 0 && (
+				<div className="scene-problems">
+					{problems.map((p) => (
+						<div key={p}>{p}</div>
+					))}
+				</div>
+			)}
 		</div>
 	);
 }
