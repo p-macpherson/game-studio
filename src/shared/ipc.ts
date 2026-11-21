@@ -142,6 +142,10 @@ export interface StudioApi {
 	"worktrees.unload"(id: string): Promise<void>;
 	"worktrees.load"(id: string): Promise<void>;
 	"worktrees.merge"(id: string): Promise<void>;
+	/** A short phrase played on one instrument (General MIDI name, or "drums"), as OGG bytes: for choosing by ear. */
+	"music.previewInstrument"(instrument: string): Promise<Uint8Array>;
+	/** Each track of a piece on its own (OGG, same loop as the render), for muting tracks while listening. */
+	"music.stems"(checkout: string | null, name: string): Promise<{ track: string; ogg: Uint8Array }[]>;
 	"worktrees.discard"(id: string): Promise<void>;
 	"worktrees.changedFiles"(id: string): Promise<{ path: string; change: "added" | "modified" | "deleted" }[]>;
 	/** The files a session changed against its base (for warnings like "merging also brings …"). */

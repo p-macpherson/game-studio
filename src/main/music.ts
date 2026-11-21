@@ -7,10 +7,10 @@
 // and release tails of the bars before it.
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { drumName, GM_PROGRAMS, type Note, parseSong, pitchName, TICKS_PER_BEAT, type Song, type Timeline } from "../shared/song";
+import { drumName, gmProgram, GM_PROGRAMS, type Note, parseSong, pitchName, type Space, TICKS_PER_BEAT, type Song, type Timeline, type TimelineTrack } from "../shared/song";
 import { ASSET_NAME, leafName } from "../shared/asset-names";
 import { safeJoin } from "./assets";
 import { decodeWav } from "./audio-dsp";
@@ -60,11 +60,13 @@ export class MusicPipeline {
 	 */
 	async edit(
 		ctx: { cwd: string; progress?(text: string): void },
-		p: { name: string; tempo?: number; instruments?: Record<string, { program?: string | number; volume?: number }> },
+		p: { name: string; tempo?: number; space?: Space; humanize?: number; instruments?: Record<string, { program?: string | number; volume?: number }> },
 	): Promise<RenderResult> {
 		const file = join(this.dir(ctx.cwd, p.name), "song.json");
 		const song = JSON.parse(readFileSync(file, "utf8")) as Song;
 		if (p.tempo !== undefined) song.tempo = p.tempo;
+		if (p.space !== undefined) song.space = p.space;
+		if (p.humanize !== undefined) song.humanize = p.humanize;
 		for (const [id, change] of Object.entries(p.instruments ?? {})) {
 			if (!song.instruments[id]) throw new Error(`No instrument "${id}"`);
 			Object.assign(song.instruments[id], change);
@@ -85,35 +87,15 @@ export class MusicPipeline {
 		const bus = new StemBus();
 		const tracks = timeline.tracks.filter((tr) => tr.notes.length);
 		ctx.progress?.(`Rendering ${tracks.length} track(s) with FluidSynth`);
-		let next = 0;
-		const worker = async () => {
-			for (let i = next++; i < tracks.length; i = next++) {
-				const mid = join(tmp, `stem-${i}.mid`);
-				const wav = join(tmp, `stem-${i}.wav`);
-				writeFileSync(mid, toMidi(song, timeline, passes, tail, tracks[i].id));
-				await run(this.deps.fluidsynth ?? "fluidsynth", ["-ni", "-q", "-R", "0", "-C", "1", "-a", "file", "-g", "0.6", "-r", String(RATE), "-F", wav, soundfont, mid]);
-				bus.add(decodeWav(readFileSync(wav)).audio, tracks[i]);
-				rmSync(wav);
-			}
-		};
-		await Promise.all(Array.from({ length: Math.min(4, tracks.length) }, worker));
+		for (const [i, wav] of (await this.stemWavs(tmp, soundfont, song, timeline, passes, tail, tracks)).entries()) {
+			bus.add(decodeWav(readFileSync(wav)).audio, tracks[i]);
+			rmSync(wav);
+		}
 		if (!bus.dry.length) bus.dry = bus.send = [new Float32Array(Math.round(timeline.seconds * passes * RATE)), new Float32Array(Math.round(timeline.seconds * passes * RATE))];
 
 		ctx.progress?.("Mixing");
-		const space = song.space ?? "room";
 		const mixed = join(tmp, "mix.wav");
-		if (space === "dry") writeFileSync(mixed, encodeFloatWav(bus.dry));
-		else {
-			const send = join(tmp, "send.wav");
-			const ir = join(tmp, "ir.wav");
-			writeFileSync(send, encodeFloatWav(bus.send));
-			writeFileSync(ir, encodeFloatWav(impulse(space)));
-			writeFileSync(join(tmp, "dry.wav"), encodeFloatWav(bus.dry));
-			// dry + the send through the room. afir's dry/wet are its input and output gains (not a mix: dry=0 is silence);
-			// irnorm=-1 keeps the IR as made, so its unit energy sets the reverb's level. Zero latency.
-			await run(ffmpeg, ["-y", "-loglevel", "error", "-i", join(tmp, "dry.wav"), "-i", send, "-i", ir, "-filter_complex",
-				"[1:a][2:a]afir=dry=1:wet=1:irnorm=-1[w];[0:a][w]amix=inputs=2:normalize=0:duration=first[m]", "-map", "[m]", "-c:a", "pcm_f32le", mixed]);
-		}
+		await this.room(bus, song.space ?? "room", tmp, mixed);
 		ctx.progress?.("Mastering");
 		// Glue and tone at a known level (the compressor's threshold assumes it), then level to the target and limit.
 		const pre = Math.max(-30, Math.min(30, TARGET_LUFS - (await loudness(ffmpeg, mixed))));
@@ -125,6 +107,104 @@ export class MusicPipeline {
 		const out = join(tmp, "master.wav");
 		await run(ffmpeg, ["-y", "-loglevel", "error", "-i", glued, "-af", `volume=${gain.toFixed(2)}dB,alimiter=limit=0.89:attack=5:release=60:level=0`, "-c:a", "pcm_s16le", "-ar", String(RATE), out]);
 		return out;
+	}
+
+	/** Each track rendered on its own by FluidSynth (its reverb off), a few at once: the WAV files, in `tracks` order. */
+	private async stemWavs(tmp: string, soundfont: string, song: Song, timeline: Timeline, passes: number, tail: number, tracks: TimelineTrack[]): Promise<string[]> {
+		const wavs = tracks.map((_, i) => join(tmp, `stem-${i}.wav`));
+		let next = 0;
+		const worker = async () => {
+			for (let i = next++; i < tracks.length; i = next++) {
+				const mid = join(tmp, `stem-${i}.mid`);
+				writeFileSync(mid, toMidi(song, timeline, passes, tail, tracks[i].id));
+				await run(this.deps.fluidsynth ?? "fluidsynth", ["-ni", "-q", "-R", "0", "-C", "1", "-a", "file", "-g", "0.6", "-r", String(RATE), "-F", wavs[i], soundfont, mid]);
+			}
+		};
+		await Promise.all(Array.from({ length: Math.min(4, tracks.length) }, worker));
+		return wavs;
+	}
+
+	/**
+	 * Dry plus the reverb send through the song's space, to a float WAV at `out`. afir's dry/wet are its input and
+	 * output gains (not a mix: dry=0 is silence); irnorm=-1 keeps the IR as made, so its unit energy sets the
+	 * reverb's level. Zero latency.
+	 */
+	private async room(bus: StemBus, space: Space, tmp: string, out: string, tag = "mix"): Promise<void> {
+		if (space === "dry") return writeFileSync(out, encodeFloatWav(bus.dry));
+		const ir = join(tmp, `ir-${space}.wav`);
+		if (!existsSync(ir)) writeFileSync(ir, encodeFloatWav(impulse(space)));
+		const dry = join(tmp, `${tag}-dry.wav`);
+		const send = join(tmp, `${tag}-send.wav`);
+		writeFileSync(dry, encodeFloatWav(bus.dry));
+		writeFileSync(send, encodeFloatWav(bus.send));
+		await run(this.deps.ffmpeg ?? "ffmpeg", ["-y", "-loglevel", "error", "-i", dry, "-i", send, "-i", ir, "-filter_complex",
+			"[1:a][2:a]afir=dry=1:wet=1:irnorm=-1[w];[0:a][w]amix=inputs=2:normalize=0:duration=first[m]", "-map", "[m]", "-c:a", "pcm_f32le", out]);
+		rmSync(dry);
+		rmSync(send);
+	}
+
+	/**
+	 * Each track of a piece on its own, as the mix has it (its low cut and its share of the room, at the mix's level,
+	 * before the master's glue and limiter), cut to the same loop: for muting tracks while listening. Rendered once
+	 * per score into `cacheDir` (outside the project: they're for listening, not for the game).
+	 */
+	async stems(ctx: { cwd: string; progress?(text: string): void }, name: string, cacheDir: string): Promise<{ track: string; file: string }[]> {
+		const text = readFileSync(join(this.dir(ctx.cwd, name), "song.json"), "utf8");
+		const { song, timeline, errors } = parseSong(JSON.parse(text));
+		if (errors.length || !song || !timeline) throw new SongError(errors);
+		const group = join(cacheDir, name.replace(/\//g, "~"));
+		const out = join(group, `v${STEMS_VERSION}-${songHash(text).slice(0, 16)}`);
+		const index = join(out, "stems.json");
+		if (existsSync(index)) return JSON.parse(readFileSync(index, "utf8"));
+		const soundfont = this.deps.soundfont();
+		if (!existsSync(soundfont)) throw new Error(`The SoundFont isn't installed (${soundfont}); run Settings → Asset generation → Install`);
+		// Stems of the score's older versions go.
+		if (existsSync(group)) for (const d of readdirSync(group)) rmSync(join(group, d), { recursive: true, force: true });
+		mkdirSync(out, { recursive: true });
+		const ffmpeg = this.deps.ffmpeg ?? "ffmpeg";
+		const loop = song.loop !== false;
+		const [passes, tail] = loop ? [3, 0] : [1, TAIL_SECONDS];
+		const tmp = mkdtempSync(join(tmpdir(), "gs-stems-"));
+		try {
+			const tracks = timeline.tracks.filter((tr) => tr.notes.length);
+			ctx.progress?.(`Rendering ${tracks.length} stem(s)`);
+			const wavs = await this.stemWavs(tmp, soundfont, song, timeline, passes, tail, tracks);
+			// Each in its room, summed to find the mix's level.
+			const sum: Float32Array[] = [];
+			const roomed: string[] = [];
+			for (const [i, tr] of tracks.entries()) {
+				const bus = new StemBus();
+				bus.add(decodeWav(readFileSync(wavs[i])).audio, tr);
+				rmSync(wavs[i]);
+				roomed.push(join(tmp, `track-${i}.wav`));
+				await this.room(bus, song.space ?? "room", tmp, roomed[i], `track-${i}`);
+				const a = decodeWav(readFileSync(roomed[i])).audio;
+				for (let c = 0; c < 2; c++) {
+					sum[c] ??= new Float32Array(a[c].length);
+					for (let k = 0; k < Math.min(a[c].length, sum[c].length); k++) sum[c][k] += a[c][k];
+				}
+			}
+			const summed = join(tmp, "sum.wav");
+			writeFileSync(summed, encodeFloatWav(sum.length ? sum : [new Float32Array(1), new Float32Array(1)]));
+			const gain = Math.max(-30, Math.min(30, TARGET_LUFS - (await loudness(ffmpeg, summed))));
+			const loopFrames = Math.round(timeline.seconds * RATE);
+			const list: { track: string; file: string }[] = [];
+			for (const [i, tr] of tracks.entries()) {
+				const s16 = join(tmp, `track-${i}-s16.wav`);
+				await run(ffmpeg, ["-y", "-loglevel", "error", "-i", roomed[i], "-af", `volume=${gain.toFixed(2)}dB`, "-c:a", "pcm_s16le", s16]);
+				let pcm = readWav(readFileSync(s16));
+				pcm = loop ? loopFromPasses(pcm, loopFrames) : sliceFrames(pcm, 0, loopFrames + TAIL_SECONDS * RATE);
+				const cut = join(tmp, `track-${i}-cut.wav`);
+				writeFileSync(cut, writeWav(pcm));
+				const file = join(out, `${i}.ogg`);
+				await run(ffmpeg, ["-y", "-loglevel", "error", "-i", cut, "-c:a", "libvorbis", "-q:a", "4", file]);
+				list.push({ track: tr.id, file });
+			}
+			writeFileSync(index, JSON.stringify(list));
+			return list;
+		} finally {
+			rmSync(tmp, { recursive: true, force: true });
+		}
 	}
 
 	/** Validates and renders assets/music/<name>/song.json to <name>.ogg. */
@@ -145,6 +225,15 @@ export class MusicPipeline {
 		if (!existsSync(soundfont)) throw new Error(`The SoundFont isn't installed (${soundfont}); run Settings → Asset generation → Install`);
 
 		const loop = song.loop !== false;
+		const ogg = join(dir, `${leafName(p.name)}.ogg`);
+		const seconds = await this.renderTo(ctx, soundfont, song, timeline, loop, ogg);
+		const info: RenderInfo = { song: songHash(text), seconds: Math.round(seconds * 1000) / 1000, loop, renderedAt: new Date().toISOString() };
+		writeFileSync(join(dir, "render.json"), `${JSON.stringify(info, null, "\t")}\n`);
+		return summarize(song, timeline, `${MUSIC_DIR}/${p.name}/${leafName(p.name)}.ogg`, info);
+	}
+
+	/** Renders a parsed song to `ogg` (a seamless loop, or ringing out); resolves its length in seconds. */
+	private async renderTo(ctx: { progress?(text: string): void }, soundfont: string, song: Song, timeline: Timeline, loop: boolean, ogg: string): Promise<number> {
 		const tmp = mkdtempSync(join(tmpdir(), "gs-music-"));
 		try {
 			const wav = await this.mix(ctx, tmp, soundfont, song, timeline, loop ? 3 : 1, loop ? 0 : TAIL_SECONDS);
@@ -153,17 +242,66 @@ export class MusicPipeline {
 			audio = loop ? loopFromPasses(audio, loopFrames) : sliceFrames(audio, 0, loopFrames + TAIL_SECONDS * RATE);
 			const cut = join(tmp, "cut.wav");
 			writeFileSync(cut, writeWav(audio));
-			const ogg = join(dir, `${leafName(p.name)}.ogg`);
 			ctx.progress?.("Encoding OGG");
 			await run(this.deps.ffmpeg ?? "ffmpeg", ["-y", "-loglevel", "error", "-i", cut, "-c:a", "libvorbis", "-q:a", "5", ogg]);
-			const seconds = audio.frames / RATE;
-			const info: RenderInfo = { song: songHash(text), seconds: Math.round(seconds * 1000) / 1000, loop, renderedAt: new Date().toISOString() };
-			writeFileSync(join(dir, "render.json"), `${JSON.stringify(info, null, "\t")}\n`);
-			return summarize(song, timeline, `${MUSIC_DIR}/${p.name}/${leafName(p.name)}.ogg`, info);
+			return audio.frames / RATE;
 		} finally {
 			rmSync(tmp, { recursive: true, force: true });
 		}
 	}
+
+	/**
+	 * A short phrase on one instrument (a General MIDI name, or "drums"), mixed like a song, for choosing an
+	 * instrument by ear. Cached in `cacheDir`.
+	 */
+	async preview(instrument: string, cacheDir: string): Promise<Buffer> {
+		const song = previewSong(instrument);
+		const file = join(cacheDir, `v${PREVIEW_VERSION}-${songHash(JSON.stringify(song)).slice(0, 12)}.ogg`);
+		if (existsSync(file)) return readFileSync(file);
+		const soundfont = this.deps.soundfont();
+		if (!existsSync(soundfont)) throw new Error(`The SoundFont isn't installed (${soundfont}); run Settings → Asset generation → Install`);
+		const { timeline } = parseSong(song);
+		mkdirSync(cacheDir, { recursive: true });
+		const tmp = `${file}.${process.pid}.${Date.now()}.ogg`;
+		await this.renderTo({}, soundfont, song, timeline!, false, tmp);
+		renameSync(tmp, file);
+		return readFileSync(file);
+	}
+}
+
+/** Bumped when previews would sound different, so cached ones are rendered again. */
+const PREVIEW_VERSION = 1;
+/** Bumped when stems would sound different. */
+const STEMS_VERSION = 1;
+
+/** The octave an instrument's preview phrase starts in: where it sounds like itself. */
+export function previewOctave(program: number): number {
+	if ((program >= 32 && program <= 39) || [43, 47, 58].includes(program)) return 2; // basses, contrabass, timpani, tuba
+	if ([42, 57, 67, 70].includes(program)) return 3; // cello, trombone, baritone sax, bassoon
+	if ((program >= 72 && program <= 79) || program === 40) return 5; // pipes, violin
+	return 4;
+}
+
+/** A two-bar phrase showing off an instrument: a run up, then a held chord (drums: a short groove). */
+export function previewSong(instrument: string): Song {
+	const base = { title: `Preview: ${instrument}`, tempo: 104, loop: false, space: "room" as const, humanize: 0.3 };
+	if (instrument === "drums") {
+		return {
+			...base,
+			instruments: { kit: { drums: true } },
+			sections: { A: { bars: 2, tracks: { kit: "kick:e hat snare hat kick kick snare openhat | kick:e hat snare hat kick:e tom2:s tom3 snare:q" } } },
+			arrangement: ["A"],
+		};
+	}
+	const program = gmProgram(instrument);
+	if (program === null) throw new Error(`"${instrument}" isn't a General MIDI instrument`);
+	const o = previewOctave(program);
+	return {
+		...base,
+		instruments: { part: { program } },
+		sections: { A: { bars: 2, tracks: { part: `C${o}:e D${o} E${o} G${o} C${o + 1}:q G${o}:e E${o} | [C${o} E${o} G${o}]:h. r:q` } } },
+		arrangement: ["A"],
+	};
 }
 
 export interface MixOptions {

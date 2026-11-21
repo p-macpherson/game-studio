@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -129,6 +129,43 @@ describe.skipIf(!canRender)("MusicPipeline", () => {
 		};
 		const [dry, hall] = [await tailRms("dry"), await tailRms("hall")];
 		expect(hall).toBeGreaterThan(dry * 1.5); // the same with no reverb at all
+	}, 60_000);
+
+	it("renders each track as a stem, one loop long, together as loud as the mix, once per score", async () => {
+		const cwd = tempDir();
+		const dir = join(cwd, "assets/music/stem-test");
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, "song.json"), JSON.stringify(SONG));
+		const music = new MusicPipeline({ soundfont: () => soundfont });
+		await music.edit({ cwd }, { name: "stem-test", space: "hall", humanize: 0.2 });
+		expect(JSON.parse(readFileSync(join(dir, "song.json"), "utf8"))).toMatchObject({ space: "hall", humanize: 0.2 });
+		const cache = tempDir();
+		const stems = await music.stems({ cwd }, "stem-test", cache);
+		expect(stems.map((s) => s.track)).toEqual(["pad", "lead", "drums"]);
+		const seconds = (f: string) => Number(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", f], { encoding: "utf8" }));
+		for (const s of stems) expect(seconds(s.file)).toBeCloseTo(8, 1);
+		// Integrated loudness (LUFS) from ffmpeg's ebur128 summary.
+		const loud = (args: string[]) => {
+			const out = execFileSync("sh", ["-c", `ffmpeg -hide_banner -nostats ${args.map((a) => `'${a}'`).join(" ")} -f null - 2>&1 | grep -E '^\\s+I:' | tail -1`], { encoding: "utf8" });
+			return Number(/(-?[\d.]+) LUFS/.exec(out)?.[1]);
+		};
+		const mix = loud(["-i", join(dir, "stem-test.ogg"), "-af", "ebur128"]);
+		const together = loud([...stems.flatMap((s) => ["-i", s.file]), "-filter_complex", `${stems.map((_, i) => `[${i}:a]`).join("")}amix=inputs=${stems.length}:normalize=0,ebur128`]);
+		expect(Math.abs(together - mix)).toBeLessThan(1.5); // 2.9 LU off without the mix's level applied
+		// The same score: the same files, not rendered again.
+		const before = statSync(stems[0].file).mtimeMs;
+		expect(await music.stems({ cwd }, "stem-test", cache)).toEqual(stems);
+		expect(statSync(stems[0].file).mtimeMs).toBe(before);
+	}, 120_000);
+
+	it("previews any General MIDI instrument or the drum kit as a short OGG", async () => {
+		const music = new MusicPipeline({ soundfont: () => soundfont });
+		const cache = tempDir();
+		for (const instrument of ["cello", "drums"]) {
+			const ogg = await music.preview(instrument, cache);
+			expect(ogg.subarray(0, 4).toString("ascii")).toBe("OggS");
+		}
+		await expect(music.preview("kazoo", cache)).rejects.toThrow(/isn't a General MIDI instrument/);
 	}, 60_000);
 
 	it("refuses a broken score with every problem listed", async () => {

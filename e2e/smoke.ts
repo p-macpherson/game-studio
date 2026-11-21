@@ -353,13 +353,72 @@ try {
 	await page.locator("[data-testid=music-play]:not([disabled])").waitFor();
 	await step("22-music", page);
 
-	// A quick change writes the score in the session and re-renders it.
-	await page.locator(".simple-edits summary").click();
-	await page.locator(".simple-edits input[type=number]").fill("90");
-	await page.locator(".simple-edits").getByRole("button", { name: "Apply" }).click();
+	// The mix bar: tempo applies to the score and re-renders; the space toggles straight away.
+	await page.getByTestId("music-tempo").fill("90");
+	await page.getByTestId("music-mix-apply").click();
 	await page.locator(".music-facts", { hasText: "90 bpm" }).waitFor({ timeout: 30_000 });
 	await page.locator("[data-testid=render-status][data-state=current]").waitFor({ timeout: 30_000 });
+	await page.getByTestId("music-space-hall").click();
+	await page.locator("[data-testid=music-space-hall].on").waitFor({ timeout: 30_000 });
+	await page.locator("[data-testid=render-status][data-state=current]").waitFor({ timeout: 30_000 });
 	await step("23-music-edit", page);
+
+	// Muting: "Mute all" then unmuting one track plays its stem alone.
+	await page.getByTestId("mute-all").click();
+	await page.getByTestId("stems-playing").filter({ hasText: "2 muted" }).waitFor({ timeout: 60_000 });
+	await page.getByTestId("arr-track").nth(0).getByTestId("mute-track").click();
+	await page.getByTestId("stems-playing").filter({ hasText: "1 muted" }).waitFor();
+	await page.getByTestId("music-play").click();
+	await page.getByTestId("music-play").filter({ hasText: "Pause" }).waitFor();
+	// The stems really play: the clock moves.
+	await page.locator(".music-player .mono").filter({ hasText: /^0:0[1-9] \// }).waitFor({ timeout: 10_000 });
+	await step("23b-music-muted", page);
+	await page.getByTestId("music-play").click();
+	await page.getByTestId("mute-all").click(); // "Unmute all" now? one is unmuted, so it mutes all
+	await page.getByTestId("mute-all").filter({ hasText: "Unmute all" }).click();
+	await page.getByTestId("stems-playing").waitFor({ state: "detached" });
+
+	// Recompose: drag over bar 2 of the lead; the brief names the section's bar and that "A" repeats.
+	const lane = page.getByTestId("arr-track").nth(0).locator(".arr-lane");
+	const laneBox = (await lane.boundingBox())!;
+	await page.mouse.move(laneBox.x + laneBox.width * 0.3, laneBox.y + laneBox.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(laneBox.x + laneBox.width * 0.4, laneBox.y + laneBox.height / 2);
+	await page.mouse.up();
+	await page.getByTestId("recompose").filter({ hasText: "bar 2" }).waitFor();
+	await page.getByTestId("recompose-shared").waitFor();
+	await page.getByTestId("recompose-feedback").fill("busier, more playful");
+	await step("23c-music-recompose", page);
+	await page.getByTestId("recompose-go").click();
+	/** The first message of the session titled `title` (as JSON), once it exists. */
+	const briefOf = async (title: string): Promise<string> => {
+		for (const until = Date.now() + 30_000; Date.now() < until; await new Promise((r) => setTimeout(r, 300))) {
+			const brief = await page.evaluate(async (t) => {
+				const s = ((await window.studio.call("sessions.list")) as { id: string; title: string }[]).find((x) => x.title.startsWith(t));
+				if (!s) return null;
+				const first = ((await window.studio.call("sessions.messages", s.id)) as { role: string; content: unknown }[]).find((m) => m.role === "user");
+				return first ? JSON.stringify(first.content) : null;
+			}, title);
+			if (brief) return brief;
+		}
+		throw new Error(`no session "${title}" with a first message`);
+	};
+	const recompose = await briefOf("Recompose lead (bar 2)");
+	if (!recompose.includes('section \\"A\\", its bar 2 of 2') || !recompose.includes("busier, more playful")) throw new Error(`unexpected recompose brief: ${recompose.slice(0, 400)}`);
+
+	// Add an instrument: every General MIDI instrument by family, each previewable; the composer writes its part.
+	await page.locator("[data-testid=add-instrument]:not([disabled])").waitFor({ timeout: 30_000 });
+	await page.getByTestId("add-instrument").click();
+	await page.getByTestId("instrument-search").fill("cello");
+	const cello = page.getByTestId("instrument-option").filter({ hasText: /^.cello$/ });
+	await cello.getByTestId("instrument-preview").click();
+	await cello.getByTestId("instrument-preview").filter({ hasText: /^(■|▶)$/ }).waitFor({ timeout: 30_000 });
+	await cello.click();
+	await page.getByTestId("instrument-notes").fill("a slow countermelody");
+	await step("23d-music-add-instrument", page);
+	await page.getByTestId("instrument-compose").click();
+	const add = await briefOf("Add cello");
+	if (!add.includes("a track `cello` playing cello") || !add.includes("a slow countermelody")) throw new Error(`unexpected add brief: ${add.slice(0, 400)}`);
 
 	// A theme sketch offers "Arrange this theme…": a Composer brief for the full piece.
 	await page.locator(".session-header").first().waitFor();
@@ -642,9 +701,15 @@ try {
 	const page = await app.firstWindow();
 	await page.screenshot({ path: join(shots, "failed.png") });
 	console.error(`failed; see ${join(shots, "failed.png")}`);
+	console.error(err); // before closing: a close that hangs would hide it
 	throw err;
 } finally {
 	// A running game (the Scenes live view) makes app.close() hang: stop it first.
 	await (await app.firstWindow()).evaluate(() => window.studio.call("run.stop")).catch(() => {});
-	await app.close();
+	// Never hang the run on a close that doesn't finish: kill the app after a while.
+	const closed = await Promise.race([app.close().then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), 15_000))]);
+	if (!closed) {
+		console.error("app.close() hung; killing the app");
+		app.process().kill("SIGKILL");
+	}
 }

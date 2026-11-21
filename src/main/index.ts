@@ -251,6 +251,11 @@ async function main(): Promise<void> {
 			history.clear(id);
 		},
 		"worktrees.load": (id) => sessions.loadWorktree(id),
+		"music.stems": async (checkout, name) =>
+			Promise.all(
+				(await music.stems({ cwd: checkoutRoot(checkout) }, name, join(app.getPath("userData"), "music-stems"))).map(async (s) => ({ track: s.track, ogg: new Uint8Array(readFileSync(s.file)) })),
+			),
+		"music.previewInstrument": async (instrument) => new Uint8Array(await music.preview(instrument, join(app.getPath("userData"), "music-previews"))),
 		"worktrees.update": async (id) => {
 			const r = await sessions.updateWorktree(id);
 			history.clear(id); // the merge changed files under the manual-edit history

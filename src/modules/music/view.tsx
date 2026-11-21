@@ -4,13 +4,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { StudioRequestMethod } from "../../shared/host";
 import type { ModuleInfo } from "../../shared/modules";
-import { drumName, GM_PROGRAMS, gmProgram, parseSong, pitchName, type Song, type Timeline, type TimelineTrack } from "../../shared/song";
+import { drumName, GM_PROGRAMS, gmProgram, parseSong, pitchName, type Song, type Space, SPACES, type Timeline, type TimelineTrack } from "../../shared/song";
+import { findAgentType } from "../../shared/agents";
 import { call, sha1, studioFile } from "../../renderer/api";
 import { useStudio } from "../../renderer/store";
 import { AssetBrowser, type AssetContentProps } from "../../renderer/views/AssetBrowser";
-import { runInWorktree } from "../../renderer/workspace";
+import { editCheckout, runInWorktree } from "../../renderer/workspace";
 import { leafName } from "../../shared/asset-names";
-import { formatTime, pieceName } from "./info";
+import { addPartBrief, formatTime, GM_FAMILIES, pieceName, recomposeBrief, trackIdFor } from "./info";
 
 const COLOURS = ["#e8a33d", "#5aa9e6", "#7bc47f", "#d8737f", "#b48ee8", "#4fc1b4", "#e6d45a", "#e58f5a"];
 const bumpAssets = () => useStudio.setState((s) => ({ assetsVersion: s.assetsVersion + 1 }));
@@ -60,6 +61,30 @@ function PieceDetail({ asset, text, checkout }: AssetContentProps) {
 	const [version, setVersion] = useState(0);
 	const [busy, setBusy] = useState(false);
 	const [section, setSection] = useState(0);
+	// The track (and bars) picked in the arrangement, for "Recompose".
+	const [selection, setSelection] = useState<Selection | null>(null);
+	const [adding, setAdding] = useState(false);
+	// Muted tracks, and the stems that play while any are (loaded the first time something is muted).
+	const [muted, setMuted] = useState<Set<string>>(new Set());
+	const [stems, setStems] = useState<StemEngine | null>(null);
+	const [stemsLoading, setStemsLoading] = useState(false);
+	useEffect(() => {
+		if (muted.size === 0 || stems || !parsed?.timeline) return;
+		let live = true;
+		setStemsLoading(true);
+		call("music.stems", checkout ?? null, name)
+			.then((list) => StemEngine.load(list, parsed.song?.loop !== false))
+			.then((engine) => (live ? setStems(engine) : engine.dispose()), (err) => live && (showError(err), setMuted(new Set())))
+			.finally(() => live && setStemsLoading(false));
+		return () => {
+			live = false;
+		};
+	}, [muted.size > 0, stems, text, checkout, name]);
+	// A new score (or checkout) makes the stems stale: drop them; they're made again if something is still muted.
+	useEffect(() => () => stems?.dispose(), [stems]);
+	useEffect(() => setStems(null), [text, checkout]);
+	const sessions = useStudio((s) => s.sessions);
+	const working = useMemo(() => sessions.filter((x) => x.linkedAsset === asset.path && (x.status === "in_progress" || x.status === "starting")), [sessions, asset.path]);
 
 	useEffect(() => {
 		let live = true;
@@ -82,6 +107,27 @@ function PieceDetail({ asset, text, checkout }: AssetContentProps) {
 			await runInWorktree(`Music: ${name}`, method, { name, ...params });
 			bumpAssets();
 			setVersion((v) => v + 1);
+		} catch (err) {
+			showError(err);
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	/** Hands a brief to the Music Composer, working in this piece's worktree (a new one from main). */
+	const compose = async (title: string, prompt: string) => {
+		setBusy(true);
+		try {
+			const { agentTypes, models } = useStudio.getState();
+			const preferred = findAgentType(agentTypes, "music-composer")?.defaultModel;
+			const model = models.find((m) => m.ref === preferred)?.ref ?? models[0]?.ref;
+			if (!model) throw new Error("No models available: sign in to an AI account first (Settings → Accounts)");
+			const worktreeId = await editCheckout(`Music: ${name}`);
+			await call("sessions.create", { agentType: "music-composer", target: "project", model, prompt, title, linkedAsset: asset.path, worktreeId });
+			await useStudio.getState().refreshSessions();
+			useStudio.getState().notify(`The composer is on it: ${title}`);
+			setSelection(null);
+			setAdding(false);
 		} catch (err) {
 			showError(err);
 		} finally {
@@ -125,6 +171,18 @@ function PieceDetail({ asset, text, checkout }: AssetContentProps) {
 				)}
 				<RenderStatus state={render} busy={busy} disabled={!timeline} onRender={() => void run("render_song", {})} />
 			</div>
+			{working.length > 0 && (
+				<div className="row music-working" data-testid="music-working">
+					<span className="spinner" />
+					<span className="grow ellipsis">
+						The composer is working on this piece: <b>{working[0].title}</b>
+					</span>
+					<button className="small" onClick={() => useStudio.getState().selectSession(working[0].id)}>
+						Open session
+					</button>
+				</div>
+			)}
+			{song && timeline && <MixBar song={song} busy={busy} onApply={(edit) => void run("edit_song", edit)} />}
 			{parsed.errors.length > 0 && (
 				<div className="card music-problems" data-testid="music-problems">
 					<h3>Problems in the score</h3>
@@ -141,11 +199,48 @@ function PieceDetail({ asset, text, checkout }: AssetContentProps) {
 					loop={song?.loop !== false}
 					timeline={timeline}
 					onSection={setSection}
+					stems={stems}
+					muted={muted}
 				/>
 			)}
 			{song && timeline && (
 				<>
-					<Arrangement song={song} timeline={timeline} selected={section} onSelect={setSection} />
+					<Arrangement
+						song={song}
+						timeline={timeline}
+						selected={section}
+						onSelect={setSection}
+						selection={selection}
+						onSelection={setSelection}
+						onAdd={() => setAdding(true)}
+						canAdd={!busy && working.length === 0}
+						muted={muted}
+						onMuted={setMuted}
+						stemsLoading={stemsLoading}
+					/>
+					{selection && (
+						<RecomposePanel
+							song={song}
+							timeline={timeline}
+							selection={selection}
+							disabled={busy || working.length > 0}
+							onClear={() => setSelection(null)}
+							onRecompose={(feedback) =>
+								void compose(
+									`Recompose ${selection.track}${selection.range ? ` (${selection.range.to > selection.range.from ? `bars ${selection.range.from}-${selection.range.to}` : `bar ${selection.range.from}`})` : ""}`,
+									recomposeBrief({ name, song, timeline, track: selection.track, range: selection.range, feedback }),
+								)
+							}
+						/>
+					)}
+					{adding && (
+						<AddInstrumentDialog
+							taken={Object.keys(song.instruments)}
+							busy={busy}
+							onClose={() => setAdding(false)}
+							onCompose={(instrument, id, notes) => void compose(`Add ${instrument === "drums" ? "drums" : instrument}`, addPartBrief({ name, instrument, id, notes }))}
+						/>
+					)}
 					<NoteView song={song} timeline={timeline} section={Math.min(section, timeline.sections.length - 1)} />
 					<SimpleEdits song={song} busy={busy} onApply={(edit) => void run("edit_song", edit)} />
 				</>
@@ -173,8 +268,124 @@ function RenderStatus({ state, busy, disabled, onRender }: { state: RenderState;
 	);
 }
 
-/** Plays the rendered OGG (as a blob, so seeking works), looping like the game; reports the section playing. */
-function Player({ src, loop, timeline, onSection }: { src: string; loop: boolean; timeline: Timeline | null; onSection(i: number): void }) {
+/**
+ * Plays a piece's stems together (Web Audio), each through its own gain so tracks mute instantly, then a limiter
+ * standing in for the master's. Loops like the render: the stems are cut to the same loop.
+ */
+class StemEngine {
+	private ctx = new AudioContext();
+	private out: AudioNode;
+	private gains = new Map<string, GainNode>();
+	private sources: AudioBufferSourceNode[] = [];
+	private startedAt = 0;
+	private offset = 0;
+	playing = false;
+	readonly duration: number;
+	onEnded?: () => void;
+
+	constructor(
+		private buffers: Map<string, AudioBuffer>,
+		private loop: boolean,
+	) {
+		const limiter = this.ctx.createDynamicsCompressor();
+		limiter.threshold.value = -1;
+		limiter.knee.value = 0;
+		limiter.ratio.value = 20;
+		limiter.attack.value = 0.003;
+		limiter.release.value = 0.06;
+		limiter.connect(this.ctx.destination);
+		this.out = limiter;
+		for (const track of buffers.keys()) {
+			const g = this.ctx.createGain();
+			g.connect(this.out);
+			this.gains.set(track, g);
+		}
+		this.duration = Math.max(0, ...[...buffers.values()].map((b) => b.duration));
+	}
+
+	static async load(stems: { track: string; ogg: Uint8Array }[], loop: boolean): Promise<StemEngine> {
+		const decoder = new AudioContext();
+		const buffers = new Map<string, AudioBuffer>();
+		for (const s of stems) buffers.set(s.track, await decoder.decodeAudioData(s.ogg.slice().buffer as ArrayBuffer));
+		void decoder.close();
+		return new StemEngine(buffers, loop);
+	}
+
+	time(): number {
+		if (!this.playing) return this.offset;
+		const t = this.ctx.currentTime - this.startedAt;
+		return this.loop ? t % this.duration : Math.min(t, this.duration);
+	}
+
+	play(at = this.offset): void {
+		this.stopSources();
+		void this.ctx.resume();
+		const from = this.loop ? at % this.duration : Math.min(at, this.duration);
+		for (const [track, buffer] of this.buffers) {
+			const src = this.ctx.createBufferSource();
+			src.buffer = buffer;
+			src.loop = this.loop;
+			src.connect(this.gains.get(track)!);
+			src.start(0, from);
+			this.sources.push(src);
+		}
+		if (!this.loop && this.sources[0]) this.sources[0].onended = () => this.playing && (this.pause(), (this.offset = 0), this.onEnded?.());
+		this.startedAt = this.ctx.currentTime - from;
+		this.playing = true;
+	}
+
+	pause(): void {
+		this.offset = this.time();
+		this.stopSources();
+		this.playing = false;
+	}
+
+	seek(t: number): void {
+		if (this.playing) this.play(t);
+		else this.offset = t;
+	}
+
+	setMuted(muted: Set<string>): void {
+		for (const [track, g] of this.gains) g.gain.setTargetAtTime(muted.has(track) ? 0 : 1, this.ctx.currentTime, 0.01);
+	}
+
+	dispose(): void {
+		this.stopSources();
+		void this.ctx.close();
+	}
+
+	private stopSources(): void {
+		for (const s of this.sources) {
+			s.onended = null;
+			try {
+				s.stop();
+			} catch {
+				// never started
+			}
+		}
+		this.sources = [];
+	}
+}
+
+/**
+ * Plays the rendered OGG (as a blob, so seeking works), looping like the game; reports the section playing. While
+ * tracks are muted it plays the stems instead (`stems`), picking up where the render was, and back.
+ */
+function Player({
+	src,
+	loop,
+	timeline,
+	onSection,
+	stems,
+	muted,
+}: {
+	src: string;
+	loop: boolean;
+	timeline: Timeline | null;
+	onSection(i: number): void;
+	stems: StemEngine | null;
+	muted: Set<string>;
+}) {
 	const audio = useRef<HTMLAudioElement>(null);
 	const [url, setUrl] = useState<string>();
 	const [playing, setPlaying] = useState(false);
@@ -192,11 +403,46 @@ function Player({ src, loop, timeline, onSection }: { src: string; loop: boolean
 			if (made) URL.revokeObjectURL(made);
 		};
 	}, [src]);
+	const stemMode = !!stems && muted.size > 0;
+	const active = useRef<"audio" | "stems">("audio");
+	// Hand playback between the render and the stems at the same moment.
+	useEffect(() => {
+		const a = audio.current;
+		const next = stemMode ? "stems" : "audio";
+		if (!a || active.current === next) return;
+		if (next === "stems" && stems) {
+			const wasPlaying = !a.paused;
+			const t = a.currentTime;
+			a.pause();
+			stems.setMuted(muted);
+			stems.seek(t);
+			if (wasPlaying) stems.play(t);
+			setPlaying(wasPlaying);
+		} else if (stems) {
+			const wasPlaying = stems.playing;
+			const t = stems.time();
+			stems.pause();
+			a.currentTime = t;
+			if (wasPlaying) void a.play();
+		}
+		active.current = next;
+	}, [stemMode, stems, muted]);
+	useEffect(() => {
+		if (stemMode) stems?.setMuted(muted);
+	}, [stemMode, stems, muted]);
+	useEffect(() => {
+		if (stems) stems.onEnded = () => setPlaying(false);
+		return () => {
+			if (active.current === "stems") active.current = "audio";
+		};
+	}, [stems]);
+	const now = () => (active.current === "stems" && stems ? stems.time() : (audio.current?.currentTime ?? 0));
+
 	useEffect(() => {
 		if (!playing) return;
 		let frame = 0;
 		const tick = () => {
-			const t = audio.current?.currentTime ?? 0;
+			const t = now();
 			setTime(t);
 			if (timeline) {
 				const tick = (t / timeline.seconds) * timeline.totalTicks;
@@ -207,8 +453,14 @@ function Player({ src, loop, timeline, onSection }: { src: string; loop: boolean
 		};
 		frame = requestAnimationFrame(tick);
 		return () => cancelAnimationFrame(frame);
-	}, [playing, timeline, onSection]);
+	}, [playing, timeline, onSection, stems]);
 	const toggle = () => {
+		if (active.current === "stems" && stems) {
+			if (stems.playing) stems.pause();
+			else stems.play();
+			setPlaying(stems.playing);
+			return;
+		}
 		const a = audio.current;
 		if (!a) return;
 		if (a.paused) void a.play();
@@ -221,7 +473,7 @@ function Player({ src, loop, timeline, onSection }: { src: string; loop: boolean
 				src={url}
 				loop={loop}
 				onPlay={() => setPlaying(true)}
-				onPause={() => setPlaying(false)}
+				onPause={() => active.current === "audio" && setPlaying(false)}
 				onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
 				data-testid="music-audio"
 			/>
@@ -236,14 +488,21 @@ function Player({ src, loop, timeline, onSection }: { src: string; loop: boolean
 				step={0.01}
 				value={time}
 				onChange={(e) => {
-					if (audio.current) audio.current.currentTime = Number(e.target.value);
-					setTime(Number(e.target.value));
+					const t = Number(e.target.value);
+					if (active.current === "stems" && stems) stems.seek(t);
+					else if (audio.current) audio.current.currentTime = t;
+					setTime(t);
 				}}
 			/>
 			<span className="muted mono">
 				{formatTime(time)} / {formatTime(duration)}
 			</span>
 			{loop && <span className="badge">loops</span>}
+			{stemMode && (
+				<span className="badge" title="Playing each track's stem, so muted tracks are left out" data-testid="stems-playing">
+					{muted.size} muted
+				</span>
+			)}
 			<PlayheadBridge time={time} timeline={timeline} />
 		</div>
 	);
@@ -260,13 +519,73 @@ function PlayheadBridge({ time, timeline }: { time: number; timeline: Timeline |
 
 const instrumentLabel = (t: TimelineTrack) => (t.drums ? "drums" : GM_PROGRAMS[t.program]);
 
-/** Tracks × sections: each cell a tiny piano roll of that track in that section. */
-function Arrangement({ song, timeline, selected, onSelect }: { song: Song; timeline: Timeline; selected: number; onSelect(i: number): void }) {
+/** A track, and optionally the bars of it (piece bars, 1-based, inclusive), picked for recomposing. */
+type Selection = { track: string; range?: { from: number; to: number } };
+
+/**
+ * Tracks × sections: each cell a tiny piano roll of that track in that section. Click a track's name to pick the
+ * whole track, or its lane to pick a bar (drag or shift-click to pick several).
+ */
+function Arrangement({
+	song,
+	timeline,
+	selected,
+	onSelect,
+	selection,
+	onSelection,
+	onAdd,
+	canAdd,
+	muted,
+	onMuted,
+	stemsLoading,
+}: {
+	song: Song;
+	timeline: Timeline;
+	selected: number;
+	onSelect(i: number): void;
+	selection: Selection | null;
+	onSelection(s: Selection | null): void;
+	onAdd(): void;
+	canAdd: boolean;
+	muted: Set<string>;
+	onMuted(m: Set<string>): void;
+	stemsLoading: boolean;
+}) {
 	const total = timeline.totalTicks;
+	const audible = timeline.tracks.filter((t) => t.notes.length).map((t) => t.id);
+	const allMuted = audible.length > 0 && audible.every((id) => muted.has(id));
+	const toggleMute = (id: string) => {
+		const next = new Set(muted);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		onMuted(next);
+	};
+	const bars = total / timeline.ticksPerBar;
+	const drag = useRef<{ track: string; anchor: number } | null>(null);
+	const barAt = (e: React.MouseEvent<HTMLElement>) => {
+		const r = e.currentTarget.getBoundingClientRect();
+		return Math.min(bars, Math.max(1, Math.floor(((e.clientX - r.left) / r.width) * bars) + 1));
+	};
+	const pick = (track: string, a: number, b: number) => onSelection({ track, range: { from: Math.min(a, b), to: Math.max(a, b) } });
+	useEffect(() => {
+		const up = () => (drag.current = null);
+		window.addEventListener("mouseup", up);
+		return () => window.removeEventListener("mouseup", up);
+	}, []);
 	return (
 		<div className="arrangement" data-testid="arrangement">
 			<div className="arr-row arr-header">
-				<div className="arr-label" />
+				<div className="arr-label row">
+					<button
+						className="small"
+						onClick={() => onMuted(allMuted ? new Set() : new Set(audible))}
+						title={allMuted ? "Hear every track again" : "Mute every track, then unmute the ones to hear on their own"}
+						data-testid="mute-all"
+					>
+						{allMuted ? "Unmute all" : "Mute all"}
+					</button>
+					{stemsLoading && <span className="muted small">preparing stems…</span>}
+				</div>
 				<div className="arr-lane">
 					{timeline.sections.map((s, i) => (
 						<button
@@ -290,14 +609,49 @@ function Arrangement({ song, timeline, selected, onSelect }: { song: Song; timel
 				const lo = Math.min(...pitches, 127);
 				const hi = Math.max(...pitches, 0);
 				return (
-					<div className="arr-row" key={t.id} data-testid="arr-track">
-						<div className="arr-label" title={instrumentLabel(t)}>
+					<div className={`arr-row ${selection?.track === t.id ? "picked" : ""} ${muted.has(t.id) ? "muted-track" : ""}`} key={t.id} data-testid="arr-track">
+						<div
+							className="arr-label"
+							title={`${instrumentLabel(t)}: click to pick the whole track`}
+							onClick={() => onSelection(selection?.track === t.id && !selection.range ? null : { track: t.id })}
+						>
+							<button
+								className={`mute ${muted.has(t.id) ? "on" : ""}`}
+								disabled={!t.notes.length}
+								title={muted.has(t.id) ? `Unmute ${t.id}` : `Mute ${t.id}`}
+								onClick={(e) => (e.stopPropagation(), toggleMute(t.id))}
+								data-testid="mute-track"
+							>
+								M
+							</button>
 							<span className="swatch" style={{ background: COLOURS[ti % COLOURS.length] }} />
 							<span className="ellipsis">
 								<b>{t.id}</b> <span className="muted">{instrumentLabel(t)}</span>
 							</span>
 						</div>
-						<div className="arr-lane">
+						<div
+							className="arr-lane pickable"
+							title="Click a bar to pick it; drag or shift-click to pick several"
+							onMouseDown={(e) => {
+								const bar = barAt(e);
+								const keep = e.shiftKey && selection?.track === t.id && selection.range;
+								const anchor = keep ? selection.range!.from : bar;
+								drag.current = { track: t.id, anchor };
+								pick(t.id, anchor, bar);
+							}}
+							onMouseMove={(e) => drag.current?.track === t.id && e.buttons === 1 && pick(t.id, drag.current.anchor, barAt(e))}
+						>
+							{selection?.track === t.id && (
+								<div
+									className="arr-pick"
+									data-testid="arr-pick"
+									style={
+										selection.range
+											? { left: `${((selection.range.from - 1) / bars) * 100}%`, width: `${((selection.range.to - selection.range.from + 1) / bars) * 100}%` }
+											: { left: 0, width: "100%" }
+									}
+								/>
+							)}
 							{timeline.sections.map((s, i) => (
 								<div
 									key={i}
@@ -325,8 +679,13 @@ function Arrangement({ song, timeline, selected, onSelect }: { song: Song; timel
 					</div>
 				);
 			})}
-			<div className="muted small">
-				{song.arrangement.length} sections · {timeline.totalTicks / timeline.ticksPerBar} bars. Click a section to see its notes.
+			<div className="row">
+				<span className="muted small grow">
+					{song.arrangement.length} sections · {bars} bars. Click a section to see its notes; click a track or its bars to recompose them.
+				</span>
+				<button className="small" disabled={!canAdd} onClick={onAdd} data-testid="add-instrument">
+					+ Add instrument
+				</button>
 			</div>
 		</div>
 	);
@@ -417,7 +776,7 @@ function NoteView({ timeline, section }: { song: Song; timeline: Timeline; secti
 	);
 }
 
-/** Tempo and each instrument's sound and volume; applying writes song.json and re-renders. */
+/** Each instrument's sound and volume; applying writes song.json and re-renders. */
 function SimpleEdits({
 	song,
 	busy,
@@ -425,18 +784,14 @@ function SimpleEdits({
 }: {
 	song: Song;
 	busy: boolean;
-	onApply(edit: { tempo?: number; instruments?: Record<string, { program?: string; volume?: number }> }): void;
+	onApply(edit: { instruments?: Record<string, { program?: string; volume?: number }> }): void;
 }) {
-	const [tempo, setTempo] = useState(song.tempo);
 	const [inst, setInst] = useState<Record<string, { program?: string; volume?: number }>>({});
-	const changed = tempo !== song.tempo || Object.keys(inst).length > 0;
+	const changed = Object.keys(inst).length > 0;
 	return (
 		<details className="card simple-edits">
-			<summary>Quick changes</summary>
+			<summary>Instruments: sound and volume</summary>
 			<div className="col">
-				<label className="row">
-					Tempo <input type="number" min={20} max={300} value={tempo} onChange={(e) => setTempo(Number(e.target.value))} style={{ width: 72 }} /> bpm
-				</label>
 				{Object.entries(song.instruments).map(([id, i]) =>
 					i.drums ? null : (
 						<label key={id} className="row">
@@ -477,10 +832,7 @@ function SimpleEdits({
 						className="primary"
 						disabled={!changed || busy}
 						onClick={() =>
-							onApply({
-								...(tempo !== song.tempo ? { tempo } : {}),
-								...(Object.keys(inst).length ? { instruments: inst } : {}),
-							})
+							onApply({ instruments: inst })
 						}
 					>
 						Apply
@@ -488,5 +840,233 @@ function SimpleEdits({
 				</div>
 			</div>
 		</details>
+	);
+}
+
+const SPACE_LABEL: Record<Space, { label: string; hint: string }> = {
+	dry: { label: "Dry", hint: "Close and tight: no room around it" },
+	room: { label: "Room", hint: "A small room (the default)" },
+	hall: { label: "Hall", hint: "A big, soft hall: long, lush reverb" },
+};
+
+/** Tempo, the room it plays in and how loosely it's played: tried by ear, each applied to the score and re-rendered. */
+function MixBar({ song, busy, onApply }: { song: Song; busy: boolean; onApply(edit: { tempo?: number; space?: Space; humanize?: number }): void }) {
+	const [tempo, setTempo] = useState(song.tempo);
+	const [feel, setFeel] = useState(song.humanize ?? 0.4);
+	useEffect(() => setTempo(song.tempo), [song.tempo]);
+	useEffect(() => setFeel(song.humanize ?? 0.4), [song.humanize]);
+	const space = song.space ?? "room";
+	const changed = tempo !== song.tempo || feel !== (song.humanize ?? 0.4);
+	const validTempo = tempo >= 20 && tempo <= 300;
+	return (
+		<div className="row music-mixbar" data-testid="music-mixbar">
+			<label className="row" title="Quarter notes per minute">
+				<span className="muted">Tempo</span>
+				<button className="small" disabled={busy} onClick={() => setTempo((t) => Math.max(20, t - 4))}>
+					−
+				</button>
+				<input type="number" min={20} max={300} value={tempo} onChange={(e) => setTempo(Number(e.target.value))} style={{ width: 64 }} data-testid="music-tempo" />
+				<button className="small" disabled={busy} onClick={() => setTempo((t) => Math.min(300, t + 4))}>
+					+
+				</button>
+				<span className="muted">bpm</span>
+			</label>
+			<div className="row" role="group" aria-label="Space">
+				<span className="muted">Space</span>
+				<div className="segmented">
+					{SPACES.map((s) => (
+						<button
+							key={s}
+							className={s === space ? "on" : ""}
+							disabled={busy}
+							title={SPACE_LABEL[s].hint}
+							onClick={() => s !== space && onApply({ space: s })}
+							data-testid={`music-space-${s}`}
+						>
+							{SPACE_LABEL[s].label}
+						</button>
+					))}
+				</div>
+			</div>
+			<label className="row" title="0: exactly on the grid; higher: looser timing and dynamics, like people playing">
+				<span className="muted">Feel</span>
+				<span className="small muted">tight</span>
+				<input type="range" min={0} max={1} step={0.05} value={feel} disabled={busy} onChange={(e) => setFeel(Number(e.target.value))} data-testid="music-feel" />
+				<span className="small muted">loose</span>
+			</label>
+			<span className="grow" />
+			{changed && (
+				<>
+					<button className="small" disabled={busy} onClick={() => (setTempo(song.tempo), setFeel(song.humanize ?? 0.4))}>
+						Reset
+					</button>
+					<button
+						className="primary small"
+						disabled={busy || !validTempo}
+						onClick={() => onApply({ ...(tempo !== song.tempo ? { tempo } : {}), ...(feel !== (song.humanize ?? 0.4) ? { humanize: feel } : {}) })}
+						data-testid="music-mix-apply"
+					>
+						{busy ? "Rendering…" : "Apply"}
+					</button>
+				</>
+			)}
+		</div>
+	);
+}
+
+/** What's picked in the arrangement, and a brief for the composer to rewrite it, with the user's own feedback. */
+function RecomposePanel({
+	song,
+	timeline,
+	selection,
+	disabled,
+	onClear,
+	onRecompose,
+}: {
+	song: Song;
+	timeline: Timeline;
+	selection: Selection;
+	disabled: boolean;
+	onClear(): void;
+	onRecompose(feedback: string): void;
+}) {
+	const [feedback, setFeedback] = useState("");
+	const inst = song.instruments[selection.track];
+	const sound = inst?.drums ? "drums" : GM_PROGRAMS[gmProgram(inst?.program) ?? 0];
+	const r = selection.range;
+	const where = r ? (r.from === r.to ? `bar ${r.from}` : `bars ${r.from}-${r.to}`) : "the whole piece";
+	// Sections the picked bars fall in that play more than once: their patterns are shared.
+	const repeated = r
+		? [...new Set(timeline.sections.filter((s) => s.tick / timeline.ticksPerBar + 1 <= r.to && (s.tick + s.ticks) / timeline.ticksPerBar >= r.from).map((s) => s.name))].filter(
+				(n) => song.arrangement.filter((a) => a === n).length > 1,
+			)
+		: [];
+	return (
+		<div className="card col recompose" data-testid="recompose">
+			<div className="row">
+				<b className="grow">
+					Recompose <code>{selection.track}</code> <span className="muted">({sound})</span> · {where}
+				</b>
+				<button className="small ghost" onClick={onClear} title="Clear the selection">
+					✕
+				</button>
+			</div>
+			{repeated.length > 0 && (
+				<span className="muted small" data-testid="recompose-shared">
+					{repeated.map((n) => `“${n}”`).join(", ")} play{repeated.length === 1 ? "s" : ""} more than once: the composer changes {repeated.length === 1 ? "it" : "them"} everywhere,
+					unless you ask for only this place (it then copies the section).
+				</span>
+			)}
+			<textarea
+				rows={2}
+				placeholder="Optional: what should change? (“busier, more playful”, “follow the bass”, “end on a question”…)"
+				value={feedback}
+				onChange={(e) => setFeedback(e.target.value)}
+				data-testid="recompose-feedback"
+			/>
+			<div className="row">
+				<span className="muted small grow">The Music Composer rewrites only this, renders and tells you what it changed. Undo with the worktree's history or discard.</span>
+				<button className="primary" disabled={disabled} onClick={() => onRecompose(feedback)} data-testid="recompose-go">
+					Recompose
+				</button>
+			</div>
+		</div>
+	);
+}
+
+/** Every General MIDI instrument by family (and the drum kit), each previewable, for a part the composer then writes. */
+function AddInstrumentDialog({ taken, busy, onClose, onCompose }: { taken: string[]; busy: boolean; onClose(): void; onCompose(instrument: string, id: string, notes: string): void }) {
+	const { showError } = useStudio();
+	const [search, setSearch] = useState("");
+	const [chosen, setChosen] = useState<string | null>(null);
+	const [notes, setNotes] = useState("");
+	const [playing, setPlaying] = useState<string | null>(null);
+	const [loading, setLoading] = useState<string | null>(null);
+	const audio = useRef<HTMLAudioElement | null>(null);
+	const urls = useRef(new Map<string, string>());
+	useEffect(
+		() => () => {
+			audio.current?.pause();
+			for (const u of urls.current.values()) URL.revokeObjectURL(u);
+		},
+		[],
+	);
+	const preview = async (instrument: string) => {
+		audio.current?.pause();
+		if (playing === instrument) return setPlaying(null);
+		try {
+			let url = urls.current.get(instrument);
+			if (!url) {
+				setLoading(instrument);
+				const bytes = await call("music.previewInstrument", instrument);
+				url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "audio/ogg" }));
+				urls.current.set(instrument, url);
+			}
+			const a = new Audio(url);
+			audio.current = a;
+			a.onended = () => setPlaying((p) => (p === instrument ? null : p));
+			setPlaying(instrument);
+			await a.play();
+		} catch (err) {
+			showError(err);
+		} finally {
+			setLoading(null);
+		}
+	};
+	const q = search.trim().toLowerCase();
+	const families = [
+		...GM_FAMILIES.map((family, f) => ({ family, names: GM_PROGRAMS.slice(f * 8, f * 8 + 8) })),
+		{ family: "Drums", names: ["drums"] },
+	]
+		.map((g) => ({ ...g, names: g.names.filter((n) => !q || n.includes(q) || g.family.toLowerCase().includes(q)) }))
+		.filter((g) => g.names.length);
+	const id = chosen ? trackIdFor(chosen === "drums" ? "drums" : chosen, taken) : "";
+	return (
+		<div className="modal-backdrop" onClick={onClose}>
+			<div className="modal col add-instrument" style={{ width: 760 }} onClick={(e) => e.stopPropagation()} data-testid="add-instrument-dialog">
+				<h3>Add an instrument</h3>
+				<input autoFocus placeholder="Search: cello, synth, brass…" value={search} onChange={(e) => setSearch(e.target.value)} data-testid="instrument-search" />
+				<div className="instrument-families">
+					{families.map((g) => (
+						<div key={g.family} className="instrument-family">
+							<div className="muted small">{g.family}</div>
+							{g.names.map((n) => (
+								<div key={n} className={`row instrument-row ${chosen === n ? "on" : ""}`} onClick={() => setChosen(n)} data-testid="instrument-option">
+									<button
+										className="small ghost"
+										title={`Hear a ${n} phrase`}
+										onClick={(e) => (e.stopPropagation(), void preview(n))}
+										data-testid="instrument-preview"
+									>
+										{loading === n ? "…" : playing === n ? "■" : "▶"}
+									</button>
+									<span className="grow ellipsis">{n}</span>
+								</div>
+							))}
+						</div>
+					))}
+				</div>
+				{chosen && (
+					<>
+						<div className="muted small">
+							New track <code>{id}</code> playing <b>{chosen}</b>. The Music Composer writes its part to fit the others and renders it.
+						</div>
+						<textarea
+							rows={2}
+							placeholder="Optional: what should it play? (“a countermelody in the B section”, “sustained pads under the chorus”…)"
+							value={notes}
+							onChange={(e) => setNotes(e.target.value)}
+							data-testid="instrument-notes"
+						/>
+					</>
+				)}
+				<div className="row" style={{ justifyContent: "flex-end" }}>
+					<button onClick={onClose}>Cancel</button>
+					<button className="primary" disabled={!chosen || busy} onClick={() => chosen && onCompose(chosen, id, notes)} data-testid="instrument-compose">
+						Compose a part
+					</button>
+				</div>
+			</div>
+		</div>
 	);
 }
