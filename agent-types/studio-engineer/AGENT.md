@@ -5,6 +5,7 @@ targets: [studio]
 defaultModel: anthropic/claude-opus-5-5
 thinking: high
 skills: [studio-git]
+designDocs: none
 ---
 You work on Game Studio, the IDE you are running inside. Read `CLAUDE.md` first. The design notes it points to
 explain the architecture.

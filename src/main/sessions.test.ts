@@ -54,6 +54,38 @@ describe("SessionService", () => {
 
 	const settled = (id: string) => waitFor(() => service.get(id).status === "idle");
 
+	it("opens a game session with the design docs its type works to, as its worktree has them", async () => {
+		mkdirSync(join(project, "docs/design"), { recursive: true });
+		writeFileSync(join(project, "docs/design/Art Style.md"), "---\nstatus: not-established\n---\n# Art Style\n\n## For now\nGrey boxes only.\n");
+		writeFileSync(join(project, "docs/design/Audio Style.md"), "---\nstatus: established\n---\n# Audio Style\n\nAll kazoo.\n\n## Music\nLoud kazoo.\n");
+		sh(project, "add", "-A");
+		sh(project, "commit", "-qm", "docs");
+		const host = await inProcessHost(join(root, "pi-brief"));
+		const opened: { appendSystemPrompt: string[] }[] = [];
+		const call = host.call.bind(host) as (...a: unknown[]) => unknown;
+		(host as unknown as { call: unknown }).call = (method: string, ...args: unknown[]) => {
+			if (method === "openSession") opened.push(args[0] as { appendSystemPrompt: string[] });
+			return call(method, ...args);
+		};
+		const artist: AgentTypeInfo = { ...general, id: "artist", name: "Artist", targets: ["project"], designDocs: ["art-style"] };
+		const outsider: AgentTypeInfo = { ...general, id: "outsider", name: "Outsider", designDocs: "none" };
+		const briefed = new SessionService({ host, settings: () => settings, projectPath: () => project, agentTypes: () => [artist, outsider], skillsDir: join(root, "skills"), emit: () => {} });
+		try {
+			const s = await briefed.create({ agentType: "artist", target: "project", model: "faux/echo", prompt: "make a rock" });
+			await waitFor(() => briefed.get(s.id).status === "idle");
+			const brief = opened[0].appendSystemPrompt.join("\n");
+			expect(brief).toContain("### Art Style: NOT ESTABLISHED");
+			expect(brief).toContain("Grey boxes only.");
+			expect(brief).toContain("- **Audio Style**, established (`docs/design/Audio Style.md`): All kazoo.");
+			expect(brief).not.toContain("Loud kazoo");
+			const o = await briefed.create({ agentType: "outsider", target: "project", model: "faux/echo", prompt: "hello" });
+			await waitFor(() => briefed.get(o.id).status === "idle");
+			expect(opened[1].appendSystemPrompt.join("\n")).not.toContain("design direction");
+		} finally {
+			briefed.dispose();
+		}
+	}, 30_000);
+
 	it("gives every Pi session the codemode tool", async () => {
 		const s = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: "hello" });
 		await settled(s.id);

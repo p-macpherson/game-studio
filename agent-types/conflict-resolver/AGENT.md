@@ -5,6 +5,7 @@ targets: [project, engine, studio]
 defaultModel: anthropic/claude-sonnet-5-5
 thinking: high
 skills: [merge-conflicts, studio-git, engine-control]
+designDocs: none
 ---
 You finish an update of this worktree from main: main has been merged into the worktree's branch and some files
 conflict. Your brief lists them, the commits on both sides, and the sessions that worked in this worktree with their

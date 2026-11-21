@@ -108,18 +108,20 @@ try {
 	await page.locator(".session-detail .status-idle").waitFor();
 	await step("05-resumed", page);
 
-	// Design Docs: the template's overview is listed and rendered.
+	// Design Docs: the standard docs are listed (the brief first), each not established yet.
 	await page.getByRole("button", { name: "Design Docs" }).click();
 	const docs = page.getByTestId("asset-item");
-	await docs.filter({ hasText: "E2E Game" }).waitFor();
-	await page.locator(".markdown h1", { hasText: "E2E Game" }).waitFor();
+	await docs.filter({ hasText: "Game Brief" }).filter({ hasText: "Not established" }).waitFor();
+	await page.locator(".markdown h1", { hasText: "Game Brief" }).waitFor();
+	if (!(await docs.first().textContent())?.includes("Game Brief")) throw new Error("the game brief isn't the first doc listed");
+	await page.getByTestId("doc-banner").filter({ hasText: "Not decided yet" }).waitFor();
 	await step("08-design-docs", page);
 
 	// "New doc" starts a Game Designer session in a new worktree, which the sidebar selects; its new doc shows there.
 	await selectMain(page); // resuming selected the resumed session's worktree
 	await page.getByRole("button", { name: "+ New doc" }).click();
 	await page.locator(".agent-type.on", { hasText: "Game Designer" }).waitFor();
-	await page.getByTestId("new-session-prompt").fill("write docs/design/Combat.md: # Combat\n\nHit things. See [the overview](Overview.md).");
+	await page.getByTestId("new-session-prompt").fill("write docs/design/Combat.md: # Combat\n\nHit things. See [the brief](Game%20Brief.md).");
 	await page.getByRole("button", { name: "Start session" }).click();
 	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
 	await page.getByRole("button", { name: "Design Docs" }).click();
@@ -127,8 +129,8 @@ try {
 	await page.locator(".markdown h1", { hasText: "Combat" }).waitFor();
 	await page.getByTestId("worktree-current").filter({ hasText: "write docs/design/Combat.md" }).waitFor();
 	await step("09-draft-doc", page);
-	await page.locator(".markdown a", { hasText: "the overview" }).click();
-	await page.locator(".markdown h1", { hasText: "E2E Game" }).waitFor();
+	await page.locator(".markdown a", { hasText: "the brief" }).click();
+	await page.locator(".markdown h1", { hasText: "Game Brief" }).waitFor();
 
 	// Merging the worktree (from the sidebar) makes it a regular doc; the selection goes back to main. The Merge
 	// dialog sums up its changes by section and lists its sessions: one still working blocks the merge; idle, a warning.
@@ -169,15 +171,27 @@ try {
 	if ((await docs.filter({ hasText: "Combat" }).textContent())?.includes("⎇")) throw new Error("merged doc still shown as worktree work");
 
 	// "Discuss / modify" links the session to the doc; its edit shows as a draft of the overview.
-	await docs.filter({ hasText: "E2E Game" }).click();
+	await docs.filter({ hasText: "Game Brief" }).click();
 	await page.getByRole("button", { name: "Discuss / modify" }).click();
-	await page.locator(".modal code", { hasText: "About docs/design/Overview.md" }).waitFor();
-	await page.getByTestId("new-session-prompt").fill("write docs/design/Overview.md: # E2E Game\n\nNow with [combat](Combat.md).");
+	await page.locator(".modal code", { hasText: "About docs/design/Game Brief.md" }).waitFor();
+	await page.getByTestId("new-session-prompt").fill("write docs/design/Game Brief.md: ---\nstatus: draft\n---\n# Game Brief\n\nNow with [combat](Combat.md).");
 	await page.getByRole("button", { name: "Start session" }).click();
 	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
 	await page.getByRole("button", { name: "Design Docs" }).click();
-	await docs.filter({ hasText: "E2E Game" }).filter({ hasText: "⎇ Modified" }).click();
+	await docs.filter({ hasText: "Game Brief" }).filter({ hasText: "⎇ Modified" }).filter({ hasText: "Draft" }).click();
 	await page.locator(".markdown", { hasText: "Now with combat" }).waitFor();
+	// The user sets the status and edits the doc by hand, in the selected worktree.
+	await page.getByTestId("doc-status").selectOption("established");
+	await page.getByTestId("doc-banner").filter({ hasText: "Established" }).waitFor();
+	await page.getByTestId("doc-edit").click();
+	await page.getByTestId("doc-source").fill("# Game Brief\n\nNow with [combat](Combat.md), edited by hand.");
+	await page.getByTestId("doc-save").click();
+	await page.locator(".markdown", { hasText: "edited by hand" }).waitFor();
+	await page.getByTestId("doc-banner").filter({ hasText: "Established" }).waitFor();
+	await step("10b-doc-status-and-edit", page);
+	await page.locator(".sidebar").getByTestId("worktree-save").click();
+	await page.getByTestId("save-ok").click();
+	await page.locator(".sidebar").getByTestId("worktree-unsaved").waitFor({ state: "detached", timeout: 10_000 });
 	await page.getByText("Sessions on this doc").waitFor();
 	await step("10-doc-draft-of-existing", page);
 	// The same session removes a doc: listed as removed; the sidebar counts the section's changes by kind; the
@@ -201,8 +215,8 @@ try {
 	// Updating from main: main rewrites the overview too, so the update conflicts. The Conflict Resolver starts
 	// (briefed with the worktree's sessions); the Sessions page lists this worktree's sessions only; aborting the
 	// update goes back. With main selected, the page says a new session starts its own worktree.
-	writeFileSync(join(projectPath, "docs/design/Overview.md"), "# E2E Game\n\nMain's own overview.\n");
-	execSync("git add docs/design/Overview.md && git commit -qm 'Main rewrites the overview'", { cwd: projectPath });
+	writeFileSync(join(projectPath, "docs/design/Game Brief.md"), "# Game Brief\n\nMain's own brief.\n");
+	execSync("git add 'docs/design/Game Brief.md' && git commit -qm 'Main rewrites the overview'", { cwd: projectPath });
 	await page.getByTestId("worktree-behind").filter({ hasText: "main has 1 new commit" }).waitFor({ timeout: 30_000 });
 	await page.getByTestId("worktree-update").click();
 	await page.getByTestId("worktree-conflicts").filter({ hasText: "1 conflict" }).waitFor({ timeout: 30_000 });

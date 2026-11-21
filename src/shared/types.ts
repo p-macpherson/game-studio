@@ -154,6 +154,11 @@ export interface AgentTypeInfo {
 	 * ask_user, delegate); absent means all. Directors leave generation to the specialists they delegate to.
 	 */
 	studioTools?: string[];
+	/**
+	 * The standard design docs its work follows (ids from shared/design-docs.ts): given in full when a session opens,
+	 * the others listed. Absent: the game brief. "none": no design brief at all.
+	 */
+	designDocs?: string[] | "none";
 	/** Old ids it answers to (sessions of a type that was renamed or replaced keep working). */
 	aliases?: string[];
 	/** Agent types it may hand tasks to (`delegate`): edges of the delegation graph, which has no cycles. */

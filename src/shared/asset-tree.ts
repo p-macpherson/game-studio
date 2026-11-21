@@ -62,7 +62,13 @@ export function assetTree(info: ModuleInfo, assets: AssetSummary[]): TreeNode[] 
 		at.children.push({ kind: "leaf", key: asset.path, name, asset });
 	}
 	const finish = (f: TreeFolder, sort: boolean) => {
-		if (sort) f.children.sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name, undefined, { numeric: true }) : a.kind === "folder" ? -1 : 1));
+		const rank = (n: TreeNode) => (f === top && n.kind === "leaf" ? (info.first?.indexOf(n.key) ?? -1) : -1);
+		if (sort)
+			f.children.sort((a, b) => {
+				const [ra, rb] = [rank(a), rank(b)];
+				if (ra >= 0 || rb >= 0) return ra < 0 ? 1 : rb < 0 ? -1 : ra - rb;
+				return a.kind === b.kind ? a.name.localeCompare(b.name, undefined, { numeric: true }) : a.kind === "folder" ? -1 : 1;
+			});
 		for (const c of f.children) {
 			if (c.kind === "folder") finish(c, true);
 			const counts = c.kind === "folder" ? c.changes : count(c.asset.change);

@@ -28,7 +28,7 @@ const respond: FauxResponseFactory = (context) => {
 	if (last?.role === "toolResult") return fauxAssistantMessage(fauxText(tool ? `Result: ${contentText(last.content)}` : `Noted: ${text}`));
 	if (tool) return fauxAssistantMessage([fauxToolCall(tool[1], JSON.parse(tool[2]))], { stopReason: "toolUse" });
 	// "write <path>: <content>" replaces that file; anything else is appended to faux-notes.md.
-	const write = /^write (\S+): ([\s\S]*)$/.exec(text);
+	const write = /^write (\S+|[^:\n]+\.\w+): ([\s\S]*)$/.exec(text); // the path may hold spaces ("Game Brief.md")
 	const [file, content, op] = write ? [write[1], write[2], ">"] : ["faux-notes.md", text, ">>"];
 	const command = `mkdir -p "$(dirname ${quote(file)})" && printf '%s\\n' ${quote(content)} ${op} ${quote(file)} && git add ${quote(file)} && git commit -qm ${quote(`faux: ${text.slice(0, 40)}`)}`;
 	return fauxAssistantMessage([fauxToolCall("bash", { command })], { stopReason: "toolUse" });

@@ -4,6 +4,8 @@ import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync } from "node:fs";
 import { basename, join } from "node:path";
+import { designBrief } from "../shared/design-docs";
+import { readDesignDocs } from "./design-docs";
 import type { HostEvent, PromptMode, StudioRequestMethod } from "../shared/host";
 import type { StudioEvent } from "../shared/ipc";
 import type { AgentTypeInfo, GitCommit, NewSessionRequest, PendingQuestion, SessionRecord, SessionSummary, Settings, Target, WorktreeRecord, WorktreeSummary } from "../shared/types";
@@ -495,6 +497,12 @@ export class SessionService {
 		return lines.join("\n");
 	}
 
+	/** The game's design direction for a session on the game, read from its worktree each time it opens (so it's current). */
+	private designBrief(e: Entry, agentType: AgentTypeInfo): string {
+		if (e.record.target !== "project" || agentType.designDocs === "none") return "";
+		return designBrief(readDesignDocs(this.worktreePath(e)), agentType.designDocs ?? ["game-brief"]);
+	}
+
 	private async open(e: Entry): Promise<void> {
 		const agentType = findAgentType(this.deps.agentTypes(), e.record.agentType);
 		if (!agentType) throw new Error(`Agent type ${e.record.agentType} no longer exists`);
@@ -506,7 +514,7 @@ export class SessionService {
 			sessionFile: sessionFile && existsSync(sessionFile) ? sessionFile : undefined,
 			model: e.record.model,
 			thinking: e.record.thinking,
-			appendSystemPrompt: [this.preamble(e, agentType), agentType.prompt].filter(Boolean),
+			appendSystemPrompt: [this.preamble(e, agentType), agentType.prompt, this.designBrief(e, agentType)].filter(Boolean),
 			skillPaths: agentType.skills.map((s) => join(this.deps.skillsDir, s)).filter((p) => existsSync(p)),
 			delegatesTo: this.delegatesTo(e, agentType),
 			...(agentType.studioTools ? { studioTools: agentType.studioTools } : {}),

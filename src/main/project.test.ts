@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createProject, publishProject, readProject } from "./project";
+import { DESIGN_DOCS, docPath, parseDoc } from "../shared/design-docs";
+import { readDesignDocs } from "./design-docs";
 import { makeRepo, sh, tempDir } from "./test-helpers";
 
 const templateDir = resolve("templates/game");
@@ -28,6 +30,8 @@ describe("createProject", () => {
 		expect(info).toEqual({ path, name: "My Game" });
 		expect(readProject(path).name).toBe("My Game");
 		expect(readFileSync(join(path, "game/main.odin"), "utf8")).toContain('title = "My Game"');
+		// Every standard design doc, not established yet.
+		expect(readDesignDocs(path).map((d) => [d.path, parseDoc(d.text).status])).toEqual(DESIGN_DOCS.map((d) => [docPath(d), "not-established"]).sort());
 		expect(statSync(join(path, "build.sh")).mode & 0o111).toBeTruthy();
 		expect(existsSync(join(path, ".gitignore"))).toBe(true);
 		expect(existsSync(join(path, "engine/engine/engine/app.odin"))).toBe(true);

@@ -15,6 +15,8 @@ export interface ModuleInfo {
 	exclude?: string[];
 	/** Roots (repo-relative) under which `<name>/<name>.<ext>` is a folder-shaped asset: one leaf named <name>. */
 	folderAssets?: string[];
+	/** Assets listed before the others at the top of the tree, in this order (the standard design docs). */
+	first?: string[];
 }
 
 /** True if `path` (repo-relative) is one of this module's assets. */
@@ -30,6 +32,8 @@ export interface AssetSummary {
 	path: string;
 	title: string;
 	excerpt: string;
+	/** A design doc's status (see shared/design-docs.ts). */
+	status?: string;
 	/** Exists in the project's main checkout. */
 	inMain: boolean;
 	updatedAt?: string;

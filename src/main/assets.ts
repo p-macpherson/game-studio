@@ -19,7 +19,7 @@ import type { SessionService } from "./sessions";
 
 export interface ModuleBackend {
 	info: ModuleInfo;
-	summarize(text: string, path: string): { title: string; excerpt: string };
+	summarize(text: string, path: string): { title: string; excerpt: string; status?: string };
 }
 
 export const MODULES: ModuleBackend[] = [
@@ -54,7 +54,7 @@ export function safeJoin(root: string, path: string): string {
 
 export class AssetService {
 	/** file → its summary at a given size and time: listing a section doesn't read files that haven't changed. */
-	private readonly summaries = new Map<string, { size: number; mtimeMs: number; summary: { title: string; excerpt: string } }>();
+	private readonly summaries = new Map<string, { size: number; mtimeMs: number; summary: { title: string; excerpt: string; status?: string } }>();
 
 	constructor(
 		/** The root of a checkout: the main one (null) or a worktree's (by id). */

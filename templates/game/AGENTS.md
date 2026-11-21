@@ -8,7 +8,7 @@ submodule. Read `engine/README.md`, `engine/docs/making-a-game.md` (game API) an
 
 | Path | Contents |
 |---|---|
-| `docs/design/` | Game design and philosophy (markdown). The source of truth for what the game should be |
+| `docs/design/` | The design docs (markdown): the user's decisions about the game, each with a `status` (`not-established`, `draft`, `established`). The source of truth for what the game should be; changed only with the user, in a Game Designer session |
 | `game/` | The game's Odin package |
 | `assets/` | `models/` (glTF), `textures/`, `music/`, `sounds/`, `scenes/` and `prefabs/` (engine JSON) |
 | `tests/` | Control-protocol scripts (`.jsonl`) run by `./build.sh test` |

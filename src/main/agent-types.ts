@@ -2,6 +2,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "yaml";
+import { DESIGN_DOCS } from "../shared/design-docs";
 import { TARGETS, type AgentTypeInfo, type Target, type ThinkingLevel } from "../shared/types";
 
 export function parseAgentType(text: string, fallbackId: string, source: AgentTypeInfo["source"]): AgentTypeInfo {
@@ -9,6 +10,8 @@ export function parseAgentType(text: string, fallbackId: string, source: AgentTy
 	const meta = (match ? parse(match[1]) : {}) as Record<string, unknown>;
 	const body = (match ? match[2] : text).trim();
 	const targets = (Array.isArray(meta.targets) ? meta.targets : ["project"]).filter((t): t is Target => TARGETS.includes(t as Target));
+	const docs = Array.isArray(meta.designDocs) ? meta.designDocs.map(String) : undefined;
+	const unknownDocs = (docs ?? []).filter((d) => !DESIGN_DOCS.some((x) => x.id === d));
 	return {
 		id: String(meta.id ?? fallbackId),
 		name: String(meta.name ?? fallbackId),
@@ -20,6 +23,8 @@ export function parseAgentType(text: string, fallbackId: string, source: AgentTy
 		prompt: body,
 		source,
 		delegatesTo: Array.isArray(meta.delegatesTo) ? meta.delegatesTo.map(String) : [],
+		...(meta.designDocs === "none" ? { designDocs: "none" as const } : docs ? { designDocs: docs.filter((d) => !unknownDocs.includes(d)) } : {}),
+		...(unknownDocs.length ? { problems: unknownDocs.map((d) => `No standard design doc "${d}" (designDocs)`) } : {}),
 		...(Array.isArray(meta.aliases) ? { aliases: meta.aliases.map(String) } : {}),
 		...(Array.isArray(meta.studioTools) ? { studioTools: meta.studioTools.map(String) } : {}),
 	};

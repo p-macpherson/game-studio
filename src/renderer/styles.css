@@ -691,6 +691,54 @@ label.field > span {
 	padding: 24px 32px;
 	max-width: 880px;
 }
+.doc-dot {
+	display: inline-block;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	flex: none;
+	margin: auto;
+	background: var(--muted);
+}
+.doc-dot.doc-draft {
+	background: var(--yellow);
+}
+.doc-dot.doc-established {
+	background: var(--green);
+}
+.doc-banner {
+	gap: 10px;
+	align-items: center;
+	padding: 8px 12px;
+	margin-bottom: 16px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--panel);
+	font-size: 13px;
+}
+.doc-banner.doc-draft {
+	border-color: color-mix(in srgb, var(--yellow) 45%, var(--border));
+}
+.doc-banner.doc-established {
+	border-color: color-mix(in srgb, var(--green) 45%, var(--border));
+}
+.doc-editing {
+	height: 100%;
+	box-sizing: border-box;
+}
+.doc-source {
+	flex: 1;
+	min-height: 360px;
+	resize: none;
+	font-family: var(--mono);
+	font-size: 13px;
+	line-height: 1.5;
+	padding: 12px;
+	background: var(--sunken);
+	color: var(--text);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+}
 .version-bar {
 	display: flex;
 	gap: 6px;

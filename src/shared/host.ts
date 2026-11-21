@@ -52,6 +52,9 @@ export interface HostApi {
 /** Studio services an agent's tools can call in the main process (`studio_request`). */
 export type StudioRequestMethod =
 	| "move_asset"
+	| "write_doc"
+	| "set_doc_status"
+	| "add_standard_docs"
 	| "generate_texture"
 	| "make_texture"
 	| "generate_ui_art"

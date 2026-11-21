@@ -12,6 +12,7 @@ import { utilityHostLink } from "./host-link";
 import { createProject, readProject, publishProject } from "./project";
 import { GenService, soundfontPath } from "./gen";
 import { assetRequests, moveStep } from "./asset-move";
+import { designDocRequests } from "./design-docs";
 import { workerAudio } from "./audio-runner";
 import { modelRequests, ModelPipeline } from "./models";
 import { MusicPipeline, musicRequests } from "./music";
@@ -97,6 +98,7 @@ async function main(): Promise<void> {
 		uiRequests(uiArt, (sessionId, p) => runner.previewUi(sessionId, p.screen, p.values)),
 		shaderRequests({ check: (sessionId, name) => runner.checkShader(sessionId, name), preview: (sessionId, p) => runner.previewShader(sessionId, p) }),
 		assetRequests(moduleInfos),
+		designDocRequests(),
 	);
 	const sessions = new SessionService({
 		host,

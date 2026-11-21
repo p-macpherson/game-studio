@@ -1,3 +1,4 @@
+import { DESIGN_DOCS } from "../../shared/design-docs";
 import { useEffect, useState } from "react";
 import type { Settings } from "../../shared/types";
 import { call } from "../api";
@@ -132,6 +133,12 @@ function AgentTypes() {
 							</>
 						)}
 					</div>
+					{Array.isArray(t.designDocs) && t.designDocs.length > 0 && (
+						<div className="small">
+							<span className="muted">Works to: </span>
+							{t.designDocs.map((d) => DESIGN_DOCS.find((x) => x.id === d)?.title ?? d).join(", ")}
+						</div>
+					)}
 					{t.problems?.map((p) => (
 						<div key={p} className="msg error small">
 							{p}

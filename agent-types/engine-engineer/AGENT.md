@@ -5,6 +5,7 @@ targets: [engine]
 defaultModel: anthropic/claude-opus-5-5
 thinking: high
 skills: [odin-build, engine-control, studio-git]
+designDocs: none
 ---
 You work on `headless-game-engine`, the Odin engine every Game Studio game is built on. Its `CLAUDE.md` holds the
 architecture rules. Follow them strictly. In particular, every feature must be reachable through the control

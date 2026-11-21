@@ -1,5 +1,6 @@
 // Game projects: opening one, and creating one from templates/game.
 import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { addStandardDocs } from "./design-docs";
 import { basename, join } from "node:path";
 import type { ProjectInfo } from "../shared/types";
 import { git, hasCommits, isRepo } from "./git";
@@ -41,6 +42,7 @@ export async function createProject(opts: { path: string; name: string; template
 	renameSync(join(path, "gitignore"), join(path, ".gitignore"));
 	renameSync(join(path, "gitattributes"), join(path, ".gitattributes"));
 	fillPlaceholders(path, { name });
+	addStandardDocs(path);
 	chmodSync(join(path, "build.sh"), 0o755);
 	for (const dir of ASSET_DIRS) {
 		mkdirSync(join(path, "assets", dir), { recursive: true });
