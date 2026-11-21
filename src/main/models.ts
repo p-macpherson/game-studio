@@ -7,7 +7,7 @@
 // Every step reads and writes inside one checkout (the main checkout or a session's worktree).
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
-import type { ConceptImage, ConceptRecord, GenJobKind, ModelManifest } from "../shared/gen";
+import { ANIMATION_CLIPS, type ConceptImage, type ConceptRecord, DEFAULT_CLIPS, type GenJobKind, LIBRARY_CLIPS, type ModelManifest, PROCEDURAL_CLIPS } from "../shared/gen";
 import { ASSET_NAME, leafName } from "../shared/asset-names";
 import { safeJoin } from "./assets";
 import type { GenService } from "./gen";
@@ -16,6 +16,8 @@ import { handler, type PipelineContext, type StudioRequestHandlers } from "./stu
 export const MODELS_DIR = "assets/models";
 /** Compared on the robot: 3 passes fix most joint artefacts; 12 start to make joints lumpy. */
 const SKIN_SMOOTHING_PASSES = 3;
+/** What the generation models write into a model's source/ folder (anything else there is an agent's own). */
+const GENERATED_SOURCES = ["shape.glb", "textured.glb", "rigged.glb"];
 
 export type { PipelineContext } from "./studio-requests";
 
@@ -172,7 +174,10 @@ export class ModelPipeline {
 		return this.finalizeStep(ctx, manifest, await this.propRigStep(ctx, manifest, this.unrigged(dir)));
 	}
 
-	/** Names a rigged character's bones by role and adds clips (idle, walk, wave by default). */
+	/**
+	 * Names a rigged character's bones by role and gives it exactly these clips (idle, walk and wave by default; see
+	 * ANIMATION_CLIPS): most are retargeted from the animation library, wave is keyed procedurally.
+	 */
 	async animate(ctx: PipelineContext, p: { model: string; clips?: string[] }) {
 		const { manifest } = this.existing(ctx, p.model);
 		if (manifest.rig === "prop") throw new Error(`"${p.model}" has a prop rig, which comes with its own open/close clips`);
@@ -214,11 +219,26 @@ export class ModelPipeline {
 	private async animateStep(ctx: PipelineContext, manifest: ModelManifest, clips?: string[]): Promise<string> {
 		const dir = this.dir(ctx, manifest.name);
 		const out = join(dir, "source/animated.glb");
-		const r = await this.step(ctx, "animate", `Animations for ${manifest.name}`, { in: join(dir, `${leafName(manifest.name)}.glb`), out, clips });
+		const wanted = [...new Set(clips?.length ? clips : DEFAULT_CLIPS)];
+		const unknown = wanted.filter((c) => !(ANIMATION_CLIPS as string[]).includes(c));
+		if (unknown.length) throw new Error(`No clip called ${unknown.map((c) => `"${c}"`).join(", ")}: choose from ${ANIMATION_CLIPS.join(", ")}`);
+		// From the library when it's installed; without it idle and walk are keyed procedurally, as wave always is.
+		const library = this.gen.animationLibrary();
+		const installed = existsSync(library);
+		const retargeted = wanted.filter((c) => c in LIBRARY_CLIPS && (installed || !(PROCEDURAL_CLIPS as readonly string[]).includes(c)));
+		if (retargeted.length && !installed) {
+			throw new Error(`The animation library isn't installed (Settings → Asset generation → Install), so ${retargeted.join(", ")} can't be made: without it there are only ${PROCEDURAL_CLIPS.join(", ")}`);
+		}
+		const keyed = wanted.filter((c) => !retargeted.includes(c));
+		const r = await this.step(ctx, "animate", `Bones and clips for ${manifest.name}`, { in: join(dir, `${leafName(manifest.name)}.glb`), out, clips: keyed });
 		if (!r.biped) throw new Error(`Can't animate "${manifest.name}" automatically: ${(r.problems as string[]).join("; ")}`);
 		this.record(manifest, "animate", r);
+		if (retargeted.length) {
+			const from = Object.fromEntries(retargeted.map((c) => [c, LIBRARY_CLIPS[c as keyof typeof LIBRARY_CLIPS]]));
+			this.record(manifest, "retarget", await this.step(ctx, "retarget", `Library clips for ${manifest.name}`, { in: out, out, library, clips: from }));
+		}
 		manifest.bones = r.roles as Record<string, string>;
-		manifest.clips = r.clips as string[];
+		manifest.clips = wanted;
 		return out;
 	}
 
@@ -243,7 +263,10 @@ export class ModelPipeline {
 		// UniRig's raw weights crumple necks and dent shoulders; a light smoothing fixes most of it. It always starts
 		// from the raw rig in source/, so re-finalizing gives the same result. An agent's own edits aren't touched.
 		const smooth_weights = from === join(dir, "source/rigged.glb") ? SKIN_SMOOTHING_PASSES : 0;
-		const stats = await this.step(ctx, "finalize", `Finalize ${manifest.name}`, { in: from, out: glb, height: manifest.height ?? 1, thumbnail, smooth_weights });
+		// Straight from a generation model: small pieces floating clear of the body are debris and are removed (and, on a
+		// fresh rig, pieces touching it are bound to it). Not for a file an agent made: its loose parts may be meant.
+		const clean = GENERATED_SOURCES.some((f) => from === join(dir, "source", f));
+		const stats = await this.step(ctx, "finalize", `Finalize ${manifest.name}`, { in: from, out: glb, height: manifest.height ?? 1, thumbnail, smooth_weights, clean });
 		this.record(manifest, "finalize", stats);
 		manifest.source = relative(dir, from);
 		manifest.stats = { ...stats, mesh: undefined, thumbnail: undefined };

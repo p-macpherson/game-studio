@@ -88,6 +88,22 @@ for cmd in fluidsynth ffmpeg; do
 	command -v "$cmd" >/dev/null || echo "   warning: $cmd isn't installed; music rendering needs it (sudo pacman -S $cmd)"
 done
 
+step "Animations: Universal Animation Library by Quaternius (Standard; CC0, public domain)"
+# One humanoid rig with 46 clips (idle, walk, jog, sprint, jumps, attack, death, ...), retargeted onto generated
+# characters by gen/blender/retarget.py. From the author's own listing on OpenGameArt; checked against a known hash.
+ANIMS="$GEN/models/animations/universal-animation-library"
+if [[ -s "$ANIMS/AnimationLibrary_Godot_Standard.glb" ]]; then
+	echo "   already downloaded"
+else
+	mkdir -p "$ANIMS"
+	curl -fsSL -o "$ANIMS/library.zip.part" https://opengameart.org/sites/default/files/universal_animation_librarystandard.zip
+	echo "18ff1a7215f4852b320203e8aaf02a1578b5c8eef9027fbaedfcedc7b85a3ac2  $ANIMS/library.zip.part" | sha256sum --check --quiet || fail "the animation library's download doesn't match its known hash"
+	python3 -c 'import sys, zipfile; z = zipfile.ZipFile(sys.argv[1]); [open(sys.argv[2] + "/" + n.split("/")[-1], "wb").write(z.read(n)) for n in z.namelist() if n.endswith(("AnimationLibrary_Godot_Standard.glb", "License.txt"))]' "$ANIMS/library.zip.part" "$ANIMS"
+	rm "$ANIMS/library.zip.part"
+	[[ -s "$ANIMS/AnimationLibrary_Godot_Standard.glb" ]] || fail "the animation library's archive didn't hold AnimationLibrary_Godot_Standard.glb"
+	echo "   downloaded"
+fi
+
 step "Sound effects: Stable Audio Open Small + CLAP (Stability AI Community License: free under \$1M annual revenue)"
 # Gated on Hugging Face: accept the licence at https://huggingface.co/stabilityai/stable-audio-open-small and log
 # this cache in once with: HF_HOME=$GEN/hf uvx --from 'huggingface_hub[cli,hf_xet]==2.4.0' hf auth login

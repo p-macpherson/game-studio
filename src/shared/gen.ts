@@ -9,8 +9,33 @@ export const CPU_FAMILIES: readonly GenFamily[] = ["surface"];
 export type GenJobKind = "image" | "surface" | "surface_make" | "ui_cut" | "ui_make" | "shape" | "texture" | "rig" | "sound" | BlenderJobKind;
 
 /** Jobs that run a script in gen/blender/ (on the CPU, beside the GPU queue's model workers). */
-export type BlenderJobKind = "finalize" | "animate" | "rig_prop";
-export const BLENDER_JOBS: readonly BlenderJobKind[] = ["finalize", "animate", "rig_prop"];
+export type BlenderJobKind = "finalize" | "animate" | "rig_prop" | "retarget";
+export const BLENDER_JOBS: readonly BlenderJobKind[] = ["finalize", "animate", "rig_prop", "retarget"];
+
+/**
+ * Clips a rigged biped can be given (`animate_model`), by the name the game plays them under. Most are retargeted
+ * from the animation library (Quaternius's Universal Animation Library, CC0: gen/blender/retarget.py), named here
+ * with the library's clip; `wave` is keyed procedurally (gen/blender/animate.py), as `idle` and `walk` are when the
+ * library isn't installed.
+ */
+export const LIBRARY_CLIPS = {
+	idle: "Idle_Loop",
+	walk: "Walk_Loop",
+	run: "Jog_Fwd_Loop",
+	sprint: "Sprint_Loop",
+	jump_start: "Jump_Start",
+	jump_loop: "Jump_Loop",
+	jump_land: "Jump_Land",
+	death: "Death01",
+	hit: "Hit_Chest",
+	attack: "Sword_Attack",
+	pick_up: "PickUp_Table",
+	interact: "Interact",
+} as const;
+export const PROCEDURAL_CLIPS = ["idle", "walk", "wave"] as const;
+export const ANIMATION_CLIPS = [...new Set([...Object.keys(LIBRARY_CLIPS), ...PROCEDURAL_CLIPS])] as (keyof typeof LIBRARY_CLIPS | "wave")[];
+/** What `animate_model` makes when it isn't told which. */
+export const DEFAULT_CLIPS = ["idle", "walk", "wave"] as const;
 
 export type GenJobStatus = "queued" | "running" | "done" | "failed" | "cancelled";
 

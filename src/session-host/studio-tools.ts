@@ -1,6 +1,7 @@
 // Tools every session gets, through which the agent talks back to Game Studio.
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { ANIMATION_CLIPS } from "../shared/gen";
 import type { HostEvent, StudioRequestMethod } from "../shared/host";
 
 export interface StudioToolContext {
@@ -148,11 +149,13 @@ export function studioTools(ctx: StudioToolContext) {
 			label: "Animate 3D model",
 			description:
 				"For a character rigged with rig_model or generate_model(rig: true): names its bones by role (hips, spine, chest, neck, head, shoulder/upper_arm/forearm/hand.L/R, " +
-				"thigh/shin/foot/toe.L/R) and adds looping clips: idle, walk, wave (all by default). Only works for bipeds (two legs, two arms); other skeletons are reported. " +
-				"In the game, play a clip with an Animator component: {\"clip\": \"walk\"}.",
+				"thigh/shin/foot/toe.L/R) and gives it exactly the clips you list (default: idle, walk, wave; asking again replaces the set, so list every clip the " +
+				"character needs). Loops: idle, walk, run, sprint, jump_loop, wave. One-shots: jump_start, jump_land, attack, hit, death, pick_up, interact. All but wave are " +
+				"retargeted from a library of hand-made clips, in place (the game moves the character). Only works for bipeds (two legs, two arms); other skeletons are " +
+				"reported. In the game, play a clip with an Animator component: {\"clip\": \"run\"}, or {\"clip\": \"attack\", \"once\": true}. Check clips with preview_model.",
 			parameters: Type.Object({
 				model: MODEL_NAME,
-				clips: Type.Optional(Type.Array(Type.Union([Type.Literal("idle"), Type.Literal("walk"), Type.Literal("wave")]))),
+				clips: Type.Optional(Type.Array(Type.Union(ANIMATION_CLIPS.map((c) => Type.Literal(c))))),
 			}),
 			execute: generation("animate_model"),
 		}),

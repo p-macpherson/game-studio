@@ -191,6 +191,11 @@ export class GenService {
 		}
 	}
 
+	/** The animation library's file (it may not be installed: see `status`). */
+	animationLibrary(): string {
+		return animationLibraryPath(this.deps.root);
+	}
+
 	cancel(id: string): void {
 		const job = this.jobs.find((j) => j.id === id);
 		if (!job) return;
@@ -235,6 +240,8 @@ export class GenService {
 					]),
 				];
 		components.push(musicComponent(soundfontPath(root)));
+		const library = animationLibraryPath(root);
+		components.push({ id: "animations", name: "Animation library (Universal Animation Library, CC0)", ok: existsSync(library), detail: existsSync(library) ? "installed" : "missing (Install): only idle, walk and wave can be made without it" });
 		return {
 			root,
 			ready: components.every((c) => c.ok),
@@ -434,6 +441,11 @@ export class GenService {
 		this.deps.emit(event);
 		for (const l of this.progressListeners) l(event);
 	}
+}
+
+/** The clips characters are animated with (gen/setup.sh downloads it): one rig, many clips, retargeted by gen/blender/retarget.py. */
+export function animationLibraryPath(root: string): string {
+	return process.env.GAME_STUDIO_ANIMATIONS ?? join(root, "models/animations/universal-animation-library/AnimationLibrary_Godot_Standard.glb");
 }
 
 /** The General MIDI SoundFont music is rendered with (gen/setup.sh downloads it). */

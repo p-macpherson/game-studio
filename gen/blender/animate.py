@@ -1,7 +1,8 @@
 """Names a rigged biped's bones by role and adds procedural clips. Run headless:
     blender -b --python animate.py -- '<json params>'
 
-params: {in, out, clips?: ["idle", "walk", "wave"]}
+params: {in, out, clips?: ["idle", "walk", "wave"]} (clips: [] names the bones and makes none: retarget.py adds the
+animation library's). Clips the model already had are dropped: the result has exactly the ones asked for.
 Reads the skeleton's shape (UniRig names bones bone_0..N):
 - the root is the hips; chains from it going down are legs, the chain going up is the spine;
 - where the spine branches, the two side branches are arms (left = glTF +X: characters face +Z) and the
@@ -25,6 +26,8 @@ bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath=p["in"])
 scene = bpy.context.scene
 scene.render.fps = FPS
+for old in list(bpy.data.actions):
+    bpy.data.actions.remove(old)  # animating again must not leave "idle" beside "idle.001"
 arm = next((o for o in scene.objects if o.type == "ARMATURE"), None)
 if arm is None:
     raise SystemExit("the model has no skeleton (rig it first)")
@@ -198,7 +201,7 @@ def wave(t: float):
 
 CLIPS = {"idle": (2 * FPS, idle), "walk": (FPS, walk), "wave": (2 * FPS, wave)}
 made = []
-for clip in p.get("clips") or list(CLIPS):
+for clip in list(CLIPS) if p.get("clips") is None else p["clips"]:
     if clip not in CLIPS:
         raise SystemExit(f"unknown clip {clip!r} (available: {', '.join(CLIPS)})")
     frames, fn = CLIPS[clip]

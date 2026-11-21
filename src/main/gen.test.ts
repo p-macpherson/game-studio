@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, utimesSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { GenJob, ModelManifest } from "../shared/gen";
@@ -211,6 +212,9 @@ describe.skipIf(!hasBlender)("ModelPipeline", () => {
 		await pipeline.generate(ctx, { model: "chest", image: "assets/models/chest/concepts/chest-1.png", height: 0.6 });
 		// The texture had no metallicFactor (glTF default: 1, bare metal), like Hunyuan3D-Paint's: now non-metal.
 		expect(glbJson(join(ctx.cwd, "assets/models/chest/chest.glb")).materials[0].pbrMetallicRoughness).toMatchObject({ metallicFactor: 0 });
+		await expect(pipeline.animate(ctx, { model: "hero", clips: ["moonwalk"] })).rejects.toThrow(/No clip called "moonwalk"/);
+		// Without the animation library only the procedural clips can be made.
+		await expect(pipeline.animate(ctx, { model: "hero", clips: ["run"] })).rejects.toThrow(/animation library isn't installed/);
 		await expect(pipeline.animate(ctx, { model: "chest" })).rejects.toThrow(/isn't rigged/);
 		await pipeline.rigProp(ctx, { model: "chest", split: 0.6, hinge: "back" });
 		expect(read("chest")).toMatchObject({ rig: "prop", rigged: true, stats: { bones: 2, animations: ["close", "open"] } });
@@ -221,5 +225,29 @@ describe.skipIf(!hasBlender)("ModelPipeline", () => {
 		await expect(pipeline.animate(ctx, { model: "chest" })).rejects.toThrow(/prop rig/);
 		await pipeline.retexture(ctx, { model: "chest", image: "assets/models/chest/concepts/chest-1.png" });
 		expect(read("chest")).toMatchObject({ rig: "prop", stats: { bones: 2, animations: ["close", "open"] } });
+	}, 120_000);
+
+	// Needs the animation library gen/setup.sh downloads (6.7 MB, CC0); skipped on a machine without it.
+	const library = join(homedir(), ".local/share/game-studio/gen/models/animations/universal-animation-library/AnimationLibrary_Godot_Standard.glb");
+	it.skipIf(!existsSync(library))("gives a character clips from the animation library, replacing its set each time", async () => {
+		process.env.GAME_STUDIO_ANIMATIONS = library;
+		try {
+			const { gen } = service();
+			const pipeline = new ModelPipeline(gen);
+			const ctx = { cwd: tempDir() };
+			const read = (name: string) => JSON.parse(readFileSync(join(ctx.cwd, `assets/models/${name}/model.json`), "utf8")) as ModelManifest;
+			const { images } = await pipeline.concepts(ctx, { model: "hero", prompt: "a hero", count: 1, seed: 1 });
+			await pipeline.generate(ctx, { model: "hero", image: images[0], height: 1.7, rig: true });
+			const animated = await pipeline.animate(ctx, { model: "hero", clips: ["idle", "run", "attack", "wave"] });
+			expect(animated.clips).toEqual(["idle", "run", "attack", "wave"]);
+			expect(read("hero").stats?.animations).toEqual(["attack", "idle", "run", "wave"]);
+			expect(read("hero").steps.map((s) => s.kind).slice(-3)).toEqual(["animate", "retarget", "finalize"]);
+			// Asking again replaces the set (no "idle.001" beside "idle").
+			await pipeline.animate(ctx, { model: "hero", clips: ["idle", "walk"] });
+			expect(read("hero").stats?.animations).toEqual(["idle", "walk"]);
+			await gen.dispose();
+		} finally {
+			delete process.env.GAME_STUDIO_ANIMATIONS;
+		}
 	}, 120_000);
 });
