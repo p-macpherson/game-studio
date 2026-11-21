@@ -5,8 +5,8 @@ import { execFileSync, spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { StudioEvent } from "../shared/ipc";
-import { type ReleaseBuild, type ReleaseConfig, RELEASE_FILE, type ReleaseInfo, type ReleaseTarget, releaseSlug } from "../shared/release";
-import { buildRelease, readReleaseConfig, releaseManifest } from "./release";
+import { DEFAULT_ITCH_CHANNEL, type ReleaseBuild, type ReleaseConfig, RELEASE_FILE, type ReleaseInfo, RELEASE_TARGETS, type ReleaseTarget } from "../shared/release";
+import { type BrowserRun, buildRelease, readReleaseConfig, releaseManifest } from "./release";
 import { handler, type StudioRequestHandlers } from "./studio-requests";
 
 const APPIMAGETOOL_URL = "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage";
@@ -23,6 +23,9 @@ export interface ReleaseServiceOptions {
 	/** Overrides (tests): a butler stand-in, appimagetool's path or "off". */
 	butler?: string;
 	appimagetool?: string;
+	/** Web builds: the checks' browser, and how a built one is shown (served from this machine, opened in the default browser). */
+	browser?: BrowserRun;
+	openWeb?(dir: string): Promise<void>;
 }
 
 export class ReleaseService {
@@ -39,7 +42,7 @@ export class ReleaseService {
 			saved: existsSync(join(root, RELEASE_FILE)),
 			manifest: releaseManifest(root, config),
 			builds: listBuilds(root),
-			tools: { wine: !!which("wine"), appimagetool: this.o.appimagetool !== "off" },
+			tools: { wine: !!which("wine"), appimagetool: this.o.appimagetool !== "off", web: existsSync(join(root, "engine/tools/web.sh")) },
 			itchKey: existsSync(this.credsFile),
 		};
 	}
@@ -66,14 +69,18 @@ export class ReleaseService {
 			projectName: this.o.projectName(),
 			target,
 			engineRepo: this.o.engineRepo(),
-			tools: { appimagetool, wine: which("wine") ?? undefined, winePrefix: join(this.o.dataDir, "wine") },
+			tools: { appimagetool, wine: which("wine") ?? undefined, winePrefix: join(this.o.dataDir, "wine"), browser: this.o.browser },
 			onProgress: progress,
 		});
 	}
 
-	/** Starts a built package in a window of its own (Windows builds under Wine). */
-	run(checkout: string | null, version: string, target: ReleaseTarget): void {
+	/** Starts a built package in a window of its own (Windows builds under Wine; web builds in the default browser). */
+	async run(checkout: string | null, version: string, target: ReleaseTarget): Promise<void> {
 		const { dir, exe } = this.packageOf(checkout, version, target);
+		if (target === "web") {
+			if (!this.o.openWeb) throw new Error("There's no browser to open the web build in here");
+			return this.o.openWeb(dir);
+		}
 		const wine = which("wine");
 		if (target === "windows" && !wine) throw new Error("Wine isn't installed, so the Windows build can't run here");
 		const [cmd, args] = target === "windows" ? [wine!, [join(dir, exe)]] : [join(dir, exe), []];
@@ -98,7 +105,7 @@ export class ReleaseService {
 		const progress = (text: string) => this.o.emit({ type: "release_progress", checkout: checkout ?? "main", target, text });
 		const butler = await this.tool("butler", progress);
 		if (!butler) throw new Error("butler isn't available");
-		const channel = config.itch.channels?.[target] ?? target;
+		const channel = config.itch.channels?.[target] ?? DEFAULT_ITCH_CHANNEL[target];
 		progress(`Uploading to ${config.itch.target}:${channel}`);
 		const res = await runTool(butler, ["push", join(root, build.dir), `${config.itch.target}:${channel}`, "--userversion", version, "-i", this.credsFile], (line) => progress(line));
 		if (res.code !== 0) throw new Error(`butler push failed:\n${res.output.slice(-1500)}`);
@@ -177,7 +184,7 @@ export function listBuilds(root: string): ReleaseBuild[] {
 	if (!existsSync(base)) return [];
 	const out: ReleaseBuild[] = [];
 	for (const version of readdirSync(base)) {
-		for (const target of ["linux", "windows"]) {
+		for (const target of RELEASE_TARGETS) {
 			const f = join(base, version, target, "build.json");
 			if (!existsSync(f)) continue;
 			try {

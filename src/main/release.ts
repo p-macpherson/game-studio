@@ -84,12 +84,22 @@ export function releaseManifest(root: string, config: ReleaseConfig): ReleaseMan
 	return { files, leftOut, bytes: files.reduce((n, f) => n + f.size, 0) };
 }
 
+/** `dir` served over HTTP and opened with `args` as the query string (the game's flags); `files` are added to the page's file system. */
+export type BrowserRun = (opts: { dir: string; args: string[]; files: Record<string, Buffer>; timeoutMs: number }) => Promise<{ code: number; output: string }>;
+/** Starts the packaged game with flags; `tests`: with the project's tests/ beside it, from its folder (else from an unrelated folder). */
+type Play = (args: string[], tests: boolean) => Promise<{ code: number; output: string }>;
+
 export interface ReleaseTools {
 	/** appimagetool; without it no AppImage is made. */
 	appimagetool?: string;
 	/** Wine runs the Windows build's checks; without it they're skipped (and the build isn't ok). */
 	wine?: string;
 	winePrefix?: string;
+	/**
+	 * Runs a web build in a browser (the studio: a hidden window, see web-runner.ts) and reports the game's exit code and
+	 * console output; without it the web build's checks are skipped (and the build isn't ok).
+	 */
+	browser?: BrowserRun;
 	/** Turns the icon PNG into an .ico for the .exe (Electron's nativeImage resizes); default: the PNG as it is. */
 	ico?: (png: Buffer) => Buffer;
 }
@@ -109,8 +119,8 @@ export async function buildRelease(opts: {
 	const { config, problems } = readReleaseConfig(root, opts.projectName);
 	if (problems.length) throw new Error(`release.json: ${problems.join("; ")}`);
 	if (opts.engineRepo) await linkEngineLibs(join(root, "engine"), opts.engineRepo);
-	const script = join(root, "engine/tools/release.sh");
-	if (!existsSync(script)) throw new Error("the game's engine has no tools/release.sh: update the engine first");
+	const script = join(root, target === "web" ? "engine/tools/web.sh" : "engine/tools/release.sh");
+	if (!existsSync(script)) throw new Error(target === "web" ? "the game's engine can't build for the web yet (no tools/web.sh): update the engine first" : "the game's engine has no tools/release.sh: update the engine first");
 	const slug = releaseSlug(config.name);
 	const out = join(root, "builds", config.version, target);
 	const pkg = join(out, slug);
@@ -131,17 +141,35 @@ export async function buildRelease(opts: {
 			writeFileSync(env.WIN_ICON, tools.ico ? tools.ico(png) : icoFromPng(png));
 		}
 		const binary = join(work, "game");
-		const built = await run(script, ["game", binary, target, ...defines], { cwd: root, env });
-		if (built.code !== 0) throw new Error(`the ${target} build failed:\n${built.output.slice(-3000)}`);
-		const exe = target === "windows" ? `${slug}.exe` : slug;
-		cpSync(target === "windows" ? `${binary}.exe` : binary, join(pkg, exe));
+		const exe = target === "windows" ? `${slug}.exe` : target === "web" ? "index.html" : slug;
+		if (target === "web") {
+			// The page's assets are packed into index.data, so only the files that ship are handed to the build.
+			const assets = join(work, "assets");
+			mkdirSync(assets);
+			for (const f of manifest.files) cpSync(join(root, f.path), join(work, f.path));
+			env.WEB_TITLE = config.name;
+			if (config.icon && existsSync(join(root, "assets", config.icon))) env.WEB_ICON = join(root, "assets", config.icon);
+			const built = await run(script, ["game", pkg, assets, "-define:RELEASE=true", ...defines], { cwd: root, env });
+			if (built.code !== 0) throw new Error(`the web build failed:\n${built.output.slice(-3000)}`);
+		} else {
+			const built = await run(script, ["game", binary, target, ...defines], { cwd: root, env });
+			if (built.code !== 0) throw new Error(`the ${target} build failed:\n${built.output.slice(-3000)}`);
+			cpSync(target === "windows" ? `${binary}.exe` : binary, join(pkg, exe));
+		}
 
 		progress("Packaging");
-		for (const f of manifest.files) cpSync(join(root, f.path), join(pkg, f.path));
-		writeFileSync(join(pkg, "README.txt"), readme(config, target, exe));
-		writeFileSync(join(pkg, "LICENSES.txt"), licences(manifest));
+		if (target !== "web") {
+			for (const f of manifest.files) cpSync(join(root, f.path), join(pkg, f.path));
+			writeFileSync(join(pkg, "README.txt"), readme(config, target, exe));
+		}
+		writeFileSync(join(pkg, "LICENSES.txt"), licences(manifest, target));
 		const archives: string[] = [];
-		if (target === "linux") {
+		if (target === "web") {
+			// index.html at the zip's root: what itch.io (and most hosts) expect of a browser game.
+			const zip = join(out, releaseArchiveName(config, target, "zip"));
+			await mustRun("python3", ["-m", "zipfile", "-c", zip, ...readdirSync(pkg).sort()], { cwd: pkg });
+			archives.push(zip);
+		} else if (target === "linux") {
 			const tgz = join(out, releaseArchiveName(config, target, "tar.gz"));
 			await mustRun("tar", ["-czf", tgz, "-C", out, slug]);
 			archives.push(tgz);
@@ -155,9 +183,11 @@ export async function buildRelease(opts: {
 		const checks: ReleaseCheck[] = [];
 		const runner = target === "windows" ? tools.wine : undefined;
 		if (target === "windows" && !runner) checks.push({ name: "Runs from its own folder", ok: false, detail: "Wine isn't installed, so the Windows build can't be checked here" });
+		else if (target === "web" && !tools.browser) checks.push({ name: "Runs in a browser", ok: false, detail: "There's no browser to check the web build with here" });
 		else {
-			checks.push(await checkStarts(pkg, exe, config, work, runner, tools.winePrefix));
-			checks.push(...(await checkTests(root, pkg, exe, work, runner, tools.winePrefix)));
+			const play = target === "web" ? webPlay(root, pkg, tools.browser!) : nativePlay(root, pkg, exe, work, runner, tools.winePrefix);
+			checks.push(await checkStarts(play, config, target === "web" ? "Runs in a browser" : "Runs from its own folder"));
+			checks.push(...(await checkTests(root, play)));
 		}
 		if (target === "linux") {
 			// Without appimagetool (turned off, as in tests) there's simply no AppImage.
@@ -203,14 +233,44 @@ function ignoreBuilds(root: string): void {
 	}
 }
 
-/** The package, copied elsewhere, started from an unrelated folder: no missing files, the release's version. */
-async function checkStarts(pkg: string, exe: string, config: ReleaseConfig, work: string, wine?: string, prefix?: string): Promise<ReleaseCheck> {
-	const name = "Runs from its own folder";
-	const copy = join(work, "start", "game");
-	cpSync(pkg, copy, { recursive: true });
-	const script = join(work, "start", "check.jsonl");
-	writeFileSync(script, '{"cmd": "wait", "frames": 60}\n{"cmd": "info"}\n{"cmd": "logs"}\n');
-	const res = await runGame(join(copy, exe), ["--dev", "--mode=hidden", "--fixed-dt", `--script=${script}`], tmpdir(), wine, prefix);
+const START_SCRIPT = '{"cmd": "wait", "frames": 60}\n{"cmd": "info"}\n{"cmd": "logs"}\n';
+
+/** The package copied elsewhere and started from an unrelated folder; for tests, a copy with tests/ beside it, from inside. */
+function nativePlay(root: string, pkg: string, exe: string, work: string, wine?: string, prefix?: string): Play {
+	let startCopy: string | undefined;
+	let testCopy: string | undefined;
+	return (args, tests) => {
+		if (tests) {
+			if (!testCopy) {
+				testCopy = join(work, "tests", "game");
+				cpSync(pkg, testCopy, { recursive: true });
+				cpSync(join(root, "tests"), join(testCopy, "tests"), { recursive: true });
+				mkdirSync(join(testCopy, "build"), { recursive: true });
+			}
+			return runGame(join(testCopy, exe), ["--dev", "--mode=hidden", ...args], testCopy, wine, prefix);
+		}
+		if (!startCopy) {
+			startCopy = join(work, "start", "game");
+			cpSync(pkg, startCopy, { recursive: true });
+			writeFileSync(join(work, "start", "check.jsonl"), START_SCRIPT);
+		}
+		return runGame(join(startCopy, exe), ["--dev", "--mode=hidden", ...args.map((a) => (a === "--script=check.jsonl" ? `--script=${join(work, "start", "check.jsonl")}` : a))], tmpdir(), wine, prefix);
+	};
+}
+
+/** The package as it ships, opened in a browser; scripts (and for tests, the project's tests/) are added to the page's file system. */
+function webPlay(root: string, pkg: string, browser: BrowserRun): Play {
+	return (args, tests) => {
+		const files: Record<string, Buffer> = { "/check.jsonl": Buffer.from(START_SCRIPT) };
+		if (tests) for (const f of walk(join(root, "tests"), join(root, "tests"))) files[`/tests/${f}`] = readFileSync(join(root, "tests", f));
+		// The page's flags are its query string: --fixed-dt is "fixed-dt", --script=x is "script=x".
+		return browser({ dir: pkg, args: ["dev", ...args.map((a) => a.replace(/^--/, ""))], files, timeoutMs: 300_000 });
+	};
+}
+
+/** The package starts away from the project: no missing files, a release build, the release's version, no warnings. */
+async function checkStarts(play: Play, config: ReleaseConfig, name: string): Promise<ReleaseCheck> {
+	const res = await play(["--fixed-dt", "--script=check.jsonl"], false);
 	if (res.code !== 0) return { name, ok: false, detail: `exited with ${res.code}: ${res.output.slice(-800)}` };
 	const replies = res.output
 		.split("\n")
@@ -231,16 +291,12 @@ async function checkStarts(pkg: string, exe: string, config: ReleaseConfig, work
 	return { name, ok: true, detail: `version ${info.game_version}, no warnings` };
 }
 
-/** Each of the game's tests/*.jsonl, run against the packaged release build from inside its folder. */
-async function checkTests(root: string, pkg: string, exe: string, work: string, wine?: string, prefix?: string): Promise<ReleaseCheck[]> {
+/** Each of the game's tests/*.jsonl, run against the packaged release build. */
+async function checkTests(root: string, play: Play): Promise<ReleaseCheck[]> {
 	const tests = existsSync(join(root, "tests")) ? readdirSync(join(root, "tests")).filter((f) => f.endsWith(".jsonl")).sort() : [];
-	const copy = join(work, "tests", "game");
-	cpSync(pkg, copy, { recursive: true });
-	cpSync(join(root, "tests"), join(copy, "tests"), { recursive: true });
-	mkdirSync(join(copy, "build"), { recursive: true });
 	const checks: ReleaseCheck[] = [];
 	for (const t of tests) {
-		const res = await runGame(join(copy, exe), ["--dev", "--mode=hidden", "--fixed-dt", `--script=tests/${t}`], copy, wine, prefix);
+		const res = await play(["--fixed-dt", `--script=tests/${t}`], true);
 		const failed = res.output.split("\n").filter((l) => l.includes('"ok":false'));
 		checks.push({ name: `tests/${t}`, ok: res.code === 0, detail: res.code === 0 ? "passed" : failed.slice(0, 5).join("\n") || res.output.slice(-800) });
 	}
@@ -277,14 +333,14 @@ function readme(config: ReleaseConfig, target: ReleaseTarget, exe: string): stri
 	].join(target === "windows" ? "\r\n" : "\n");
 }
 
-function licences(manifest: ReleaseManifest): string {
+function licences(manifest: ReleaseManifest, target: ReleaseTarget): string {
 	const music = manifest.files.some((f) => f.path.startsWith("assets/music/"));
 	return [
 		"This game includes the following third-party software:",
 		"",
 		"- raylib (https://www.raylib.com), zlib licence, Copyright (c) 2013-2026 Ramon Santamaria (@raysan5); with GLFW",
 		"  (zlib licence), miniaudio, stb and cgltf (public domain or MIT).",
-		"- ENet (http://enet.bespin.org), MIT licence, Copyright (c) 2002-2024 Lee Salzman.",
+		...(target === "web" ? ["- Emscripten's runtime and C library (https://emscripten.org), MIT licence; musl libc, MIT licence."] : ["- ENet (http://enet.bespin.org), MIT licence, Copyright (c) 2002-2024 Lee Salzman."]),
 		"- box3d, MIT licence, Copyright (c) 2025 Erin Catto.",
 		"- The Odin core library (https://odin-lang.org), BSD 3-Clause licence, Copyright (c) 2016-2026 Ginger Bill.",
 		...(music ? ["", "Music rendered with the GeneralUser GS SoundFont by S. Christian Collins (http://www.schristiancollins.com)."] : []),

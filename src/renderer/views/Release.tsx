@@ -1,13 +1,11 @@
-// Release: shipping the game to players. The settings (release.json), what ships and why, builds for Linux and Windows
-// with their checks, and publishing a passing build to itch.io. Builds come from the checkout the sidebar selects.
+// Release: shipping the game to players. The settings (release.json), what ships and why, builds for Linux, Windows
+// and the web with their checks, and publishing a passing build to itch.io. Builds come from the checkout the sidebar selects.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RELEASE_TARGETS, type ReleaseBuild, type ReleaseConfig, type ReleaseInfo, type ReleaseTarget } from "../../shared/release";
+import { DEFAULT_ITCH_CHANNEL, RELEASE_TARGET_LABEL as TARGET_LABEL, RELEASE_TARGETS, type ReleaseBuild, type ReleaseConfig, type ReleaseInfo, type ReleaseTarget } from "../../shared/release";
 import { call, onEvent } from "../api";
 import { useStudio } from "../store";
 import { runInWorktree } from "../workspace";
 import { useShallow } from "zustand/react/shallow";
-
-const TARGET_LABEL: Record<ReleaseTarget, string> = { linux: "Linux", windows: "Windows" };
 
 export function mb(bytes: number): string {
 	return bytes >= 1e6 ? `${(bytes / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1e3))} KB`;
@@ -77,11 +75,12 @@ export function Release() {
 			openSettings("accounts");
 			return showError(new Error("Add your itch.io API key under Settings → Accounts first"));
 		}
-		const channel = itch.channels?.[b.target] ?? b.target;
+		const channel = itch.channels?.[b.target] ?? DEFAULT_ITCH_CHANNEL[b.target];
 		const ok = window.confirm(
 			`Upload ${info.config.name} ${b.version} for ${TARGET_LABEL[b.target]} to itch.io?\n\n` +
 				`Page: https://${itch.target.split("/")[0]}.itch.io/${itch.target.split("/")[1]}\nChannel: ${channel}\n\n` +
-				"Anyone who can see the page can download it once it's uploaded (keep the page restricted or a draft until it's ready).",
+				"Anyone who can see the page can download it once it's uploaded (keep the page restricted or a draft until it's ready)." +
+				(b.target === "web" ? "\n\nThe first time, tick \"This file will be played in the browser\" for the upload on the page's edit screen (and set the page's kind to HTML)." : ""),
 		);
 		if (!ok) return;
 		setLog([]);
@@ -140,6 +139,7 @@ export function Release() {
 							<label key={t} className="row">
 								<input
 									type="checkbox"
+									data-testid={`release-target-${t}`}
 									checked={draft.targets.includes(t)}
 									onChange={(e) => set({ targets: e.target.checked ? [...draft.targets, t] : draft.targets.filter((x) => x !== t) })}
 								/>
@@ -190,6 +190,12 @@ export function Release() {
 						))}
 					</div>
 					{!info.tools.wine && <div className="muted small">Wine isn't installed: Windows builds are made but can't be checked here.</div>}
+					{info.config.targets.includes("web") &&
+						(info.tools.web ? (
+							<div className="muted small">The web build runs in a browser (WebGL 2). Multiplayer, gamepads and saved files don't work there yet.</div>
+						) : (
+							<div className="bad-text small">This game's engine can't build for the web yet: update the engine first.</div>
+						))}
 					<div className="muted small">
 						{info.manifest.files.length === 1 ? "1 file ships" : `${info.manifest.files.length} files ship`} ({mb(info.manifest.bytes)}). Builds go to builds/ (never committed); each is checked from its own folder and
 						against the game's tests.
@@ -215,7 +221,9 @@ export function Release() {
 							<span className="muted small grow">
 								{new Date(b.builtAt).toLocaleString()} · {b.files === 1 ? "1 file" : `${b.files} files`} · {mb(b.bytes)}
 							</span>
-							<button onClick={() => call("release.run", worktree, b.version, b.target).catch(showError)}>Run</button>
+							<button title={b.target === "web" ? "Opens it in your browser" : undefined} onClick={() => call("release.run", worktree, b.version, b.target).catch(showError)}>
+								Run
+							</button>
 							<button onClick={() => call("release.reveal", worktree, b.version, b.target).catch(showError)}>Open folder</button>
 							<button className="primary" data-testid="release-publish" disabled={!b.ok} title={b.ok ? undefined : "Only a build whose checks passed can be published"} onClick={() => publish(b)}>
 								Publish to itch.io

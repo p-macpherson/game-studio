@@ -23,6 +23,7 @@ import { studioRequests } from "./studio-requests";
 import { TexturePipeline, textureRequests } from "./textures";
 import { effectRequests, ParticleTexturePipeline } from "./effects";
 import { ReleaseService, releaseRequests } from "./release-service";
+import { runInBrowser, serveFolder } from "./web-runner";
 import { shaderRequests } from "./shaders";
 import { UiArtPipeline, uiRequests } from "./ui";
 import { texturePaths } from "../modules/textures/info";
@@ -130,7 +131,14 @@ async function main(): Promise<void> {
 		return sessions.checkoutPath(checkout);
 	};
 	serveStudioFiles(checkoutRoot);
+	/** Web builds a person has opened: each package folder stays served until the studio quits. */
+	const webServers = new Map<string, string>();
 	const release = new ReleaseService({
+		browser: runInBrowser,
+		openWeb: async (dir) => {
+			if (!webServers.has(dir)) webServers.set(dir, (await serveFolder(dir)).url);
+			await shell.openExternal(webServers.get(dir)!);
+		},
 		checkoutRoot,
 		projectName: () => project?.name ?? "Game",
 		engineRepo: () => settings.get().engineRepo,

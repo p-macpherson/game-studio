@@ -3,7 +3,7 @@
 // repo (the real one is only read).
 // Run: npm run build && node e2e/smoke.ts [screenshot-dir]
 import { execSync } from "node:child_process";
-import { readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { _electron as electron, type Page } from "playwright";
@@ -25,16 +25,26 @@ writeFileSync(join(engineRepo, ".git/info/exclude"), "/third_party/lib\n", { fla
 // Release builds need the Debian sysroot the real engine fetched (third_party/deps.sh).
 execSync(`ln -s ${JSON.stringify(join(realEngine, "third_party/sysroot"))} ${JSON.stringify(join(engineRepo, "third_party/sysroot"))}`);
 writeFileSync(join(engineRepo, ".git/info/exclude"), "/third_party/sysroot\n", { flag: "a" });
+// Web builds need the Emscripten SDK the real engine fetched (third_party/deps.sh --target=web), where there is one.
+if (existsSync(join(realEngine, "third_party/tools"))) {
+	execSync(`ln -s ${JSON.stringify(join(realEngine, "third_party/tools"))} ${JSON.stringify(join(engineRepo, "third_party/tools"))}`);
+	writeFileSync(join(engineRepo, ".git/info/exclude"), "/third_party/tools\n", { flag: "a" });
+}
 // A stand-in for itch.io's butler: publishing records its arguments instead of uploading anything.
 const fakeButler = join(root, "fake-butler.sh");
 writeFileSync(fakeButler, `#!/bin/sh\necho "$@" > ${JSON.stringify(join(root, "butler-args"))}\necho "• Pushing 1 file"\n`, { mode: 0o755 });
 // Without the real repo's own session and worktree records (they're committed there).
 execSync("git rm -rq --ignore-unmatch .studio && git -c user.name=e2e -c user.email=e2e@example.com commit -qm 'e2e: no studio records' || true", { cwd: engineRepo });
+// The studio's repo likewise: a clone without the real one's session records (a Studio Engineer session's are committed).
+const studioRepo = join(root, "studio");
+execSync(`git clone -q --shared ${JSON.stringify(resolve("."))} ${JSON.stringify(studioRepo)}`);
+execSync("git checkout -q -B main", { cwd: studioRepo }); // run from another branch (a worktree), the clone has no main yet
+execSync("git rm -rq --ignore-unmatch .studio && git -c user.name=e2e -c user.email=e2e@example.com commit -qm 'e2e: no studio records' || true", { cwd: studioRepo });
 writeFileSync(
 	join(userData, "settings.json"),
 	JSON.stringify({
 		engineRepo,
-		studioRepo: resolve("."),
+		studioRepo,
 		worktreeRoot: join(root, "worktrees"),
 		recentProjects: [],
 	}),
@@ -976,6 +986,18 @@ try {
 	const pushed = readFileSync(join(root, "butler-args"), "utf8");
 	if (!/^push \S+\/builds\/1\.0\.0\/linux\/e2e-game e2e\/e2e-game:linux --userversion 1\.0\.0 -i /.test(pushed)) throw new Error(`butler was called with: ${pushed}`);
 	await step("61-release-published", page);
+	// The web build: opted into under Platforms, built by Emscripten, checked in a hidden browser window.
+	if (existsSync(join(realEngine, "third_party/lib/web/libraylib.a"))) {
+		await page.getByTestId("release-target-web").check();
+		await page.getByTestId("release-save").click();
+		await page.getByTestId("release-build-web").and(page.locator(":enabled")).waitFor({ timeout: 30_000 });
+		await page.getByTestId("release-build-web").click();
+		const webCard = page.getByTestId("release-card").filter({ hasText: "1.0.0 · Web" });
+		await webCard.waitFor({ timeout: 240_000 });
+		await step("62-release-web", page);
+		await webCard.filter({ hasText: "Checks passed" }).waitFor({ timeout: 5_000 });
+		await webCard.getByText("e2e-game-1.0.0-web.zip").waitFor();
+	}
 	await nav.getByRole("button", { name: "Settings" }).click();
 
 	// Appearance: a theme and fonts apply at once (the page's variables), survive a reload, and Simple Dark comes back.
