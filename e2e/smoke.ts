@@ -379,7 +379,7 @@ try {
 	await page.getByTestId("stems-playing").waitFor({ state: "detached" });
 
 	// Recompose: drag over bar 2 of the lead; the brief names the section's bar and that "A" repeats.
-	const lane = page.getByTestId("arr-track").nth(0).locator(".arr-lane");
+	const lane = page.getByTestId("arr-track-lane").nth(0);
 	const laneBox = (await lane.boundingBox())!;
 	await page.mouse.move(laneBox.x + laneBox.width * 0.3, laneBox.y + laneBox.height / 2);
 	await page.mouse.down();
@@ -388,7 +388,22 @@ try {
 	await page.getByTestId("recompose").filter({ hasText: "bar 2" }).waitFor();
 	await page.getByTestId("recompose-shared").waitFor();
 	await page.getByTestId("recompose-feedback").fill("busier, more playful");
+	// The picked track stretches to show its notes a pitch to a row.
+	await page.locator("[data-testid=arr-track].expanded").filter({ hasText: "lead" }).getByTestId("arr-range").waitFor();
 	await step("23c-music-recompose", page);
+	// ⏭ / ⏮ move by bars.
+	await page.getByTestId("music-bar-forward").click();
+	await page.getByTestId("music-clock").filter({ hasText: "bar 2" }).waitFor();
+	await page.getByTestId("music-bar-back").click();
+	await page.getByTestId("music-bar-back").click();
+	await page.getByTestId("music-clock").filter({ hasText: "bar 1" }).waitFor();
+	// The picked bar plays on its own, round and round when looped: still in bar 2 after more than a bar (2.7 s at 90 bpm).
+	await page.getByTestId("music-loop-region").check();
+	await page.getByTestId("music-play-region").filter({ hasText: "Bar 2" }).click();
+	await page.getByTestId("music-clock").filter({ hasText: "bar 2" }).waitFor();
+	await page.waitForTimeout(4000);
+	if (!(await page.getByTestId("music-clock").textContent())?.includes("bar 2")) throw new Error(`the looped bar played on: ${await page.getByTestId("music-clock").textContent()}`);
+	await page.getByTestId("music-play-region").click();
 	await page.getByTestId("recompose-go").click();
 	/** The first message of the session titled `title` (as JSON), once it exists. */
 	const briefOf = async (title: string): Promise<string> => {
@@ -419,6 +434,16 @@ try {
 	await page.getByTestId("instrument-compose").click();
 	const add = await briefOf("Add cello");
 	if (!add.includes("a track `cello` playing cello") || !add.includes("a slow countermelody")) throw new Error(`unexpected add brief: ${add.slice(0, 400)}`);
+
+	// The wheel zooms the lanes, which then scroll sideways; "fit" shows the whole piece again.
+	const lanes = (await page.getByTestId("arr-scroll").boundingBox())!;
+	await page.mouse.move(lanes.x + lanes.width * 0.5, lanes.y + lanes.height * 0.6);
+	await page.mouse.wheel(0, -600);
+	await page.getByTestId("arr-zoom-fit").waitFor();
+	if (!(await page.getByTestId("arr-scroll").evaluate((el) => el.scrollWidth > el.clientWidth * 1.5))) throw new Error("zooming didn't widen the lanes");
+	await step("23e-music-zoomed", page);
+	await page.getByTestId("arr-zoom-fit").click();
+	await page.getByTestId("arr-zoom-fit").waitFor({ state: "detached" });
 
 	// A theme sketch offers "Arrange this theme…": a Composer brief for the full piece.
 	await page.locator(".session-header").first().waitFor();

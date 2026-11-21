@@ -2232,11 +2232,11 @@ textarea {
 	pointer-events: none;
 	z-index: 1;
 }
-.arr-row.picked .arr-label b {
+.arr-label.picked b {
 	color: var(--accent);
 }
-.arr-row.muted-track .arr-notes,
-.arr-row.muted-track .arr-label .ellipsis {
+.arr-lane.muted-track .arr-notes,
+.arr-label.muted-track .ellipsis {
 	opacity: 0.3;
 }
 .arr-label .mute {
@@ -2293,4 +2293,87 @@ textarea {
 .instrument-row button {
 	padding: 0 4px;
 	min-width: 22px;
+}
+
+/* Arrangement: track names pinned on the left, the lanes zoom (wheel) and scroll sideways together */
+.arr-grid {
+	display: flex;
+	align-items: flex-start;
+}
+.arr-labels,
+.arr-lanes {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+}
+.arr-labels {
+	width: 210px;
+	flex: none;
+}
+.arr-labels .arr-label {
+	width: auto;
+}
+.arr-scroll {
+	flex: 1;
+	min-width: 0;
+	overflow-x: auto;
+	overflow-y: hidden;
+	padding-bottom: 2px;
+}
+.arr-lanes {
+	min-width: 100%;
+}
+.arr-lanes .arr-lane {
+	flex: none;
+}
+.arr-h-header {
+	height: 26px;
+}
+.arr-h-ruler {
+	height: 18px;
+}
+.arr-h-track {
+	height: 34px;
+}
+.arr-h-track.expanded {
+	height: 150px;
+}
+.arr-label.expanded {
+	flex-wrap: wrap;
+	align-content: center;
+}
+.arr-range {
+	flex-basis: 100%;
+	padding-left: 30px;
+	white-space: normal;
+}
+.arr-ruler {
+	background: transparent;
+	border-bottom: 1px solid var(--border);
+	border-radius: 0;
+}
+.arr-bar-number {
+	position: absolute;
+	top: 2px;
+	padding-left: 3px;
+	border-left: 1px solid var(--border);
+	font-size: 10px;
+	line-height: 14px;
+	color: var(--muted);
+	font-family: var(--mono);
+	pointer-events: none;
+}
+.arr-bars {
+	position: absolute;
+	inset: 0;
+	opacity: 0.6;
+	pointer-events: none;
+}
+.arr-notes .arr-octave {
+	fill: var(--muted);
+	opacity: 0.35;
+}
+.arr-notes .arr-row-shade {
+	fill: var(--text);
+	opacity: 0.04;
 }

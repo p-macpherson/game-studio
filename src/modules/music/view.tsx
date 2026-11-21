@@ -1,7 +1,7 @@
 // Music: browse pieces (main checkout + drafts), listen as the game will (looping), see the arrangement and the
 // notes, and make simple edits. The score (song.json) is the asset; edits and renders run in a session's
 // worktree (the draft's session, or a Music Composer workspace created without running the agent).
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { StudioRequestMethod } from "../../shared/host";
 import type { ModuleInfo } from "../../shared/modules";
 import { drumName, GM_PROGRAMS, gmProgram, parseSong, pitchName, type Song, type Space, SPACES, type Timeline, type TimelineTrack } from "../../shared/song";
@@ -201,6 +201,7 @@ function PieceDetail({ asset, text, checkout }: AssetContentProps) {
 					onSection={setSection}
 					stems={stems}
 					muted={muted}
+					region={selection?.range ?? null}
 				/>
 			)}
 			{song && timeline && (
@@ -218,17 +219,17 @@ function PieceDetail({ asset, text, checkout }: AssetContentProps) {
 						onMuted={setMuted}
 						stemsLoading={stemsLoading}
 					/>
-					{selection && (
+					{selection?.track && (
 						<RecomposePanel
 							song={song}
 							timeline={timeline}
-							selection={selection}
+							selection={selection as Selection & { track: string }}
 							disabled={busy || working.length > 0}
 							onClear={() => setSelection(null)}
 							onRecompose={(feedback) =>
 								void compose(
 									`Recompose ${selection.track}${selection.range ? ` (${selection.range.to > selection.range.from ? `bars ${selection.range.from}-${selection.range.to}` : `bar ${selection.range.from}`})` : ""}`,
-									recomposeBrief({ name, song, timeline, track: selection.track, range: selection.range, feedback }),
+									recomposeBrief({ name, song, timeline, track: selection.track!, range: selection.range, feedback }),
 								)
 							}
 						/>
@@ -279,6 +280,8 @@ class StemEngine {
 	private sources: AudioBufferSourceNode[] = [];
 	private startedAt = 0;
 	private offset = 0;
+	// Bars looping exactly (the sources' loopStart/loopEnd), or null for the whole piece.
+	private region: { start: number; end: number } | null = null;
 	playing = false;
 	readonly duration: number;
 	onEnded?: () => void;
@@ -314,22 +317,30 @@ class StemEngine {
 	time(): number {
 		if (!this.playing) return this.offset;
 		const t = this.ctx.currentTime - this.startedAt;
+		const r = this.region;
+		if (r && t >= r.end) return r.start + ((t - r.start) % (r.end - r.start));
 		return this.loop ? t % this.duration : Math.min(t, this.duration);
 	}
 
-	play(at = this.offset): void {
+	/** Plays from `at`; with `region`, loops those seconds exactly instead of the whole piece. */
+	play(at = this.offset, region: { start: number; end: number } | null = null): void {
 		this.stopSources();
 		void this.ctx.resume();
 		const from = this.loop ? at % this.duration : Math.min(at, this.duration);
+		this.region = region;
 		for (const [track, buffer] of this.buffers) {
 			const src = this.ctx.createBufferSource();
 			src.buffer = buffer;
-			src.loop = this.loop;
+			src.loop = this.loop || !!region;
+			if (region) {
+				src.loopStart = region.start;
+				src.loopEnd = region.end;
+			}
 			src.connect(this.gains.get(track)!);
 			src.start(0, from);
 			this.sources.push(src);
 		}
-		if (!this.loop && this.sources[0]) this.sources[0].onended = () => this.playing && (this.pause(), (this.offset = 0), this.onEnded?.());
+		if (!this.loop && !region && this.sources[0]) this.sources[0].onended = () => this.playing && (this.pause(), (this.offset = 0), this.onEnded?.());
 		this.startedAt = this.ctx.currentTime - from;
 		this.playing = true;
 	}
@@ -378,6 +389,7 @@ function Player({
 	onSection,
 	stems,
 	muted,
+	region,
 }: {
 	src: string;
 	loop: boolean;
@@ -385,6 +397,8 @@ function Player({
 	onSection(i: number): void;
 	stems: StemEngine | null;
 	muted: Set<string>;
+	/** Bars picked in the arrangement (1-based, inclusive): "▶ Bars" plays only them, looped if wanted. */
+	region: { from: number; to: number } | null;
 }) {
 	const audio = useRef<HTMLAudioElement>(null);
 	const [url, setUrl] = useState<string>();
@@ -405,6 +419,17 @@ function Player({
 	}, [src]);
 	const stemMode = !!stems && muted.size > 0;
 	const active = useRef<"audio" | "stems">("audio");
+	// Bars as seconds, and whether they're playing on their own (looped or once).
+	const barSec = timeline ? timeline.seconds / (timeline.totalTicks / timeline.ticksPerBar) : 0;
+	const span = region && timeline ? { start: (region.from - 1) * barSec, end: region.to * barSec } : null;
+	const [loopRegion, setLoopRegion] = useState(false);
+	const regionPlay = useRef(false);
+	const spanRef = useRef(span);
+	spanRef.current = span;
+	const loopRef = useRef(loopRegion);
+	loopRef.current = loopRegion;
+	/** The region the stems should loop right now, if any. */
+	const stemRegion = () => (regionPlay.current && loopRef.current ? spanRef.current : null);
 	// Hand playback between the render and the stems at the same moment.
 	useEffect(() => {
 		const a = audio.current;
@@ -416,7 +441,7 @@ function Player({
 			a.pause();
 			stems.setMuted(muted);
 			stems.seek(t);
-			if (wasPlaying) stems.play(t);
+			if (wasPlaying) stems.play(t, stemRegion());
 			setPlaying(wasPlaying);
 		} else if (stems) {
 			const wasPlaying = stems.playing;
@@ -437,12 +462,63 @@ function Player({
 		};
 	}, [stems]);
 	const now = () => (active.current === "stems" && stems ? stems.time() : (audio.current?.currentTime ?? 0));
+	const seekTo = (t: number) => {
+		if (active.current === "stems" && stems) {
+			if (stems.playing) stems.play(t, stemRegion());
+			else stems.seek(t);
+		} else if (audio.current) audio.current.currentTime = t;
+		setTime(t);
+	};
+	const pause = () => {
+		if (active.current === "stems" && stems) stems.pause();
+		else audio.current?.pause();
+		setPlaying(false);
+	};
+	/** Plays the picked bars on their own (looped if Loop is on), from their start. */
+	const playRegion = () => {
+		const s = spanRef.current;
+		if (!s) return;
+		regionPlay.current = true;
+		if (active.current === "stems" && stems) {
+			stems.play(s.start, stemRegion());
+			setPlaying(true);
+		} else if (audio.current) {
+			audio.current.currentTime = s.start;
+			void audio.current.play();
+		}
+		setTime(s.start);
+	};
+	// A new pick, or Loop toggled, while the bars play: the stems pick up the new loop where they are.
+	useEffect(() => {
+		if (!regionPlay.current || active.current !== "stems" || !stems?.playing) return;
+		const s = spanRef.current;
+		const t = stems.time();
+		stems.play(s && (t < s.start || t >= s.end) ? s.start : t, stemRegion());
+	}, [span?.start, span?.end, loopRegion, stems]);
+	/** To the start of this bar, or of the one before when already at the start (⏮); to the next bar (⏭). */
+	const skip = (dir: -1 | 1) => {
+		if (!barSec || !timeline) return;
+		const t = now();
+		const bar = Math.floor(t / barSec + 1e-6);
+		let target = dir < 0 ? (t - bar * barSec < 0.3 && bar > 0 ? (bar - 1) * barSec : bar * barSec) : (bar + 1) * barSec;
+		if (target >= timeline.seconds - 1e-3) target = loop ? 0 : bar * barSec;
+		seekTo(target);
+	};
 
 	useEffect(() => {
 		if (!playing) return;
 		let frame = 0;
 		const tick = () => {
-			const t = now();
+			let t = now();
+			const s = spanRef.current;
+			if (regionPlay.current && s && t >= s.end - 0.005) {
+				// The stems loop the bars themselves; the render's audio element is put back each time round.
+				if (!loopRef.current) {
+					regionPlay.current = false;
+					pause();
+					seekTo((t = s.start));
+				} else if (active.current === "audio" && audio.current) audio.current.currentTime = t = s.start;
+			}
 			setTime(t);
 			if (timeline) {
 				const tick = (t / timeline.seconds) * timeline.totalTicks;
@@ -455,6 +531,7 @@ function Player({
 		return () => cancelAnimationFrame(frame);
 	}, [playing, timeline, onSection, stems]);
 	const toggle = () => {
+		regionPlay.current = false;
 		if (active.current === "stems" && stems) {
 			if (stems.playing) stems.pause();
 			else stems.play();
@@ -477,9 +554,31 @@ function Player({
 				onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
 				data-testid="music-audio"
 			/>
-			<button className="primary" disabled={!url} onClick={toggle} data-testid="music-play">
-				{playing ? "❚❚ Pause" : "▶ Play"}
+			<button className="small" disabled={!url || !barSec} onClick={() => skip(-1)} title="To the start of this bar (twice: the bar before)" data-testid="music-bar-back">
+				⏮
 			</button>
+			<button className="primary" disabled={!url} onClick={toggle} data-testid="music-play">
+				{playing && !regionPlay.current ? "❚❚ Pause" : "▶ Play"}
+			</button>
+			<button className="small" disabled={!url || !barSec} onClick={() => skip(1)} title="To the start of the next bar" data-testid="music-bar-forward">
+				⏭
+			</button>
+			{span && region && (
+				<span className="row music-region">
+					<button
+						className={playing && regionPlay.current ? "primary" : ""}
+						disabled={!url}
+						onClick={() => (playing && regionPlay.current ? (regionPlay.current = false, pause()) : playRegion())}
+						title="Play only the bars picked in the arrangement"
+						data-testid="music-play-region"
+					>
+						{playing && regionPlay.current ? "❚❚" : "▶"} {region.from === region.to ? `Bar ${region.from}` : `Bars ${region.from}-${region.to}`}
+					</button>
+					<label className="row small" title="Play the picked bars round and round">
+						<input type="checkbox" checked={loopRegion} onChange={(e) => setLoopRegion(e.target.checked)} data-testid="music-loop-region" /> Loop
+					</label>
+				</span>
+			)}
 			<input
 				className="grow"
 				type="range"
@@ -487,15 +586,11 @@ function Player({
 				max={duration || 1}
 				step={0.01}
 				value={time}
-				onChange={(e) => {
-					const t = Number(e.target.value);
-					if (active.current === "stems" && stems) stems.seek(t);
-					else if (audio.current) audio.current.currentTime = t;
-					setTime(t);
-				}}
+				onChange={(e) => seekTo(Number(e.target.value))}
 			/>
-			<span className="muted mono">
+			<span className="muted mono" data-testid="music-clock">
 				{formatTime(time)} / {formatTime(duration)}
+				{barSec > 0 && timeline && ` · bar ${Math.min(timeline.totalTicks / timeline.ticksPerBar, Math.floor(time / barSec + 1e-6) + 1)}`}
 			</span>
 			{loop && <span className="badge">loops</span>}
 			{stemMode && (
@@ -519,12 +614,18 @@ function PlayheadBridge({ time, timeline }: { time: number; timeline: Timeline |
 
 const instrumentLabel = (t: TimelineTrack) => (t.drums ? "drums" : GM_PROGRAMS[t.program]);
 
-/** A track, and optionally the bars of it (piece bars, 1-based, inclusive), picked for recomposing. */
-type Selection = { track: string; range?: { from: number; to: number } };
+/**
+ * Bars picked in the arrangement (piece bars, 1-based, inclusive), on a track (for "Recompose") or on the ruler
+ * (to play them on their own); a track alone is the whole track.
+ */
+type Selection = { track?: string; range?: { from: number; to: number } };
+
+const ZOOM_MAX = 48;
 
 /**
- * Tracks × sections: each cell a tiny piano roll of that track in that section. Click a track's name to pick the
- * whole track, or its lane to pick a bar (drag or shift-click to pick several).
+ * Tracks × sections: each cell a tiny piano roll of that track in that section. The wheel zooms the lanes (around
+ * the cursor; they scroll sideways when wider than the view). Click a track's name to pick the whole track, or its
+ * lane to pick a bar (drag or shift-click to pick several); the bar ruler picks bars to play on their own.
  */
 function Arrangement({
 	song,
@@ -552,6 +653,7 @@ function Arrangement({
 	stemsLoading: boolean;
 }) {
 	const total = timeline.totalTicks;
+	const bars = total / timeline.ticksPerBar;
 	const audible = timeline.tracks.filter((t) => t.notes.length).map((t) => t.id);
 	const allMuted = audible.length > 0 && audible.every((id) => muted.has(id));
 	const toggleMute = (id: string) => {
@@ -560,60 +662,114 @@ function Arrangement({
 		else next.add(id);
 		onMuted(next);
 	};
-	const bars = total / timeline.ticksPerBar;
-	const drag = useRef<{ track: string; anchor: number } | null>(null);
+
+	// Zoom: the lanes are `zoom` × the view's width; the wheel zooms around the point under the cursor.
+	const [zoom, setZoom] = useState(1);
+	const [viewWidth, setViewWidth] = useState(800);
+	const scroll = useRef<HTMLDivElement>(null);
+	const anchor = useRef<{ frac: number; x: number } | null>(null);
+	useEffect(() => {
+		const el = scroll.current;
+		if (!el) return;
+		const onWheel = (e: WheelEvent) => {
+			if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return; // a sideways swipe scrolls
+			e.preventDefault();
+			const r = el.getBoundingClientRect();
+			const x = e.clientX - r.left;
+			anchor.current = { frac: (el.scrollLeft + x) / el.scrollWidth, x };
+			setZoom((z) => Math.min(ZOOM_MAX, Math.max(1, z * Math.exp(-e.deltaY * 0.002))));
+		};
+		el.addEventListener("wheel", onWheel, { passive: false });
+		const ro = new ResizeObserver(() => setViewWidth(el.clientWidth));
+		ro.observe(el);
+		return () => {
+			el.removeEventListener("wheel", onWheel);
+			ro.disconnect();
+		};
+	}, []);
+	useLayoutEffect(() => {
+		const el = scroll.current;
+		const a = anchor.current;
+		if (!el || !a) return;
+		el.scrollLeft = a.frac * el.scrollWidth - a.x;
+		anchor.current = null;
+	}, [zoom]);
+	// While zoomed in, keep the playhead in view.
+	useEffect(() => {
+		if (zoom <= 1) return;
+		let frame = 0;
+		let last = "";
+		const follow = () => {
+			const el = scroll.current;
+			const v = document.querySelector<HTMLElement>("[data-testid=music-detail]")?.style.getPropertyValue("--playhead") ?? "";
+			if (el && v && v !== last) {
+				last = v;
+				const x = Number(v) * el.scrollWidth;
+				if (x < el.scrollLeft || x > el.scrollLeft + el.clientWidth) el.scrollLeft = x - el.clientWidth * 0.1;
+			}
+			frame = requestAnimationFrame(follow);
+		};
+		frame = requestAnimationFrame(follow);
+		return () => cancelAnimationFrame(frame);
+	}, [zoom]);
+	const barPx = (viewWidth * zoom) / bars;
+	const labelEvery = [1, 2, 4, 8, 16, 32, 64].find((n) => n * barPx >= 26) ?? 128;
+
+	// Picking bars: on a track's lane (for recomposing) or the ruler (to play them).
+	const drag = useRef<{ track?: string; anchor: number } | null>(null);
 	const barAt = (e: React.MouseEvent<HTMLElement>) => {
 		const r = e.currentTarget.getBoundingClientRect();
 		return Math.min(bars, Math.max(1, Math.floor(((e.clientX - r.left) / r.width) * bars) + 1));
 	};
-	const pick = (track: string, a: number, b: number) => onSelection({ track, range: { from: Math.min(a, b), to: Math.max(a, b) } });
+	const pick = (track: string | undefined, a: number, b: number) => onSelection({ track, range: { from: Math.min(a, b), to: Math.max(a, b) } });
+	const startPick = (track: string | undefined) => (e: React.MouseEvent<HTMLElement>) => {
+		const bar = barAt(e);
+		const keep = e.shiftKey && selection?.track === track && selection?.range;
+		const from = keep ? selection.range!.from : bar;
+		drag.current = { track, anchor: from };
+		pick(track, from, bar);
+	};
+	const movePick = (track: string | undefined) => (e: React.MouseEvent<HTMLElement>) =>
+		drag.current && drag.current.track === track && e.buttons === 1 && pick(track, drag.current.anchor, barAt(e));
 	useEffect(() => {
 		const up = () => (drag.current = null);
 		window.addEventListener("mouseup", up);
 		return () => window.removeEventListener("mouseup", up);
 	}, []);
+	const pickBox = (s: Selection) =>
+		s.range ? { left: `${((s.range.from - 1) / bars) * 100}%`, width: `${((s.range.to - s.range.from + 1) / bars) * 100}%` } : { left: 0, width: "100%" };
+	const grid = barPx >= 8 ? { backgroundImage: "linear-gradient(to right, var(--border) 1px, transparent 1px)", backgroundSize: `${100 / bars}% 100%` } : undefined;
+
 	return (
 		<div className="arrangement" data-testid="arrangement">
-			<div className="arr-row arr-header">
-				<div className="arr-label row">
-					<button
-						className="small"
-						onClick={() => onMuted(allMuted ? new Set() : new Set(audible))}
-						title={allMuted ? "Hear every track again" : "Mute every track, then unmute the ones to hear on their own"}
-						data-testid="mute-all"
-					>
-						{allMuted ? "Unmute all" : "Mute all"}
-					</button>
-					{stemsLoading && <span className="muted small">preparing stems…</span>}
-				</div>
-				<div className="arr-lane">
-					{timeline.sections.map((s, i) => (
+			<div className="arr-grid">
+				<div className="arr-labels">
+					<div className="arr-label arr-h-header">
 						<button
-							key={i}
-							className={`arr-section ${i === selected ? "on" : ""}`}
-							style={{
-								left: `${(s.tick / total) * 100}%`,
-								width: `${(s.ticks / total) * 100}%`,
-							}}
-							onClick={() => onSelect(i)}
-							title={`${s.name}: ${s.ticks / timeline.ticksPerBar} bars`}
+							className="small"
+							onClick={() => onMuted(allMuted ? new Set() : new Set(audible))}
+							title={allMuted ? "Hear every track again" : "Mute every track, then unmute the ones to hear on their own"}
+							data-testid="mute-all"
 						>
-							{s.name}
+							{allMuted ? "Unmute all" : "Mute all"}
 						</button>
-					))}
-					<div className="arr-playhead" />
-				</div>
-			</div>
-			{timeline.tracks.map((t, ti) => {
-				const pitches = t.notes.map((n) => n.pitch);
-				const lo = Math.min(...pitches, 127);
-				const hi = Math.max(...pitches, 0);
-				return (
-					<div className={`arr-row ${selection?.track === t.id ? "picked" : ""} ${muted.has(t.id) ? "muted-track" : ""}`} key={t.id} data-testid="arr-track">
+						{stemsLoading && <span className="muted small">preparing stems…</span>}
+					</div>
+					<div className="arr-label arr-h-ruler muted small" title="Scroll on the lanes to zoom; drag on the ruler to pick bars to play">
+						<span className="grow">Bars</span>
+						{zoom > 1 && (
+							<button className="small ghost" onClick={() => setZoom(1)} title="Fit the whole piece" data-testid="arr-zoom-fit">
+								{Math.round(zoom * 100)}% ⤢
+							</button>
+						)}
+					</div>
+					{timeline.tracks.map((t, ti) => (
 						<div
-							className="arr-label"
+							key={t.id}
+							className={`arr-label arr-h-track ${selection?.track === t.id ? "picked expanded" : ""} ${muted.has(t.id) ? "muted-track" : ""}`}
 							title={`${instrumentLabel(t)}: click to pick the whole track`}
 							onClick={() => onSelection(selection?.track === t.id && !selection.range ? null : { track: t.id })}
+							data-testid="arr-track"
 						>
 							<button
 								className={`mute ${muted.has(t.id) ? "on" : ""}`}
@@ -628,60 +784,101 @@ function Arrangement({
 							<span className="ellipsis">
 								<b>{t.id}</b> <span className="muted">{instrumentLabel(t)}</span>
 							</span>
-						</div>
-						<div
-							className="arr-lane pickable"
-							title="Click a bar to pick it; drag or shift-click to pick several"
-							onMouseDown={(e) => {
-								const bar = barAt(e);
-								const keep = e.shiftKey && selection?.track === t.id && selection.range;
-								const anchor = keep ? selection.range!.from : bar;
-								drag.current = { track: t.id, anchor };
-								pick(t.id, anchor, bar);
-							}}
-							onMouseMove={(e) => drag.current?.track === t.id && e.buttons === 1 && pick(t.id, drag.current.anchor, barAt(e))}
-						>
-							{selection?.track === t.id && (
-								<div
-									className="arr-pick"
-									data-testid="arr-pick"
-									style={
-										selection.range
-											? { left: `${((selection.range.from - 1) / bars) * 100}%`, width: `${((selection.range.to - selection.range.from + 1) / bars) * 100}%` }
-											: { left: 0, width: "100%" }
-									}
-								/>
+							{selection?.track === t.id && t.notes.length > 0 && (
+								<span className="arr-range muted small" data-testid="arr-range">
+									{t.drums
+										? [...new Set(t.notes.map((n) => n.pitch))].sort((a, b) => b - a).map(drumName).join(", ")
+										: `${pitchName(Math.min(...t.notes.map((n) => n.pitch)))}–${pitchName(Math.max(...t.notes.map((n) => n.pitch)))}`}
+								</span>
 							)}
+						</div>
+					))}
+				</div>
+				<div className="arr-scroll" ref={scroll} data-testid="arr-scroll">
+					<div className="arr-lanes" style={{ width: `${zoom * 100}%` }}>
+						<div className="arr-lane arr-h-header">
 							{timeline.sections.map((s, i) => (
-								<div
+								<button
 									key={i}
-									className={`arr-cell ${i === selected ? "on" : ""}`}
-									style={{
-										left: `${(s.tick / total) * 100}%`,
-										width: `${(s.ticks / total) * 100}%`,
-									}}
-								/>
+									className={`arr-section ${i === selected ? "on" : ""}`}
+									style={{ left: `${(s.tick / total) * 100}%`, width: `${(s.ticks / total) * 100}%` }}
+									onClick={() => onSelect(i)}
+									title={`${s.name}: ${s.ticks / timeline.ticksPerBar} bars`}
+								>
+									{s.name}
+								</button>
 							))}
-							<svg className="arr-notes" viewBox={`0 0 ${total} 100`} preserveAspectRatio="none">
-								{t.notes.map((n, i) => (
-									<rect
-										key={i}
-										x={n.tick}
-										width={Math.max(n.ticks, total / 800)}
-										y={hi === lo ? 45 : 90 - ((n.pitch - lo) / (hi - lo)) * 80}
-										height={10}
-										fill={COLOURS[ti % COLOURS.length]}
-									/>
-								))}
-							</svg>
 							<div className="arr-playhead" />
 						</div>
+						<div className="arr-lane arr-h-ruler arr-ruler pickable" onMouseDown={startPick(undefined)} onMouseMove={movePick(undefined)} data-testid="arr-ruler">
+							{selection?.range && !selection.track && <div className="arr-pick" style={pickBox(selection)} />}
+							{Array.from({ length: Math.ceil(bars / labelEvery) }, (_, k) => k * labelEvery).map((b) => (
+								<span key={b} className="arr-bar-number" style={{ left: `${(b / bars) * 100}%` }}>
+									{b + 1}
+								</span>
+							))}
+							<div className="arr-playhead" />
+						</div>
+						{timeline.tracks.map((t, ti) => {
+							const pitches = t.notes.map((n) => n.pitch);
+							const lo = Math.min(...pitches, 127);
+							const hi = Math.max(...pitches, 0);
+							// The picked track stretches: a row per pitch (per drum), octaves marked at each C.
+							const big = selection?.track === t.id && pitches.length > 0;
+							const rows = t.drums ? [...new Set(pitches)].sort((a, b) => b - a) : Array.from({ length: hi - lo + 1 }, (_, k) => hi - k);
+							const rowH = 100 / Math.max(1, rows.length);
+							return (
+								<div
+									key={t.id}
+									className={`arr-lane arr-h-track pickable ${big ? "picked expanded" : selection?.track === t.id ? "picked" : ""} ${muted.has(t.id) ? "muted-track" : ""}`}
+									title="Click a bar to pick it; drag or shift-click to pick several"
+									onMouseDown={startPick(t.id)}
+									onMouseMove={movePick(t.id)}
+									data-testid="arr-track-lane"
+								>
+									{selection?.track === t.id && <div className="arr-pick" data-testid="arr-pick" style={pickBox(selection)} />}
+									{timeline.sections.map((s, i) => (
+										<div
+											key={i}
+											className={`arr-cell ${i === selected ? "on" : ""}`}
+											style={{ left: `${(s.tick / total) * 100}%`, width: `${(s.ticks / total) * 100}%` }}
+										/>
+									))}
+									{grid && <div className="arr-bars" style={grid} />}
+									<svg className="arr-notes" viewBox={`0 0 ${total} 100`} preserveAspectRatio="none">
+										{big &&
+											rows.map((p, r) =>
+												t.drums ? (
+													r % 2 === 1 && <rect key={`r${p}`} x={0} y={r * rowH} width={total} height={rowH} className="arr-row-shade" />
+												) : (
+													p % 12 === 0 && <rect key={`r${p}`} x={0} y={r * rowH + rowH - 0.35} width={total} height={0.35} className="arr-octave" />
+												),
+											)}
+										{t.notes.map((n, i) => (
+											<rect
+												key={i}
+												x={n.tick}
+												width={Math.max(n.ticks - (big ? total / 2000 : 0), total / 800)}
+												y={big ? rows.indexOf(n.pitch) * rowH + rowH * 0.1 : hi === lo ? 45 : 90 - ((n.pitch - lo) / (hi - lo)) * 80}
+												height={big ? rowH * 0.8 : 10}
+												fill={COLOURS[ti % COLOURS.length]}
+												opacity={big ? 0.45 + (n.velocity / 127) * 0.55 : 1}
+											>
+												{big && <title>{`${t.drums ? drumName(n.pitch) : pitchName(n.pitch)} · bar ${Math.floor(n.tick / timeline.ticksPerBar) + 1}`}</title>}
+											</rect>
+										))}
+									</svg>
+									<div className="arr-playhead" />
+								</div>
+							);
+						})}
 					</div>
-				);
-			})}
+				</div>
+			</div>
 			<div className="row">
 				<span className="muted small grow">
-					{song.arrangement.length} sections · {bars} bars. Click a section to see its notes; click a track or its bars to recompose them.
+					{song.arrangement.length} sections · {bars} bars. Scroll on the lanes to zoom. Click a section to see its notes; click a track or its bars to recompose them;
+					drag on the ruler to pick bars to play.
 				</span>
 				<button className="small" disabled={!canAdd} onClick={onAdd} data-testid="add-instrument">
 					+ Add instrument
@@ -925,7 +1122,7 @@ function RecomposePanel({
 }: {
 	song: Song;
 	timeline: Timeline;
-	selection: Selection;
+	selection: Selection & { track: string };
 	disabled: boolean;
 	onClear(): void;
 	onRecompose(feedback: string): void;

@@ -163,7 +163,9 @@ async function main(): Promise<void> {
 		},
 		"dialog.pickFolder": (title) => pickFolder(title),
 
-		"git.status": (target) => g.status(repo(target)),
+		// hasRemote only here (Source Control): status() runs for every worktree, often, and one more git call each
+		// isn't free (and races a worktree being removed).
+		"git.status": async (target) => ({ ...(await g.status(repo(target))), hasRemote: !!(await g.git(repo(target), ["remote"])).trim() }),
 		"git.diff": async (target, path, staged) => {
 			const args = staged ? ["diff", "--cached", "--", path] : ["diff", "--", path];
 			const out = await g.git(repo(target), args);
