@@ -9,6 +9,7 @@ import { call, onEvent, studioFile } from "../../renderer/api";
 import { useStudio } from "../../renderer/store";
 import { AssetBrowser, type AssetContentProps } from "../../renderer/views/AssetBrowser";
 import { editCheckout, runInWorktree } from "../../renderer/workspace";
+import { leafName } from "../../shared/asset-names";
 import { modelName } from "./info";
 import { ModelViewer, type ViewerOptions } from "./ModelViewer";
 import { useShallow } from "zustand/react/shallow";
@@ -256,7 +257,8 @@ function ModelTab({ manifest, dir, checkout, busy, run }: TabProps) {
 	const [clips, setClips] = useState<string[]>([]);
 	const [loadError, setLoadError] = useState<string>();
 	const version = manifest.steps.at(-1)?.at;
-	const url = studioFile(checkout, `${dir}/${manifest.name}.glb`, version);
+	// The file is named for the last part of the model's name: `cave/boulder-a` is `cave/boulder-a/boulder-a.glb`.
+	const url = studioFile(checkout, `${dir}/${leafName(manifest.name)}.glb`, version);
 	const onLoaded = useCallback((info: { clips: string[]; error?: string }) => {
 		setClips(info.clips);
 		setLoadError(info.error);
