@@ -249,6 +249,24 @@ describe("SessionService", () => {
 		]);
 	});
 
+	it("starts a type that works in another repo as a session of its own, never as a sub-agent", async () => {
+		const mech: AgentTypeInfo = { ...general, id: "mech", name: "Mechanic", targets: ["engine"], delegatesTo: [] };
+		const boss: AgentTypeInfo = { ...general, id: "boss", name: "Boss", targets: ["project"], delegatesTo: ["mech"], studioTools: [] };
+		const svc = new SessionService({ host: await inProcessHost(join(root, "pi-cross")), settings: () => settings, projectPath: () => project, agentTypes: () => [boss, mech], skillsDir: join(root, "skills"), emit: () => {} });
+		try {
+			const b = await svc.create({ agentType: "boss", target: "project", model: "faux/echo", prompt: 'tool delegate {"agentType": "mech", "task": "engine note"}' });
+			await waitFor(() => svc.get(b.id).status === "idle");
+			const other = svc.list().find((s) => s.agentType === "mech")!;
+			expect(other.parentId).toBeUndefined();
+			expect(other.target).toBe("engine");
+			expect(other.worktreeId).not.toBe(b.worktreeId);
+			expect(JSON.stringify(await svc.messages(b.id))).toContain("can't be your sub-agent");
+			await expect(svc.create({ agentType: "mech", target: "engine", model: "faux/echo", prompt: "", parentId: b.id })).rejects.toThrow(/sub-agent works in its parent's worktree/);
+		} finally {
+			svc.dispose();
+		}
+	}, 30_000);
+
 	it("delegates a task to a sub-agent in its worktree and gets its report; only along the graph", async () => {
 		const lead1 = await service.create({ agentType: "lead", target: "project", model: "faux/echo", prompt: 'tool delegate {"agentType": "helper", "task": "child note"}' });
 		await settled(lead1.id);

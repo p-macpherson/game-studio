@@ -222,9 +222,9 @@ export function WorktreePicker({ hidden = false }: { hidden?: boolean }) {
 			)}
 			{!current && !naming && <span className="muted small ellipsis">What's in the game. Edits and sessions start a worktree of their own.</span>}
 			{current && !naming && (
-				<span className="muted small worktree-fact" title={changed.join("\n")}>
+				<button className="link muted small worktree-fact" title={`Read what this worktree changed${changed.length ? `:\n${changed.join("\n")}` : ""}`} onClick={() => useStudio.getState().openChanges(current.id)} data-testid="worktree-changes-link">
 					{changed.length} change{changed.length === 1 ? "" : "s"}
-				</span>
+				</button>
 			)}
 			{current && status?.conflicts && (
 				<span className="worktree-status conflict" data-testid="worktree-conflicts">

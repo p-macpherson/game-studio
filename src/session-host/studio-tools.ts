@@ -62,7 +62,9 @@ export function studioTools(ctx: StudioToolContext) {
 						"Hand a task to a sub-agent: a new session of another agent type that works in your worktree (its commits land beside yours) and that the " +
 						"user can watch and talk to. This waits until it finishes and returns its final report. Several delegate calls at once (e.g. Promise.all in " +
 						"a codemode script) run side by side. The sub-agent doesn't see your conversation: give it the whole task, the context it needs, what " +
-						"done looks like, and paths to the files involved. You can delegate to: " +
+						"done looks like, and paths to the files involved. A type that works in another repository than yours (the engine, the studio) can't share your " +
+						"worktree, so it isn't a sub-agent: it starts as a separate session in its own worktree and this returns at once, without a report; " +
+						"its work reaches you only after the user merges it, so tell the user what you asked for. You can delegate to: " +
 						ctx.delegatesTo.map((t) => `${t.id} (${t.name}: ${t.description})`).join("; "),
 					parameters: Type.Object({
 						agentType: Type.Union(ctx.delegatesTo.map((t) => Type.Literal(t.id))),

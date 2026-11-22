@@ -292,6 +292,7 @@ async function main(): Promise<void> {
 			return step ? history.record(worktreeId, cwd, step.label, step.scopes, run) : run();
 		},
 		"worktrees.commits": (id) => sessions.worktreeCommits(id),
+		"worktrees.diff": (id) => sessions.worktreeDiff(id),
 		"release.info": async (checkout) => release.info(checkout),
 		"release.build": (checkout, target) => release.build(checkout, target),
 		"release.run": async (checkout, version, target) => release.run(checkout, version, target),
@@ -369,6 +370,8 @@ async function main(): Promise<void> {
 		"sessions.send": (id, text, mode) => sessions.send(id, text, mode),
 		"sessions.abort": (id) => sessions.abort(id),
 		"sessions.setModel": (id, model) => sessions.setModel(id, model),
+		"sessions.context": (id) => sessions.contextUsage(id),
+		"sessions.compact": (id) => sessions.compact(id),
 		"sessions.answer": (id, questionId, answer) => sessions.answer(id, questionId, answer),
 		"sessions.diff": (id) => sessions.diff(id),
 		"sessions.changedFiles": (id) => sessions.changedFiles(id),

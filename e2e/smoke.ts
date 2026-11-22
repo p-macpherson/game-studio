@@ -111,9 +111,15 @@ try {
 	await page.getByTestId("chat").getByText("Noted: add a note").waitFor();
 	await step("02-session-idle", page);
 
-	await page.getByRole("button", { name: "Changes" }).click();
-	await page.locator(".diff .add", { hasText: "+add a note" }).waitFor();
+	// What its worktree changed is read on the Worktrees page: the files by section, the picked one's lines.
+	await page.getByTestId("session-changes").click();
+	await page.getByTestId("changes-summary").filter({ hasText: /1 file · 1 new · 1 line added, 0 removed/ }).waitFor();
+	await page.getByTestId("changes-file").filter({ hasText: "faux-notes.md" }).filter({ hasText: "New" }).waitFor();
+	await page.locator(".diff-line.add", { hasText: "add a note" }).waitFor();
 	await step("03-changes", page);
+	await page.getByTestId("changes-back").click();
+	await page.getByTestId("worktrees-page").waitFor();
+	await page.locator("nav.sidebar").getByRole("button", { name: "Sessions" }).click();
 
 	// Merge: done sessions are hidden by default.
 	await page.locator(".session-header").getByRole("button", { name: "Merge" }).click();
@@ -918,12 +924,73 @@ try {
 	await page.getByTestId("new-session-prompt").fill('tool delegate {"agentType": "gameplay-engineer", "task": "a note from the sub-agent", "title": "Sub-agent note"}');
 	await page.getByRole("button", { name: "Start session" }).click();
 	await page.getByTestId("chat").getByText(/^Result:[\s\S]*Noted: a note from the sub-agent/).waitFor({ timeout: 60_000 });
-	// Its report is back, so the sub-agent is done, and the parent's branch folds; the toggle shows it.
+	// Its report is back, so the sub-agent is done: the filters (In progress, Idle) hide it like any done session,
+	// and its parent's row says so; clicking that shows it anyway.
 	const parentRow = page.locator("[data-testid=session-item][data-depth='0']").filter({ hasText: "1 sub-agent" }).first();
 	await parentRow.waitFor({ timeout: 10_000 });
-	await parentRow.getByTestId("tree-toggle").click();
+	if (await page.locator("[data-testid=session-item][data-depth='1']").count()) throw new Error("a done sub-agent should be hidden by the status filters");
+	await parentRow.getByTestId("subagents-hidden").filter({ hasText: "1 hidden" }).click();
 	await page.locator("[data-testid=session-item][data-depth='1']", { hasText: "Sub-agent note" }).filter({ hasText: "Done" }).waitFor();
 	await step("32-session-tree", page);
+	// The chat is the conversation only: the agent's work is one folded line, and all of it is in Full transcript.
+	const chat = page.getByTestId("chat");
+	await chat.getByTestId("work-line").first().waitFor();
+	if (await chat.locator(".tool, .thinking").count()) throw new Error("the chat should not show tool calls or thinking");
+	await page.getByTestId("context-meter").waitFor();
+	// Its sub-agents have a tab of their own: the tree below this session, each with how it stands; Done can be hidden.
+	await page.getByTestId("session-tab-subagents").filter({ hasText: "1" }).click();
+	await page.locator("[data-testid=subagent-row][data-status=done]").filter({ hasText: "Sub-agent note" }).filter({ hasText: "Done" }).waitFor();
+	await page.getByTestId("subagents-summary").filter({ hasText: "1 done" }).waitFor();
+	await step("66-session-subagents", page);
+	await page.getByTestId("subagents-show-done").uncheck();
+	await page.getByTestId("subagent-row").waitFor({ state: "detached" });
+	await page.getByTestId("subagents").getByText("1 done sub-agent hidden").waitFor();
+	await page.getByTestId("subagents-show-done").check();
+	await page.getByTestId("subagent-row").waitFor();
+	await page.getByTestId("session-tab-chat").click();
+	await step("63-session-chat", page);
+	// Scrolled up (here in a pane squeezed to a sliver), the chat stays put and offers "Jump to latest".
+	await page.getByTestId("chat-scroll").evaluate((el) => {
+		(el as HTMLElement).style.maxHeight = "60px";
+		el.scrollTop = 0;
+		el.dispatchEvent(new Event("scroll"));
+	});
+	await page.getByTestId("jump-latest").click();
+	await page.getByTestId("jump-latest").waitFor({ state: "detached" });
+	if (!(await page.getByTestId("chat-scroll").evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight < 48))) throw new Error("Jump to latest didn't return to the end");
+	await page.getByTestId("chat-scroll").evaluate((el) => ((el as HTMLElement).style.maxHeight = ""));
+	await chat.getByTestId("work-line").first().click();
+	await page.getByTestId("transcript").locator(".tool").first().waitFor();
+	await step("64-session-transcript", page);
+	await page.getByTestId("session-tab-chat").click();
+	// An unsent message is still there after a visit elsewhere.
+	await page.getByTestId("composer").fill("an unsent thought");
+	await nav.getByRole("button", { name: "Worktrees" }).click();
+	await page.getByTestId("worktrees-page").waitFor();
+	await nav.getByRole("button", { name: "Sessions" }).click();
+	if ((await page.getByTestId("composer").inputValue()) !== "an unsent thought") throw new Error("the unsent message was lost");
+	await page.getByTestId("composer").fill("");
+	// All worktrees: every session, in a section per worktree.
+	await page.getByTestId("sessions-all").click();
+	await page.getByTestId("session-section").nth(1).waitFor();
+	await step("65-sessions-all-worktrees", page);
+	await page.getByTestId("sessions-all").click();
+	await page.getByTestId("session-section").first().waitFor({ state: "detached" });
+	// A question from the agent: picking a suggestion puts it in the answer box, where it can be reworded; what's in
+	// the box is what Send answer sends.
+	await page.getByTestId("composer").fill('tool ask_user {"question": "Which colour should the crate be?", "options": ["Red", "Blue with a white stripe"]}');
+	await page.getByTestId("composer").press("Enter");
+	await page.getByTestId("question").getByText("Which colour should the crate be?").waitFor({ timeout: 30_000 });
+	await page.getByTestId("question-option").nth(1).click();
+	if ((await page.getByTestId("question-answer").inputValue()) !== "Blue with a white stripe") throw new Error("picking a suggestion should fill the answer box");
+	await page.locator(".question-option.picked", { hasText: "Blue with a white stripe" }).waitFor();
+	await step("67-question", page);
+	await page.getByTestId("question-answer").fill("Blue with a thin white stripe");
+	if (await page.locator(".question-option.picked").count()) throw new Error("a reworded answer is no longer the suggestion");
+	await page.getByTestId("question-send").click();
+	await page.getByTestId("chat").getByText(/^Result:[\s\S]*Blue with a thin white stripe/).waitFor({ timeout: 30_000 });
+	await page.getByTestId("question").waitFor({ state: "detached" });
+	await parentRow.getByTestId("subagents-hidden").click(); // shown again: leaving the page forgot it
 	await page.locator("[data-testid=session-item][data-depth='1']", { hasText: "Sub-agent note" }).click();
 	await page.getByTestId("session-family").getByText("↑ Sub-agent of").waitFor();
 
@@ -983,6 +1050,16 @@ try {
 	await noteRow.getByTestId("worktrees-size").filter({ hasText: "MB" }).waitFor({ timeout: 15_000 });
 	await page.getByTestId("worktrees-space-total").waitFor();
 	await step("50-worktrees-page", page);
+	// View changes: a worktree's files by section, images and models marked as not text.
+	await page.getByTestId("worktrees-row").filter({ hasText: "generate_concept_images" }).getByTestId("worktrees-changes").click();
+	await page.getByTestId("changes-files").getByText("3D Models").waitFor();
+	await page.getByTestId("changes-file").filter({ hasText: "barrel-1.png" }).filter({ hasText: /\d (B|KB|MB)$/ }).waitFor();
+	await step("50a-worktree-changes", page);
+	await page.getByTestId("changes-file").filter({ hasText: /\+\d/ }).first().click();
+	await page.locator(".diff-line.add").first().waitFor();
+	await step("50a2-worktree-changes-file", page);
+	await page.getByTestId("changes-back").click();
+	await page.getByTestId("worktrees-page").waitFor();
 	await noteRow.getByTestId("worktrees-unload").click();
 	await noteRow.getByTestId("worktrees-size").filter({ hasText: "no folder" }).waitFor({ timeout: 15_000 });
 	await noteRow.getByTestId("worktrees-switch").click();

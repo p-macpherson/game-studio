@@ -8,6 +8,7 @@ import { call } from "../api";
 import { isOpenWorktree, useStudio } from "../store";
 import { confirmDiscard, unsavedOf } from "../workspace";
 import { GROUPS, megabytes, otherFiles } from "./Worktrees";
+import { WorktreeChanges } from "./WorktreeChanges";
 
 interface Facts {
 	changes: number;
@@ -28,6 +29,11 @@ const ago = (iso: string) => {
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 export function WorktreesView() {
+	const changesOf = useStudio((s) => s.changesOf);
+	return changesOf ? <WorktreeChanges key={changesOf} worktreeId={changesOf} /> : <WorktreeList />;
+}
+
+function WorktreeList() {
 	const { project, selected, worktrees, sessions, assetsVersion, selectWorktree, refreshWorktrees, showError, setView } = useStudio(
 		useShallow((s) => ({
 			project: s.project,
@@ -261,6 +267,9 @@ export function WorktreesView() {
 						</button>
 					)}
 					{!f?.conflicts && engineButton(w, busyHere)}
+					<button className="small" disabled={unloaded || !f || f.changes === 0} onClick={() => useStudio.getState().openChanges(w.id)} title={unloaded ? "Switch to it first: its folder isn't on disk" : "Read everything this worktree changed, file by file"} data-testid="worktrees-changes">
+						View changes
+					</button>
 					{!current && (
 						<button className="small" disabled={busy} onClick={() => selectWorktree(w.id)} title={unloaded ? "Bring its folder back and show it in the studio" : "Show this worktree in the studio"} data-testid="worktrees-switch">
 							Switch to

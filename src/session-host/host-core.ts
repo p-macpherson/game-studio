@@ -15,7 +15,7 @@ import {
 	VERSION,
 } from "@earendil-works/pi-coding-agent";
 import type { HostApi, HostEvent, HostInfo, PromptMode, SessionOpenSpec } from "../shared/host";
-import type { ModelInfo, ProviderInfo } from "../shared/types";
+import type { ContextUsage, ModelInfo, ProviderInfo } from "../shared/types";
 import { createFaux } from "./faux";
 import { studioTools } from "./studio-tools";
 
@@ -286,6 +286,15 @@ export class HostCore implements HostApi {
 
 	async setModel(id: string, model: string): Promise<void> {
 		await this.live(id).setModel(this.resolveModel(model));
+	}
+
+	context(id: string): ContextUsage | null {
+		const u = this.live(id).getContextUsage();
+		return u ? { tokens: u.tokens, window: u.contextWindow, percent: u.percent } : null;
+	}
+
+	async compact(id: string): Promise<void> {
+		await this.live(id).compact();
 	}
 
 	studioProgress(requestId: string, text: string): void {

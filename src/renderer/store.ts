@@ -57,6 +57,8 @@ export interface Transcript {
 	messages: ChatMessage[];
 	streaming?: ChatMessage;
 	runningTools: Record<string, string>;
+	/** The conversation is being summarised to free up context. */
+	compacting?: boolean;
 }
 
 interface State {
@@ -86,6 +88,9 @@ interface State {
 	worktreeChanges: { path: string; change: "added" | "modified" | "deleted" }[];
 	/** The selected worktree's manual-edit history and unsaved files (refreshed with the selector). */
 	history: { worktree: string; steps: HistoryStep[]; unsaved: string[] } | null;
+	/** The worktree whose changes the Worktrees page shows (null: its list). */
+	changesOf: string | null;
+	openChanges(worktreeId: string | null): void;
 	/** The worktree whose Merge dialog is open. */
 	merging: string | null;
 	openMerge(worktreeId: string | null): void;
@@ -169,6 +174,8 @@ export const useStudio = create<State>((set, get) => ({
 	worktreeChanges: [],
 	history: null,
 	merging: null,
+	changesOf: null,
+	openChanges: (worktreeId) => set(worktreeId ? { changesOf: worktreeId, view: "worktrees" } : { changesOf: null }),
 	openMerge: (worktreeId) => set({ merging: worktreeId }),
 	notice: null,
 	async refreshHistory() {
@@ -336,6 +343,8 @@ export const useStudio = create<State>((set, get) => ({
 					if (!t) return {};
 					return { transcripts: { ...s.transcripts, [event.id]: applyEvent(t, event.event) } };
 				});
+				// A compaction replaced the conversation with a summary of it: read it again.
+				if (event.event.type === "compaction_end" && get().transcripts[event.id]) void get().loadTranscript(event.id);
 				break;
 		}
 	},
@@ -365,6 +374,10 @@ function applyEvent(t: Transcript, ev: { type: string; [k: string]: unknown }): 
 		}
 		case "agent_settled":
 			return { ...t, runningTools: {}, streaming: undefined };
+		case "compaction_start":
+			return { ...t, compacting: true };
+		case "compaction_end":
+			return { ...t, compacting: false };
 		default:
 			return t;
 	}

@@ -84,6 +84,13 @@ export interface PendingQuestion {
 	options?: string[];
 }
 
+/** How full a session's context window is; tokens and percent are unknown right after a compaction. */
+export interface ContextUsage {
+	tokens: number | null;
+	window: number;
+	percent: number | null;
+}
+
 export interface NewSessionRequest {
 	agentType: string;
 	target: Target;
@@ -94,7 +101,7 @@ export interface NewSessionRequest {
 	title?: string;
 	thinking?: ThinkingLevel;
 	linkedAsset?: string;
-	/** Work in this (active) worktree; by default the parent's, else a new one labelled `worktreeLabel` or the title. */
+	/** Work in this (active) worktree; by default the parent's, else a new one labelled `worktreeLabel` or the title. A sub-agent (`parentId`) always works in its parent's. */
 	worktreeId?: string;
 	worktreeLabel?: string;
 	parentId?: string;

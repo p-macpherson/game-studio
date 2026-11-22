@@ -8,6 +8,7 @@ import type { AssetSearchHit, AssetSummary, ModuleInfo, MoveResult } from "./mod
 import type { CheckoutId, CheckoutInfo, RunInfo, RunMode, RunOptions, TestReport } from "./run";
 import type { ConceptImage, GenJob, GenStatus } from "./gen";
 import type {
+	ContextUsage,
 	AgentTypeInfo,
 	GitCommit,
 	GitStatus,
@@ -117,6 +118,10 @@ export interface StudioApi {
 	"sessions.send"(id: string, text: string, mode?: PromptMode): Promise<void>;
 	"sessions.abort"(id: string): Promise<void>;
 	"sessions.setModel"(id: string, model: string): Promise<void>;
+	/** How full the session's context window is; null while its agent isn't loaded (nothing sent since the studio started). */
+	"sessions.context"(id: string): Promise<ContextUsage | null>;
+	/** Summarises the conversation so far to free up context (loads the agent if needed; not while it runs). */
+	"sessions.compact"(id: string): Promise<void>;
 	"sessions.answer"(id: string, questionId: string, answer: string): Promise<void>;
 	"sessions.diff"(id: string): Promise<string>;
 	/** Worktrees of every repo (merged and discarded ones too), newest first. */
@@ -136,6 +141,8 @@ export interface StudioApi {
 	"worktrees.revert"(id: string): Promise<void>;
 	/** The commits on a worktree's branch since it was made, newest first. */
 	"worktrees.commits"(id: string): Promise<GitCommit[]>;
+	/** Everything a worktree changed since it was made (uncommitted work too), as a unified diff. */
+	"worktrees.diff"(id: string): Promise<string>;
 	/** Commits main has that the worktree doesn't, and the conflicts of an update from main in progress. */
 	"worktrees.status"(id: string): Promise<{ behind: number; conflicts: string[] | null }>;
 	/** Merges latest main into the worktree; conflicts leave the update in progress. */

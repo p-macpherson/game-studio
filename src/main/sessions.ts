@@ -8,7 +8,7 @@ import { designBrief } from "../shared/design-docs";
 import { readDesignDocs } from "./design-docs";
 import type { HostEvent, PromptMode, StudioRequestMethod } from "../shared/host";
 import type { StudioEvent } from "../shared/ipc";
-import type { AgentTypeInfo, GitCommit, NewSessionRequest, PendingQuestion, SessionRecord, SessionSummary, Settings, Target, WorktreeRecord, WorktreeSummary } from "../shared/types";
+import type { AgentTypeInfo, ContextUsage, GitCommit, NewSessionRequest, PendingQuestion, SessionRecord, SessionSummary, Settings, Target, WorktreeRecord, WorktreeSummary } from "../shared/types";
 import { findAgentType } from "../shared/agents";
 import * as g from "./git";
 import type { HostLink } from "./host-link";
@@ -421,8 +421,11 @@ export class SessionService {
 		const now = new Date().toISOString();
 		const title = req.title ?? (req.prompt.split("\n")[0].slice(0, 60) || agentType.name);
 		const parent = req.parentId ? this.entry(req.parentId) : undefined;
-		// The given worktree, else the parent's (if it's in the same repo), else a new one.
-		let worktree = req.worktreeId ? this.worktrees.get(req.worktreeId) : parent && parent.repoPath === repoPath ? this.worktreeOf(parent) : undefined;
+		// A sub-agent works in its parent's worktree, always: work in another repo is a session of its own (see delegate).
+		if (parent && parent.repoPath !== repoPath) throw new Error(`A sub-agent works in its parent's worktree: a ${req.target} session can't be a sub-agent of a ${parent.record.target} session`);
+		if (parent && req.worktreeId && req.worktreeId !== parent.record.worktreeId) throw new Error("A sub-agent works in its parent's worktree");
+		// The given worktree, else the parent's, else a new one.
+		let worktree = req.worktreeId ? this.worktrees.get(req.worktreeId) : parent ? this.worktreeOf(parent) : undefined;
 		if (worktree && worktree.repoPath !== repoPath) throw new Error(`Worktree "${worktree.record.label}" isn't in the ${req.target} repo`);
 		worktree ??= await this.worktrees.create(repoPath, req.target, id, req.worktreeLabel ?? title);
 		const entry: Entry = {
@@ -539,7 +542,10 @@ export class SessionService {
 
 	/**
 	 * A parent's `delegate` call: a child session of `agentType` (an edge of the delegation graph, not a type already
-	 * above it) working in the parent's worktree, and its last message as the report once it settles.
+	 * above it) working in the parent's worktree, and its last message as the report once it settles. A type that
+	 * works in another repo (an Engine Engineer asked by a game session) can't share that worktree, so it isn't a
+	 * sub-agent: it starts as a session of its own in a new worktree of its repo, and the call returns at once, without
+	 * a report. A person coordinates between the two worktrees (merge one, update the engine in the other).
 	 */
 	private async delegate(parent: Entry, p: { agentType?: string; task?: string; title?: string }, requestId: string, progress: (text: string) => void): Promise<string> {
 		const types = this.deps.agentTypes();
@@ -558,15 +564,23 @@ export class SessionService {
 		// The child's own default model when it's available (a Sonnet specialist under an Opus director), else the parent's.
 		const available = new Set((await this.deps.host.call("models").catch(() => [])).map((m) => m.ref));
 		const model = type.defaultModel && available.has(type.defaultModel) ? type.defaultModel : parent.record.model;
-		const child = await this.create({
-			agentType: type.id,
-			target,
-			model,
-			prompt: p.task,
-			title: p.title,
-			parentId: parent.record.id,
-			...(target === parent.record.target ? {} : { worktreeLabel: `${this.worktreeOf(parent).record.label} (${target})` }),
-		});
+		if (target !== parent.record.target) {
+			const from = this.worktreeOf(parent).record.label;
+			const other = await this.create({
+				agentType: type.id,
+				target,
+				model,
+				prompt: `[Asked for by the ${parentType?.name ?? parent.record.agentType} session “${parent.record.title}”, which works on the ${parent.record.target} in its worktree “${from}”. It isn't waiting for you and gets no report: the user coordinates between the two worktrees.]\n\n${p.task}`,
+				title: p.title ?? (p.task.split("\n")[0].slice(0, 60) || type.name),
+				worktreeLabel: `${from} (${target})`,
+			});
+			return [
+				`${type.name} works in the ${target} repo, not in your worktree, so it can't be your sub-agent. It was started as a separate session, “${other.title}”, in its own ${target} worktree “${other.worktreeLabel}”.`,
+				`It runs on its own: you get no report from it, and nothing it does reaches your worktree until the user merges that worktree${target === "engine" ? " and updates the engine in yours" : ""}.`,
+				"Tell the user what you asked it for and what you need back, carry on with whatever doesn't depend on it, and ask the user (ask_user) when you can't go further without it.",
+			].join(" ");
+		}
+		const child = await this.create({ agentType: type.id, target, model, prompt: p.task, title: p.title, parentId: parent.record.id });
 		this.delegations.set(requestId, child.id);
 		progress(`${type.name} is working on it in session “${child.title}”`);
 		try {
@@ -616,6 +630,21 @@ export class SessionService {
 		if (this.live.has(id)) await this.deps.host.call("setModel", id, model);
 		e.record.model = model;
 		this.save(e);
+	}
+
+	async contextUsage(id: string): Promise<ContextUsage | null> {
+		if (!this.live.has(id)) return null;
+		return this.deps.host.call("context", id).catch(() => null);
+	}
+
+	async compact(id: string): Promise<void> {
+		const e = this.entry(id);
+		this.assertNotRunning(e);
+		if (!e.record.piSessionFile) throw new Error("This session has no conversation to compact yet");
+		await this.ensureOpen(e);
+		await this.deps.host.call("compact", id);
+		this.touch(id);
+		this.deps.emit({ type: "sessions_changed" });
 	}
 
 	async answer(id: string, questionId: string, answer: string): Promise<void> {

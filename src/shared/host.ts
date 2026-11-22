@@ -1,5 +1,5 @@
 /** Protocol between the main process and the session host utility process. */
-import type { LoginNotice, LoginPrompt, ModelInfo, ProviderInfo, ThinkingLevel } from "./types";
+import type { ContextUsage, LoginNotice, LoginPrompt, ModelInfo, ProviderInfo, ThinkingLevel } from "./types";
 
 export interface HostInfo {
 	node: string;
@@ -42,6 +42,10 @@ export interface HostApi {
 	closeSession(id: string): void;
 	messages(id: string): unknown[];
 	setModel(id: string, model: string): Promise<void>;
+	/** How full the session's context window is (null: not known yet). */
+	context(id: string): ContextUsage | null;
+	/** Replaces the conversation so far with a summary of it, to free up context. Not while the agent runs. */
+	compact(id: string): Promise<void>;
 	answerQuestion(id: string, questionId: string, answer: string): void;
 	/** Progress for a pending `studio_request` (shown as a tool update in the chat). */
 	studioProgress(requestId: string, text: string): void;

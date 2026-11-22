@@ -37,7 +37,7 @@ export function TargetBadge({ target }: { target: Target }) {
 }
 
 export function Sessions() {
-	const { sessions, agentTypes, selectedSession, selectSession, openNewSession, selected: picked, worktrees, showError, refreshSessions } = useStudio(
+	const { sessions, agentTypes, selectedSession, selectSession, openNewSession, selected: picked, worktrees, showError, refreshSessions, selectWorktree } = useStudio(
 		useShallow((s) => ({
 			sessions: s.sessions,
 			agentTypes: s.agentTypes,
@@ -48,13 +48,20 @@ export function Sessions() {
 			worktrees: s.worktrees,
 			showError: s.showError,
 			refreshSessions: s.refreshSessions,
+			selectWorktree: s.selectWorktree,
 		})),
 	);
 	// Which sessions: the selected worktree's (game, engine or studio); with main selected, those in no open worktree
 	// (finished, merged or discarded work).
 	const current = worktrees.find((w) => w.id === picked && isOpenWorktree(w));
 	const open = new Set(worktrees.filter(isOpenWorktree).map((w) => w.id));
-	const inScope = (s: SessionSummary) => (current ? s.worktreeId === current.id : !open.has(s.worktreeId));
+	// Or, with "All worktrees" on, every session, in a section per worktree.
+	const [all, setAll] = useState(() => localStorage.getItem("sessions-all-worktrees") === "1");
+	const toggleAll = () => {
+		localStorage.setItem("sessions-all-worktrees", all ? "0" : "1");
+		setAll(!all);
+	};
+	const inScope = (s: SessionSummary) => all || (current ? s.worktreeId === current.id : !open.has(s.worktreeId));
 	const [statuses, setStatuses] = useState<Set<StatusFilter>>(new Set(["in_progress", "idle"]));
 	const [target, setTarget] = useState<Target | "all">("all");
 	const [search, setSearch] = useState("");
@@ -90,26 +97,66 @@ export function Sessions() {
 		(target === "all" || s.target === target) &&
 		(!search || `${s.title} ${s.agentType}`.toLowerCase().includes(search.toLowerCase()));
 	// The tree: sessions a person started at the top, each over the sub-agents it delegated to (in the order it
-	// started them). A session shows if it matches the filters or anything below it does; a shown session's
-	// sub-agents all show (done ones too: their report is back), folded away once none is still going.
-	const ids = new Set(sessions.map((s) => s.id));
+	// started them). The filters apply to sub-agents too: a session shows if it matches or anything below it does, and
+	// a row says how many of its sub-agents the filters hide ("2 hidden": click to show them anyway). A sub-agent is in
+	// its parent's worktree; a session recorded under a parent of another worktree (older data) lists on its own.
+	const byId = new Map(sessions.map((s) => [s.id, s]));
+	const parentOf = (s: SessionSummary) => {
+		const p = s.parentId ? byId.get(s.parentId) : undefined;
+		return p && p.worktreeId === s.worktreeId ? p : undefined;
+	};
 	const children = new Map<string, SessionSummary[]>();
 	for (const s of [...sessions].sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
-		if (s.parentId && ids.has(s.parentId)) children.set(s.parentId, [...(children.get(s.parentId) ?? []), s]);
+		const p = parentOf(s);
+		if (p) children.set(p.id, [...(children.get(p.id) ?? []), s]);
 	}
 	const shown = (s: SessionSummary): boolean => matches(s) || (children.get(s.id) ?? []).some(shown);
-	const roots = sessions.filter((s) => !(s.parentId && ids.has(s.parentId)) && shown(s));
+	const roots = sessions.filter((s) => !parentOf(s) && shown(s));
 	// Folded or not, as the person chose; by default open while any sub-agent isn't done.
 	const [folded, setFolded] = useState<Map<string, boolean>>(new Map());
 	const toggleNode = (id: string, open: boolean) => setFolded((m) => new Map(m).set(id, open));
+	// Rows whose filtered-out sub-agents are shown anyway.
+	const [revealed, setRevealed] = useState<Set<string>>(new Set());
+	const reveal = (id: string) => {
+		setRevealed((r) => {
+			const next = new Set(r);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
+		if (!revealed.has(id)) toggleNode(id, false);
+	};
+	// "All worktrees": which worktree sections are folded.
+	const [closedSections, setClosedSections] = useState<Set<string>>(new Set());
+	const toggleSection = (id: string) =>
+		setClosedSections((c) => {
+			const next = new Set(c);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
 	// Only a session of the shown worktree (or main's list): another worktree's stays selected for when you go back.
 	const selected = sessions.find((s) => s.id === selectedSession && inScope(s));
 	const running = (s: SessionSummary) => s.status === "in_progress" || s.status === "starting";
 
+	// "All worktrees": a section per open worktree that has sessions to show (the selected one first, then the most
+	// recently active), and one for the sessions in none (finished, merged or discarded work).
+	const lastActive = (list: SessionSummary[]) => list.reduce((t, s) => (s.updatedAt > t ? s.updatedAt : t), "");
+	const sections = [
+		...worktrees
+			.filter(isOpenWorktree)
+			.map((w) => ({ id: w.id, label: w.label, worktree: w as (typeof worktrees)[number] | null, roots: roots.filter((s) => s.worktreeId === w.id) }))
+			.sort((a, b) => Number(b.id === current?.id) - Number(a.id === current?.id) || lastActive(b.roots).localeCompare(lastActive(a.roots))),
+		{ id: "", label: "Not in an open worktree (finished work)", worktree: null, roots: roots.filter((s) => !open.has(s.worktreeId)) },
+	].filter((sec) => sec.roots.length);
+
 	const node = (s: SessionSummary, depth: number) => {
-		const kids = (children.get(s.id) ?? []).filter(inScope);
+		const allKids = children.get(s.id) ?? [];
+		const matching = allKids.filter(shown);
+		const hidden = allKids.length - matching.length;
+		const kids = revealed.has(s.id) ? allKids : matching;
 		const open = !(folded.get(s.id) ?? !kids.some((k) => k.status !== "done"));
-		const working = kids.filter(running).length;
+		const working = allKids.filter(running).length;
 		return (
 			<div key={s.id} className="session-node">
 				<div
@@ -137,10 +184,10 @@ export function Sessions() {
 							{relativeTime(s.updatedAt)}
 						</span>
 					</div>
-					<div className="row">
+					<div className="row session-item-facts">
 						<StatusBadge s={s} />
 						<TargetBadge target={s.target} />
-						{!depth && s.worktree === "active" && (
+						{!depth && !all && s.worktree === "active" && (
 							<span className="muted ellipsis small" title={`Worktree: ${s.worktreeLabel}`}>
 								⎇ {s.worktreeLabel}
 							</span>
@@ -148,10 +195,20 @@ export function Sessions() {
 						<span className="muted ellipsis" style={{ fontSize: 12 }}>
 							{typeName(s.agentType)}
 						</span>
-						{kids.length > 0 && (
+						{allKids.length > 0 && (
 							<span className="badge" title="Sub-agents it delegated to">
-								{working ? `waiting on ${working} of ${kids.length}` : `${kids.length} sub-agent${kids.length > 1 ? "s" : ""}`}
+								{working ? `waiting on ${working} of ${allKids.length}` : `${allKids.length} sub-agent${allKids.length > 1 ? "s" : ""}`}
 							</span>
+						)}
+						{hidden > 0 && (
+							<button
+								className="badge hidden-count"
+								onClick={(e) => (e.stopPropagation(), reveal(s.id))}
+								title={revealed.has(s.id) ? "Hide the sub-agents the filters leave out" : "Sub-agents the filters leave out (e.g. done ones): click to show them"}
+								data-testid="subagents-hidden"
+							>
+								{revealed.has(s.id) ? `hide ${hidden}` : `${hidden} hidden`}
+							</button>
 						)}
 						{s.reviewRequested && <span className="badge review">Ready for review</span>}
 						{s.pendingQuestion && <span className="badge review">Question</span>}
@@ -197,8 +254,15 @@ export function Sessions() {
 						</select>
 					</div>
 				</div>
-				<div className={`scope-banner ${current ? "" : "scope-main"}`} data-testid="sessions-scope">
-					{current ? (
+				<div className={`scope-banner ${current && !all ? "" : "scope-main"}`} data-testid="sessions-scope">
+					<button className={`chip scope-all ${all ? "on" : ""}`} onClick={toggleAll} aria-pressed={all} title="List every session, in a section per worktree" data-testid="sessions-all">
+						All worktrees
+					</button>
+					{all ? (
+						<>
+							<b>Every session</b>, by worktree. A new session {current ? <>joins <b>{current.label}</b> (the selected worktree)</> : <>starts <b>its own worktree</b></>}.
+						</>
+					) : current ? (
 						<>
 							⎇ <b>{current.label}</b>
 							{current.target !== "project" && ` (${current.target})`}: its sessions. New {current.target === "project" ? "game" : current.target} sessions join this worktree.
@@ -239,7 +303,31 @@ export function Sessions() {
 					) : (
 						<>
 							{roots.length === 0 && <div className="empty">{current ? "No sessions in this worktree match." : "No sessions here match."} Start one with “New session”.</div>}
-							{roots.map((s) => node(s, 0))}
+							{!all && roots.map((s) => node(s, 0))}
+							{all &&
+								sections.map((sec) => {
+									const closed = closedSections.has(sec.id);
+									return (
+										<div key={sec.id} className="session-section" data-testid="session-section">
+											<div className="session-section-head" onClick={() => toggleSection(sec.id)} title={closed ? "Show its sessions" : "Hide its sessions"}>
+												<span className="tree-toggle">{closed ? "▸" : "▾"}</span>
+												<span className="grow ellipsis" title={sec.label}>
+													{sec.worktree ? "⎇ " : ""}
+													{sec.label}
+												</span>
+												{sec.worktree && sec.worktree.target !== "project" && <TargetBadge target={sec.worktree.target} />}
+												{sec.worktree?.id === current?.id && sec.worktree && <span className="badge current">current</span>}
+												<span className="count">{sec.roots.length}</span>
+												{sec.worktree && sec.worktree.id !== current?.id && (
+													<button className="small" onClick={(e) => (e.stopPropagation(), selectWorktree(sec.worktree!.id))} title="Show this worktree in the studio" data-testid="section-switch">
+														Switch to
+													</button>
+												)}
+											</div>
+											{!closed && sec.roots.map((s) => node(s, 0))}
+										</div>
+									);
+								})}
 						</>
 					)}
 				</div>

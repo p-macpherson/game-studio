@@ -438,6 +438,356 @@ a {
 	min-height: 0;
 }
 
+/* Chat and Full transcript: a pane that follows the newest message until the person scrolls up */
+.tab-body.fill {
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+.chat-pane {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+.chat-scroll {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+}
+.jump-latest {
+	position: absolute;
+	bottom: 12px;
+	left: 50%;
+	transform: translateX(-50%);
+	border-radius: 14px;
+	padding: 4px 14px;
+	background: var(--accent-2);
+	border-color: var(--accent-2);
+	color: var(--on-accent);
+	box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+.work-line {
+	align-self: flex-start;
+	background: none;
+	border: none;
+	padding: 0;
+	color: var(--muted);
+	font-size: 12px;
+	cursor: pointer;
+}
+.work-line:hover {
+	color: var(--text);
+}
+.working-now {
+	align-self: flex-start;
+	max-width: 900px;
+	min-width: 260px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--panel);
+	padding: 8px 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	font-size: 12px;
+}
+.working-dot {
+	background: var(--accent);
+	animation: pulse 1.2s infinite;
+}
+.working-said {
+	color: var(--muted);
+	white-space: pre-wrap;
+	max-height: 5.6em;
+	overflow: hidden;
+}
+.working-tool {
+	color: var(--muted);
+}
+.chat-divider {
+	align-self: center;
+	color: var(--muted);
+	font-size: 12px;
+}
+.context-meter {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 12px;
+	color: var(--muted);
+	white-space: nowrap;
+}
+.context-meter.high {
+	color: var(--yellow);
+}
+.context-bar {
+	width: 48px;
+	height: 5px;
+	border-radius: 3px;
+	background: var(--panel-2);
+	overflow: hidden;
+}
+.context-bar > span {
+	display: block;
+	height: 100%;
+	background: currentColor;
+}
+
+.session-item-facts {
+	flex-wrap: wrap;
+	row-gap: 4px;
+}
+.session-item-facts > .ellipsis {
+	max-width: 150px;
+}
+.session-worktree-chip {
+	max-width: 200px;
+}
+.session-model {
+	max-width: 230px;
+}
+/* A worktree's changes: the files by section on the left, the picked file's lines on the right */
+.changes {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-height: 0;
+}
+.changes-head {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 12px 16px;
+	border-bottom: 1px solid var(--border);
+}
+.changes-body {
+	display: grid;
+	grid-template-columns: 340px 1fr;
+	flex: 1;
+	min-height: 0;
+}
+.changes-files {
+	border-right: 1px solid var(--border);
+	overflow: auto;
+	padding: 8px;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+.changes-group {
+	padding: 4px 6px;
+}
+.changes-file {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	text-align: left;
+	background: none;
+	border: none;
+	border-radius: 5px;
+	padding: 4px 6px;
+}
+.changes-file:hover {
+	background: var(--panel);
+}
+.changes-file.selected {
+	background: var(--panel-2);
+}
+.changes-file .change-label {
+	width: 58px;
+	flex: none;
+}
+.changes-counts {
+	display: inline-flex;
+	gap: 6px;
+	font-family: var(--mono);
+}
+.changes-file-view {
+	overflow: auto;
+	min-width: 0;
+}
+.changes-file-head {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	gap: 10px;
+	padding: 8px 14px;
+	background: var(--bg);
+	border-bottom: 1px solid var(--border);
+}
+.hunk {
+	font-family: var(--mono);
+	font-size: 12px;
+	tab-size: 4;
+	min-width: max-content;
+}
+.hunk-head {
+	padding: 4px 14px;
+	color: var(--muted);
+	background: var(--panel);
+	border-top: 1px solid var(--border);
+	border-bottom: 1px solid var(--border);
+	font-family: inherit;
+}
+.hunk:first-of-type .hunk-head {
+	border-top: none;
+}
+.diff-line {
+	display: flex;
+	white-space: pre;
+	line-height: 1.5;
+}
+.diff-line.add {
+	background: color-mix(in srgb, var(--green) 14%, transparent);
+}
+.diff-line.del {
+	background: color-mix(in srgb, var(--red) 14%, transparent);
+}
+.line-no {
+	width: 44px;
+	flex: none;
+	padding-right: 8px;
+	text-align: right;
+	color: var(--muted);
+	opacity: 0.7;
+	user-select: none;
+}
+.line-mark {
+	width: 16px;
+	flex: none;
+	text-align: center;
+	user-select: none;
+}
+.diff-line.add .line-mark {
+	color: var(--green);
+}
+.diff-line.del .line-mark {
+	color: var(--red);
+}
+.changes-more {
+	margin: 12px 14px;
+}
+/* A session's Sub-agents tab: the tree below it, each row coloured by how it stands */
+.tab-count {
+	margin-left: 6px;
+	font-size: 11px;
+	padding: 0 6px;
+	border-radius: 8px;
+	background: var(--panel-2);
+}
+.tab-count.working {
+	color: var(--accent);
+}
+.subagents {
+	padding: 12px 16px;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	max-width: 900px;
+}
+.subagents-head {
+	padding: 0 0 8px;
+}
+.subagents-summary {
+	display: flex;
+	gap: 14px;
+	font-size: 12px;
+	font-weight: 600;
+}
+.subagent-row {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	width: 100%;
+	text-align: left;
+	padding: 8px 12px;
+	background: var(--panel);
+	border: 1px solid var(--border);
+	border-left: 3px solid currentColor;
+	border-radius: 6px;
+	margin-bottom: 4px;
+}
+.subagent-row:hover {
+	background: var(--panel-2);
+}
+.subagent-row > .col,
+.subagent-row .subagent-title {
+	color: var(--text);
+}
+.subagent-title {
+	font-weight: 500;
+}
+.subagent-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	width: 108px;
+	flex: none;
+	font-size: 12px;
+	font-weight: 600;
+}
+.subagent-status .dot {
+	background: currentColor;
+}
+.tone-working {
+	color: var(--accent);
+}
+.tone-working .dot {
+	animation: pulse 1.2s infinite;
+}
+.tone-waiting {
+	color: var(--yellow);
+}
+.tone-failed {
+	color: var(--red);
+}
+.tone-done {
+	color: var(--green);
+}
+.subagent-row.tone-done {
+	opacity: 0.8;
+}
+.subagents-hidden-note {
+	padding: 4px 2px;
+}
+/* Sessions: "All worktrees" sections, and the count of sub-agents the filters hide */
+.scope-all {
+	float: right;
+	margin-left: 8px;
+}
+.session-section-head {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 12px 6px 8px;
+	background: var(--panel);
+	border-bottom: 1px solid var(--border);
+	font-size: 12px;
+	font-weight: 600;
+	cursor: pointer;
+	position: sticky;
+	top: 0;
+	z-index: 1;
+}
+.session-section-head .count {
+	font-size: 11px;
+	font-weight: 400;
+	background: var(--panel-2);
+	border-radius: 8px;
+	padding: 0 6px;
+}
+.badge.hidden-count {
+	border: 1px dashed var(--border);
+	background: none;
+	cursor: pointer;
+}
+.badge.hidden-count:hover {
+	color: var(--text);
+}
+
 /* Chat */
 .chat {
 	padding: 16px 20px;
@@ -512,13 +862,77 @@ a {
 	min-height: 60px;
 }
 .question {
-	background: var(--panel-2);
+	background: color-mix(in srgb, var(--accent) 7%, var(--panel));
 	border: 1px solid var(--accent-2);
-	border-radius: 8px;
-	padding: 10px 12px;
+	border-radius: 10px;
+	padding: 14px 16px;
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
+	gap: 10px;
+	max-height: 55vh;
+	overflow: auto;
+}
+.question-label {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--accent);
+}
+.question-label .dot {
+	background: var(--accent);
+	animation: pulse 1.2s infinite;
+}
+.question-text {
+	font-size: 14px;
+	font-weight: 500;
+}
+.question-text > :first-child {
+	margin-top: 0;
+}
+.question-text > :last-child {
+	margin-bottom: 0;
+}
+.question-options {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+.question-option {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	text-align: left;
+	padding: 8px 12px;
+	border-radius: 8px;
+	background: var(--panel);
+	white-space: normal;
+}
+.question-option:hover {
+	border-color: var(--accent);
+}
+.question-option.picked {
+	border-color: var(--accent);
+	background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+}
+.question-radio {
+	width: 14px;
+	height: 14px;
+	margin-top: 2px;
+	flex: none;
+	border-radius: 50%;
+	border: 2px solid var(--muted);
+}
+.question-option.picked .question-radio {
+	border-color: var(--accent);
+	background: radial-gradient(circle, var(--accent) 0 45%, transparent 50%);
+}
+.question textarea {
+	resize: vertical;
+	min-height: 52px;
 }
 
 /* Diff */
