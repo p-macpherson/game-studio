@@ -3912,3 +3912,62 @@ button.question-image img {
 .asset-card-play:hover {
 	color: var(--accent);
 }
+
+/* Images pasted into a message: the tray above the box before sending, and in the sent message. */
+.pasted-tray {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+.pasted-image {
+	position: relative;
+	display: inline-flex;
+}
+.pasted-image img {
+	width: 72px;
+	height: 72px;
+	object-fit: cover;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	background: var(--bg);
+	cursor: zoom-in;
+}
+.pasted-remove {
+	position: absolute;
+	top: -6px;
+	right: -6px;
+	width: 20px;
+	height: 20px;
+	padding: 0;
+	border: 1px solid var(--border);
+	border-radius: 50%;
+	background: var(--panel);
+	color: var(--text);
+	font-size: 11px;
+	line-height: 1;
+	cursor: pointer;
+}
+.pasted-remove:hover {
+	border-color: var(--accent);
+	color: var(--accent);
+}
+.msg-images {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-bottom: 6px;
+}
+.msg-images:last-child {
+	margin-bottom: 0;
+}
+.msg-images img {
+	max-width: 160px;
+	max-height: 160px;
+	border-radius: 6px;
+	background: var(--bg);
+	cursor: zoom-in;
+}
+.msg-attached {
+	font-size: 12px;
+	opacity: 0.85;
+}

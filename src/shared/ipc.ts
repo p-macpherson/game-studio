@@ -2,6 +2,7 @@
 import type { HostInfo, PromptMode, StudioRequestMethod } from "./host";
 import type { AssetLinks } from "./asset-links";
 import type { SessionAssets } from "./session-assets";
+import type { PastedImage } from "./attachments";
 import type { ReleaseBuild, ReleaseInfo, ReleaseManifest, ReleaseTarget } from "./release";
 import type { HistoryStep } from "./history";
 import type { CandidateRecord } from "./texture";
@@ -120,7 +121,8 @@ export interface StudioApi {
 	"sessions.messages"(id: string): Promise<unknown[]>;
 	/** The assets the session touched (cards by turn) and the paths its agent wrote that name one (shared/session-assets.ts). */
 	"sessions.assets"(id: string): Promise<SessionAssets>;
-	"sessions.send"(id: string, text: string, mode?: PromptMode): Promise<void>;
+	/** `images`: pasted with the message (shared/attachments.ts); the text may then be empty. */
+	"sessions.send"(id: string, text: string, mode?: PromptMode, images?: PastedImage[]): Promise<void>;
 	"sessions.abort"(id: string): Promise<void>;
 	"sessions.setModel"(id: string, model: string): Promise<void>;
 	/** How full the session's context window is; null while its agent isn't loaded (nothing sent since the studio started). */

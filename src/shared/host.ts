@@ -1,4 +1,5 @@
 /** Protocol between the main process and the session host utility process. */
+import type { PastedImage } from "./attachments";
 import type { ContextUsage, LoginNotice, LoginPrompt, ModelInfo, ProviderInfo, ThinkingLevel } from "./types";
 
 export interface HostInfo {
@@ -46,7 +47,8 @@ export interface HostApi {
 	openSession(spec: SessionOpenSpec): Promise<{ sessionFile: string }>;
 	isOpen(id: string): boolean;
 	/** Starts a run (or queues into the running one) and returns immediately; progress arrives as events. */
-	prompt(id: string, text: string, mode?: PromptMode): void;
+	/** `images`: shown to the model with the text (left out for a model that can't take images). */
+	prompt(id: string, text: string, mode?: PromptMode, images?: PastedImage[]): void;
 	abort(id: string): Promise<void>;
 	closeSession(id: string): void;
 	messages(id: string): unknown[];

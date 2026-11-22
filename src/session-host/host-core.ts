@@ -1,5 +1,6 @@
 // Everything the session host does, independent of how it's transported: the utility process wraps it
 // with parentPort, and tests drive it in-process.
+import type { PastedImage } from "../shared/attachments";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -260,10 +261,13 @@ export class HostCore implements HostApi {
 		return live.session;
 	}
 
-	prompt(id: string, text: string, mode?: PromptMode): void {
+	prompt(id: string, text: string, mode?: PromptMode, images?: PastedImage[]): void {
 		const session = this.live(id);
 		this.faux?.refill();
-		session.prompt(text, session.isStreaming ? { streamingBehavior: mode ?? "followUp" } : undefined).catch((err: unknown) => {
+		// A model that can't take images gets the words only (they name where the images were saved).
+		const seen = images?.length && session.model?.input.includes("image") ? images.map((i) => ({ type: "image" as const, data: i.data, mimeType: i.mimeType })) : undefined;
+		const options = { ...(seen ? { images: seen } : {}), ...(session.isStreaming ? { streamingBehavior: mode ?? ("followUp" as const) } : {}) };
+		session.prompt(text, Object.keys(options).length ? options : undefined).catch((err: unknown) => {
 			this.opts.post({ type: "session_error", id, error: err instanceof Error ? err.message : String(err) });
 		});
 	}

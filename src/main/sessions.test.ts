@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { splitAttachments } from "../shared/attachments";
 import type { StudioEvent } from "../shared/ipc";
 import type { AgentTypeInfo, NewSessionRequest, Settings } from "../shared/types";
 import type { HostCore } from "../session-host/host-core";
@@ -62,6 +63,29 @@ describe("SessionService", () => {
 		expect(service.get(s.id).reviewRequested).toBe(false);
 		await settled(s.id);
 		expect(service.get(s.id).reviewRequested).toBe(false); // until the agent asks again
+	});
+
+	it("sends pasted images to the agent and saves them in the worktree, out of git", async () => {
+		const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="; // one pixel
+		const s = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: "like this", images: [{ data: png, mimeType: "image/png" }] } as NewSessionRequest);
+		await settled(s.id);
+		await service.send(s.id, "", undefined, [{ data: png, mimeType: "image/jpeg" }]);
+		await settled(s.id);
+		const users = ((await service.messages(s.id)) as { role: string; content: { type: string; text?: string; data?: string }[] }[]).filter((m) => m.role === "user");
+		expect(users).toHaveLength(2);
+		// The model gets the picture itself, and the words name where it was saved.
+		expect(users[0].content.filter((b) => b.type === "image")).toHaveLength(1);
+		const first = splitAttachments(users[0].content.find((b) => b.type === "text")!.text!);
+		expect(first.text).toBe("like this");
+		expect(first.paths).toHaveLength(1);
+		expect(first.paths[0]).toMatch(new RegExp(`^\\.studio/attachments/${s.id}/\\d{14}-1\\.png$`));
+		const second = splitAttachments(users[1].content.find((b) => b.type === "text")!.text!);
+		expect(second.text).toBe("");
+		expect(second.paths[0]).toMatch(/-1\.jpg$/);
+		const worktree = service.get(s.id).worktreePath;
+		expect(readFileSync(join(worktree, first.paths[0])).toString("base64")).toBe(png);
+		expect(sh(worktree, "status", "--porcelain", "--untracked-files=all")).not.toContain("attachments");
+		await expect(service.send(s.id, "x", undefined, [{ data: png, mimeType: "image/gif" }])).rejects.toThrow("paste a PNG, JPEG or WebP image");
 	});
 
 	it("shows a question's images when they exist in the session's checkout", async () => {

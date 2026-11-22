@@ -1,8 +1,9 @@
 // The session orchestrator: owns session records, worktrees and the lifecycle, and drives Pi sessions in
 // the session host. See the vault note "Sessions & Worktrees".
+import { ATTACHMENTS_DIR, MAX_PASTED_IMAGES, PASTED_IMAGE_TYPES, type PastedImage, withAttachments } from "../shared/attachments";
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { designBrief } from "../shared/design-docs";
 import { readDesignDocs } from "./design-docs";
@@ -452,9 +453,9 @@ export class SessionService {
 		this.save(entry);
 		try {
 			await this.ensureWorktree(entry);
-			if (req.prompt.trim()) {
+			if (req.prompt.trim() || req.images?.length) {
 				await this.open(entry);
-				this.prompt(entry, req.prompt);
+				this.prompt(entry, this.attach(entry, req.prompt, req.images), undefined, req.images);
 			} else {
 				entry.record.status = "idle";
 				this.save(entry);
@@ -620,7 +621,31 @@ export class SessionService {
 		await this.open(e);
 	}
 
-	private prompt(e: Entry, text: string, mode?: PromptMode): void {
+	/**
+	 * Saves a message's pasted images in the session's worktree (a folder that ignores itself: never part of the game)
+	 * and returns the message as the agent gets it, naming those files.
+	 */
+	private attach(e: Entry, text: string, images?: PastedImage[]): string {
+		if (!images?.length) return text;
+		if (images.length > MAX_PASTED_IMAGES) throw new Error(`At most ${MAX_PASTED_IMAGES} images in one message`);
+		const root = join(this.worktreePath(e), ATTACHMENTS_DIR);
+		const dir = join(root, e.record.id);
+		mkdirSync(dir, { recursive: true });
+		if (!existsSync(join(root, ".gitignore"))) writeFileSync(join(root, ".gitignore"), "# Images pasted into sessions: kept on this machine, not part of the game.\n*\n");
+		const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+		const paths = images.map((image, i) => {
+			const ext = PASTED_IMAGE_TYPES[image.mimeType];
+			if (!ext) throw new Error(`Can't attach a ${image.mimeType || "file of unknown type"}: paste a PNG, JPEG or WebP image`);
+			const bytes = Buffer.from(image.data, "base64");
+			if (bytes.length > 12 * 1024 * 1024) throw new Error("A pasted image is too large (over 12 MB)");
+			const name = `${stamp}-${i + 1}.${ext}`;
+			writeFileSync(join(dir, name), bytes);
+			return `${ATTACHMENTS_DIR}/${e.record.id}/${name}`;
+		});
+		return withAttachments(text, paths);
+	}
+
+	private prompt(e: Entry, text: string, mode?: PromptMode, images?: PastedImage[]): void {
 		if (e.record.status === "done") e.record.outcome = null;
 		e.record.closedAt = undefined;
 		e.record.status = "in_progress";
@@ -629,13 +654,13 @@ export class SessionService {
 		e.record.error = undefined;
 		this.save(e);
 		this.touch(e.record.id);
-		void this.deps.host.call("prompt", e.record.id, text, mode).catch((err: Error) => this.fail(e, err.message));
+		void this.deps.host.call("prompt", e.record.id, text, mode, images).catch((err: Error) => this.fail(e, err.message));
 	}
 
-	async send(id: string, text: string, mode?: PromptMode): Promise<void> {
+	async send(id: string, text: string, mode?: PromptMode, images?: PastedImage[]): Promise<void> {
 		const e = this.entry(id);
 		await this.ensureOpen(e);
-		this.prompt(e, text, mode);
+		this.prompt(e, this.attach(e, text, images), mode, images);
 	}
 
 	/** Stops a session's agent, and its running sub-agents first. */

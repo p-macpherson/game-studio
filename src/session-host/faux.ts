@@ -35,7 +35,7 @@ const respond: FauxResponseFactory = (context) => {
 };
 
 export function createFaux() {
-	const faux = fauxProvider({ provider: "faux", models: [{ id: "echo", name: "Faux echo (testing)" }], tokensPerSecond: 2000 });
+	const faux = fauxProvider({ provider: "faux", models: [{ id: "echo", name: "Faux echo (testing)", input: ["text", "image"] }], tokensPerSecond: 2000 });
 	return {
 		provider: faux.provider,
 		models: faux.models,

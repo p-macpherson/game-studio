@@ -1,3 +1,4 @@
+import { PASTE_HINT, usePastedImages } from "./PastedImages";
 import { useMemo, useState } from "react";
 import type { Target } from "../../shared/types";
 import { findAgentType } from "../../shared/agents";
@@ -55,13 +56,15 @@ export function NewSessionDialog({ preset }: { preset: NewSessionPreset }) {
 		setModel(defaultModel(next?.defaultModel));
 	};
 
+	const pasted = usePastedImages("new-session");
 	const start = async () => {
 		if (!type || !target || !model) return;
 		setBusy(true);
 		try {
 			// Sessions work in the selected worktree when it's in their repo; otherwise they get a new one, which is selected.
 			const inWorktree = currentWorktree ? { worktreeId: currentWorktree.id } : {};
-			const s = await call("sessions.create", { agentType: type.id, target, model, prompt: prompt.trim(), linkedAsset: preset.linkedAsset, ...inWorktree });
+			const images = pasted.take();
+			const s = await call("sessions.create", { agentType: type.id, target, model, prompt: prompt.trim(), linkedAsset: preset.linkedAsset, ...(images.length ? { images } : {}), ...inWorktree });
 			await useStudio.getState().refreshWorktrees();
 			selectWorktree(s.worktreeId);
 			openNewSession(null);
@@ -144,8 +147,11 @@ export function NewSessionDialog({ preset }: { preset: NewSessionPreset }) {
 				{type && targets.length === 0 && <div className="msg error">{type.name} sessions need a game project open.</div>}
 				<label className="field">
 					<span>{preset.context ? <code>{preset.context}</code> : "What should the agent do?"}</span>
+					{pasted.tray}
 					<textarea
 						data-testid="new-session-prompt"
+						title={PASTE_HINT}
+						{...pasted.handlers}
 						placeholder={preset.placeholder}
 						rows={6}
 						value={prompt}
@@ -161,7 +167,7 @@ export function NewSessionDialog({ preset }: { preset: NewSessionPreset }) {
 						{currentWorktree ? `Works in worktree “${currentWorktree.label}”.` : "Starts a new worktree for it, named after the task."} Ctrl+Enter to start.
 					</span>
 					<button onClick={() => openNewSession(null)}>Cancel</button>
-					<button className="primary" disabled={busy || !prompt.trim() || !target || !model} onClick={start}>
+					<button className="primary" disabled={busy || (!prompt.trim() && !pasted.images.length) || !target || !model} onClick={start}>
 						{busy ? "Starting…" : "Start session"}
 					</button>
 				</div>

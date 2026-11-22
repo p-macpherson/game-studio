@@ -1,3 +1,4 @@
+import type { PastedImage } from "./attachments";
 /** Domain types shared by main, session host and renderer. All plain JSON. */
 
 /** Which repo a session changes. */
@@ -103,6 +104,8 @@ export interface NewSessionRequest {
 	title?: string;
 	thinking?: ThinkingLevel;
 	linkedAsset?: string;
+	/** Images pasted with the first message (shared/attachments.ts). */
+	images?: PastedImage[];
 	/** Work in this (active) worktree; by default the parent's, else a new one labelled `worktreeLabel` or the title. A sub-agent (`parentId`) always works in its parent's. */
 	worktreeId?: string;
 	worktreeLabel?: string;

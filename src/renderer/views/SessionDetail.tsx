@@ -1,3 +1,4 @@
+import { PASTE_HINT, usePastedImages } from "./PastedImages";
 import { useEffect, useRef, useState } from "react";
 import type { PromptMode } from "../../shared/host";
 import type { ContextUsage, SessionSummary } from "../../shared/types";
@@ -261,11 +262,13 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 		}
 	};
 
+	const pasted = usePastedImages(s.id);
 	const send = (mode?: PromptMode) => {
 		const text = draft.trim();
-		if (!text) return;
+		if (!text && !pasted.images.length) return;
+		const images = pasted.take();
 		setDraft("");
-		void act(() => call("sessions.send", s.id, text, mode));
+		void act(() => call("sessions.send", s.id, text, mode, images.length ? images : undefined));
 	};
 
 	const typeName = findAgentType(agentTypes, s.agentType)?.name ?? s.agentType;
@@ -421,8 +424,11 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 			)}
 			{(tab === "chat" || tab === "transcript") && !s.pendingQuestion && (
 				<div className="composer">
+					{pasted.tray}
 					<textarea
 						data-testid="composer"
+						title={PASTE_HINT}
+						{...pasted.handlers}
 						placeholder={
 							s.status === "done" ? "Send a message to resume this session…" : running ? "Queue a follow-up (or steer the agent)…" : "Message the agent…"
 						}
@@ -437,14 +443,14 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 					/>
 					<div className="row">
 						<span className="muted grow" style={{ fontSize: 12 }}>
-							Enter to send · Shift+Enter for a new line
+							Enter to send · Shift+Enter for a new line · paste or drop images
 						</span>
 						{running && (
-							<button disabled={!draft.trim()} onClick={() => send("steer")} title="Deliver after the current tool call">
+							<button disabled={!draft.trim() && !pasted.images.length} onClick={() => send("steer")} title="Deliver after the current tool call">
 								Steer
 							</button>
 						)}
-						<button className="primary" disabled={!draft.trim()} onClick={() => send()}>
+						<button className="primary" disabled={!draft.trim() && !pasted.images.length} onClick={() => send()}>
 							{running ? "Queue" : "Send"}
 						</button>
 					</div>

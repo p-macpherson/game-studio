@@ -1021,6 +1021,32 @@ try {
 	await nav.getByRole("button", { name: "Sessions" }).click();
 	if ((await page.getByTestId("composer").inputValue()) !== "an unsent thought") throw new Error("the unsent message was lost");
 	await page.getByTestId("composer").fill("");
+	// Pasting an image into the message box: a thumbnail waits above it, the sent message shows it, and the file is saved
+	// in the worktree for the agent, where git ignores it.
+	await page.getByTestId("composer").evaluate(async (el) => {
+		const canvas = document.createElement("canvas");
+		canvas.width = 64;
+		canvas.height = 48;
+		canvas.getContext("2d")!.fillRect(8, 8, 40, 30);
+		const blob = await new Promise<Blob>((done) => canvas.toBlob((b) => done(b!), "image/png"));
+		const data = new DataTransfer();
+		data.items.add(new File([blob], "reference.png", { type: "image/png" }));
+		el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+	});
+	await page.getByTestId("pasted-image").waitFor();
+	await page.getByTestId("composer").fill("like this picture");
+	await step("64a-pasted-image", page);
+	await page.getByTestId("composer").press("Enter");
+	const pastedMessage = page.getByTestId("user-message").filter({ hasText: "like this picture" });
+	await pastedMessage.getByTestId("message-image").waitFor({ timeout: 30_000 });
+	if ((await pastedMessage.innerText()).includes("attached-images")) throw new Error("the note for the agent shows in the person's message");
+	if (await page.getByTestId("pasted-image").count()) throw new Error("the sent image is still waiting in the box");
+	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
+	const pastedFiles = execSync("find . -path '*/.studio/attachments/*' -name '*.png'", { cwd: join(root, "worktrees") }).toString().trim().split("\n").filter(Boolean);
+	if (pastedFiles.length !== 1) throw new Error(`expected one saved pasted image, found ${pastedFiles.length}`);
+	const pastedIn = join(root, "worktrees", pastedFiles[0].slice(0, pastedFiles[0].indexOf("/.studio/")));
+	if (execSync("git status --porcelain --untracked-files=all", { cwd: pastedIn }).toString().includes("attachments")) throw new Error("the pasted image shows up in git");
+	await step("64b-sent-image", page);
 	// All worktrees: every session, in a section per worktree.
 	await page.getByTestId("sessions-all").click();
 	await page.getByTestId("session-section").nth(1).waitFor();

@@ -3,6 +3,7 @@
 // it: thinking, every tool call and its output.
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { type ChatMessage, type ContentBlock, type Transcript, useStudio } from "../store";
+import { splitAttachments } from "../../shared/attachments";
 import type { SessionAssets } from "../../shared/session-assets";
 import { type Chip, Markdown } from "./Markdown";
 import { AssetStrip, openCard, useChipPreview, useChips } from "./SessionAssets";
@@ -33,6 +34,26 @@ function ToolCall({ block, result, running }: { block: ToolBlock; result?: ChatM
 		</details>
 	);
 }
+
+/** The person's message: their words, and the images they pasted with it (a click enlarges one). */
+const UserMessage = memo(function UserMessage({ m }: { m: ChatMessage }) {
+	const { text: words, paths } = splitAttachments(text(m.content));
+	const images = blocksOf(m).flatMap((b) => (b.type === "image" && typeof b.data === "string" ? [`data:${String(b.mimeType ?? "image/png")};base64,${b.data}`] : []));
+	const viewer = images.map((src, i) => ({ src, label: paths[i] ?? `Image ${i + 1}` }));
+	return (
+		<div className="msg user" data-testid="user-message">
+			{images.length > 0 && (
+				<div className="msg-images">
+					{images.map((src, i) => (
+						<img key={i} src={src} alt="" title={paths[i] ? `Saved for the agent at ${paths[i]}` : undefined} onClick={() => useStudio.getState().showImages(viewer, i)} data-testid="message-image" />
+					))}
+				</div>
+			)}
+			{words}
+			{!images.length && paths.length > 0 && <div className="msg-attached">📎 {paths.length} image{paths.length === 1 ? "" : "s"} attached (not shown to this model): {paths.join(", ")}</div>}
+		</div>
+	);
+});
 
 /** What the agent's words link to, for a click: an asset it named (its card says where), else a path in the project. */
 interface Links {
@@ -208,7 +229,7 @@ export function Chat({ transcript, working, onShowTranscript, assets }: { transc
 					return (
 						<div key={i} className="col chat-turn">
 							{strip(turn - 1, "assets")}
-							<div className="msg user">{text(it.m.content)}</div>
+							<UserMessage m={it.m} />
 						</div>
 					);
 				}
@@ -263,7 +284,7 @@ export function FullTranscript({ transcript, assets }: { transcript: Transcript;
 	return (
 		<Following version={[shown.length, transcript.streaming, Object.keys(transcript.runningTools).length]} own={userCount(transcript.messages)} testId="transcript">
 			{shown.map((m, i) => {
-				if (m.role === "user") return <div key={i} className="msg user">{text(m.content)}</div>;
+				if (m.role === "user") return <UserMessage key={i} m={m} />;
 				if (m.role === "assistant") return <Assistant key={i} m={m} results={results} running={transcript.runningTools} links={links} />;
 				if (m.role === "compactionSummary") return <div key={i} className="chat-divider">Earlier conversation summarised to free up context</div>;
 				return null;

@@ -386,7 +386,7 @@ async function main(): Promise<void> {
 		"sessions.create": (req) => sessions.create(req),
 		"sessions.messages": (id) => sessions.messages(id),
 		"sessions.assets": (id) => gatherSessionAssets(id, sessions, assets, checkoutRoot),
-		"sessions.send": (id, text, mode) => sessions.send(id, text, mode),
+		"sessions.send": (id, text, mode, images) => sessions.send(id, text, mode, images),
 		"sessions.abort": (id) => sessions.abort(id),
 		"sessions.setModel": (id, model) => sessions.setModel(id, model),
 		"sessions.context": (id) => sessions.contextUsage(id),
