@@ -3,7 +3,7 @@
 // repo (the real one is only read).
 // Run: npm run build && node e2e/smoke.ts [screenshot-dir]
 import { execSync } from "node:child_process";
-import { existsSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { _electron as electron, type Page } from "playwright";
@@ -11,6 +11,11 @@ import { defaultOrbit, project } from "../src/modules/scenes/orbit.ts";
 
 const shots = resolve(process.argv[2] ?? "out/e2e");
 mkdirSync(shots, { recursive: true });
+// A failed run keeps its folder for debugging; ones over an hour old (no run lasts that long) go now, since /tmp is RAM here.
+for (const old of readdirSync(tmpdir()).filter((n) => n.startsWith("game-studio-e2e-"))) {
+	const dir = join(tmpdir(), old);
+	if (Date.now() - statSync(dir).mtimeMs > 3_600_000) rmSync(dir, { recursive: true, force: true });
+}
 const root = mkdtempSync(join(tmpdir(), "game-studio-e2e-"));
 const userData = join(root, "user-data");
 const projectPath = join(root, "e2e-game");

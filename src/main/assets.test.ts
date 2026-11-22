@@ -1,6 +1,6 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { summarizeMarkdown } from "../modules/design-docs/info";
 import type { AgentTypeInfo } from "../shared/types";
 import { AssetService } from "./assets";
@@ -50,6 +50,8 @@ describe("AssetService", () => {
 		});
 		assets = new AssetService((checkout) => (checkout ? sessions.listWorktrees().find((w) => w.id === checkout)!.path : project), sessions);
 	});
+	// A live session would go on writing into its temp folder after the file's cleanup removed it.
+	afterEach(() => sessions.dispose());
 
 	it("lists design docs as a checkout has them: main, or a worktree with what it added or changed", async () => {
 		const s = await sessions.create({

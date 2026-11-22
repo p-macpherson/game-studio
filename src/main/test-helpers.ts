@@ -1,14 +1,28 @@
 // Shared fixtures for main-process tests: temp git repos and an in-process session host.
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterAll } from "vitest";
 import type { HostEvent } from "../shared/host";
 import { HostCore } from "../session-host/host-core";
 import type { HostCall, HostLink } from "./host-link";
 
+/** Temp folders this test file made: removed when it finishes (/tmp is RAM here; thousands of them once filled it). */
+const made: string[] = [];
+afterAll(async () => {
+	const dirs = made.splice(0);
+	for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+	// Pi's model runtime saves auth.json and models-store.json asynchronously, and a save landing after the removal
+	// brings a session host's folder back: remove once more after it has had time to land.
+	await new Promise((r) => setTimeout(r, 500));
+	for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+});
+
 export function tempDir(prefix = "gs-test-"): string {
-	return mkdtempSync(join(tmpdir(), prefix));
+	const dir = mkdtempSync(join(tmpdir(), prefix));
+	made.push(dir);
+	return dir;
 }
 
 export function sh(cwd: string, ...args: string[]): string {

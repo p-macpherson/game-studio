@@ -370,6 +370,8 @@ const BLANK_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAD
 
 function runGame(binary: string, args: string[], cwd: string, wine?: string, prefix?: string) {
 	if (!wine) return run(binary, args, { cwd, timeoutMs: 180_000 });
+	// Wine makes a missing prefix itself, but not the folder it goes in.
+	if (prefix) mkdirSync(dirname(prefix), { recursive: true });
 	return run(wine, [binary, ...args], { cwd, timeoutMs: 300_000, env: { WINEDEBUG: "-all", ...(prefix ? { WINEPREFIX: prefix } : {}) } });
 }
 

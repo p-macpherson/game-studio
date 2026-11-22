@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { notRuntime, parseReleaseConfig } from "../shared/release";
@@ -132,7 +133,9 @@ describe.skipIf(!haveEngine)("buildRelease", () => {
 	const wine = ["/usr/bin/wine"].find((p) => existsSync(p));
 	it.skipIf(!wine || !existsSync(join(engineRepo, "third_party/xwin/.complete")))("packages a Windows build checked under Wine", async () => {
 		const root = await game();
-		const build = await buildRelease({ root, projectName: "Ship Test", target: "windows", engineRepo, tools: { wine, winePrefix: join(tempDir(), "wine") } });
+		// One Wine prefix (about 700 MB) reused by every run, on disk: a fresh one per run in /tmp (RAM) added up.
+		const winePrefix = join(homedir(), ".cache/game-studio/test-wine");
+		const build = await buildRelease({ root, projectName: "Ship Test", target: "windows", engineRepo, tools: { wine, winePrefix } });
 		expect(build.checks.map((c) => [c.name, c.ok])).toEqual([
 			["Runs from its own folder", true],
 			["tests/smoke.jsonl", true],

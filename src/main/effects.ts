@@ -52,6 +52,8 @@ export class ParticleTexturePipeline {
 			const count = Math.min(Math.max(Math.round(p.count ?? 3), 1), 4);
 			const prompt = [p.prompt, p.style, PARTICLE_FRAMING[p.mode]].filter(Boolean).join(", ");
 			const g = await this.step(ctx, "image", `Particle texture ${p.name}`, { prompt, raw_prompt: true, out_dir: raw, name: leafName(p.name), count, seed: p.seed, width: 512, height: 512 });
+			// The image job also makes a contact sheet; this step shows its own cut-out one, so this one goes now (it was left in /tmp).
+			if (typeof g.sheet === "string") rmSync(g.sheet, { force: true });
 			const c = await this.step(ctx, "particle_cut", `Cutting out ${p.name}`, { images: g.images, out_dir: out, mode: p.mode });
 			const records = this.candidateRecords(ctx.cwd, p.name);
 			const at = new Date().toISOString();
