@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# Installs and updates the stable Game Studio in ~/.local/share/game-studio/app (GAME_STUDIO_HOME moves it), cloned
+# from GitHub: only pushed work reaches it. A new version is cloned, installed, built and tested in app-next; only then
+# does it replace app (the old one is kept as app-prev). The development checkout in ~/Projects/game-studio is never
+# touched. The studio's Settings → Updates runs --prepare, then --apply-after on Restart.
+#
+#   game-studio-update                         prepare the latest origin/main and switch to it (studio closed)
+#   game-studio-update <ref>                   the same for a commit, tag or branch
+#   game-studio-update --prepare [ref]         only build and test it into app-next (the studio may be running)
+#   game-studio-update --apply-after <pid> [--relaunch]
+#                                              wait for that studio process to exit, switch to app-next, reopen
+#   game-studio-update --rollback              go back to the previous version
+set -euo pipefail
+
+BASE="${GAME_STUDIO_HOME:-$HOME/.local/share/game-studio}"
+APP="$BASE/app"
+NEXT="$BASE/app-next"
+PREV="$BASE/app-prev"
+REPO="${GAME_STUDIO_UPDATE_REPO:-https://github.com/p-macpherson/game-studio.git}"
+ENGINE="${GAME_STUDIO_TEST_ENGINE:-$HOME/Projects/headless-game-engine}"
+
+running() { pgrep -f "$APP/node_modules/electron/dist/electron" >/dev/null; }
+
+prepare() { # ref
+	rm -rf "$NEXT"
+	echo ">> Fetching $1"
+	git clone -q "$REPO" "$NEXT"
+	git -C "$NEXT" checkout -q "$1"
+	if [[ -d "$APP" && "$(git -C "$APP" rev-parse HEAD)" == "$(git -C "$NEXT" rev-parse HEAD)" ]]; then
+		rm -rf "$NEXT"
+		echo ">> Already up to date: $(git -C "$APP" log --oneline -1)"
+		return 1
+	fi
+	cd "$NEXT"
+	echo ">> Installing dependencies"
+	npm ci --ignore-scripts --no-audit --no-fund --loglevel=error
+	node node_modules/electron/install.js
+	echo ">> Building"
+	npm run -s build >/dev/null
+	echo ">> Testing (about a minute)"
+	if ! GAME_STUDIO_TEST_ENGINE="$ENGINE" npm test -s >"$BASE/update-tests.log" 2>&1; then
+		echo "!! Tests failed: keeping the current version. See $BASE/update-tests.log" >&2
+		exit 1
+	fi
+	git -C "$NEXT" rev-parse HEAD >"$NEXT/.prepared"
+	echo ">> Ready: $(git -C "$NEXT" log --oneline -1)"
+}
+
+apply() {
+	[[ -f "$NEXT/.prepared" ]] || { echo "Nothing prepared to switch to." >&2; exit 1; }
+	rm -rf "$PREV"
+	[[ -d "$APP" ]] && mv "$APP" "$PREV"
+	mv "$NEXT" "$APP"
+	rm -f "$APP/.prepared"
+	# The launcher and this script come with the new version.
+	if [[ -d "$APP/install" ]]; then
+		mkdir -p "$BASE/bin"
+		install -m 755 "$APP/install/game-studio" "$APP/install/game-studio-update" "$BASE/bin/"
+	fi
+	echo ">> Game Studio is now $(git -C "$APP" log --oneline -1)"
+}
+
+case "${1:-}" in
+	--rollback)
+		running && { echo "Game Studio is running: close it first." >&2; exit 1; }
+		[[ -d "$PREV" ]] || { echo "No previous version to go back to." >&2; exit 1; }
+		mv "$APP" "$BASE/app-rolled-back" && mv "$PREV" "$APP" && mv "$BASE/app-rolled-back" "$PREV"
+		echo ">> Rolled back to $(git -C "$APP" log --oneline -1)"
+		;;
+	--prepare)
+		prepare "${2:-origin/main}" || true
+		;;
+	--apply-after)
+		pid="${2:?give the studio process id}"
+		for _ in $(seq 120); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
+		kill -0 "$pid" 2>/dev/null && { echo "The studio didn't close." >&2; exit 1; }
+		apply
+		[[ "${3:-}" == "--relaunch" ]] && setsid "$BASE/bin/game-studio" >/dev/null 2>&1 < /dev/null &
+		;;
+	*)
+		running && { echo "Game Studio is running: close it, or update from its Settings → Updates." >&2; exit 1; }
+		prepare "${1:-origin/main}" && apply
+		;;
+esac

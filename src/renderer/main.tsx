@@ -36,6 +36,19 @@ const NAV_GROUPS: { id: string; label: string; views: View[] }[] = [
 ];
 const GROUPED = new Set(NAV_GROUPS.flatMap((g) => g.views));
 
+/** Shown while the installed studio has an update (Settings → General → Updates). */
+function UpdateNavItem() {
+	const { update, openSettings } = useStudio(useShallow((s) => ({ update: s.update, openSettings: s.openSettings })));
+	if (!update?.installed || (!update.available.length && update.phase !== "ready")) return null;
+	const label = update.phase === "ready" ? "Restart to update" : update.phase === "preparing" ? "Preparing update…" : "Update available";
+	return (
+		<button className="nav-item update-nav" data-testid="update-nav" title={label} aria-label={label} onClick={() => openSettings("general")}>
+			<span className="nav-icon">⬆</span>
+			<span className="nav-label">{label}</span>
+		</button>
+	);
+}
+
 function App() {
 	const { project, view, setView, sessions, modules, error, refresh, handleEvent, newSession, run, worktreeChanges, notice, merging, selectedLabel, openWorktrees } = useStudio(
 		useShallow((s) => ({
@@ -149,6 +162,7 @@ function App() {
 					);
 				})}
 				<div className="sidebar-bottom">
+					<UpdateNavItem />
 					<button className={`nav-item ${view === "settings" ? "active" : ""}`} title="Settings" aria-label="Settings" onClick={() => setView("settings")}>
 						<span className="nav-icon">⚙</span>
 						<span className="nav-label">Settings</span>

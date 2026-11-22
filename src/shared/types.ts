@@ -116,6 +116,23 @@ export interface Settings {
 	lastProject?: string;
 }
 
+/** The stable install's version and the pushed commits it doesn't have yet (Settings → Updates). */
+export interface UpdateStatus {
+	/** Running from the stable install (~/.local/share/game-studio/app), not a development checkout. */
+	installed: boolean;
+	current: { commit: string; subject: string; date: string } | null;
+	/** Newer commits on GitHub's main, newest first. */
+	available: { commit: string; subject: string; date: string }[];
+	checkedAt?: string;
+	/** idle → preparing (building and testing the next version) → ready (Restart switches to it), or failed. */
+	phase: "idle" | "preparing" | "ready" | "failed";
+	/** The prepared version's commit. */
+	prepared?: string;
+	/** The updater's output while preparing. */
+	log: string[];
+	error?: string;
+}
+
 export interface ProjectInfo {
 	path: string;
 	name: string;

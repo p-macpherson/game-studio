@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Starts the stable Game Studio (~/.local/share/game-studio/app). Install or update it with game-studio-update.
+BASE="${GAME_STUDIO_HOME:-$HOME/.local/share/game-studio}"
+APP="$BASE/app"
+if [[ ! -f "$APP/out/main/index.js" ]]; then
+	notify-send "Game Studio" "Not installed yet: run $BASE/bin/game-studio-update" 2>/dev/null
+	echo "Not installed yet: run $BASE/bin/game-studio-update" >&2
+	exit 1
+fi
+cd "$APP" && exec "$APP/node_modules/electron/dist/electron" . "$@" >>"$BASE/studio.log" 2>&1

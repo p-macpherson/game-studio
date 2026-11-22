@@ -6,6 +6,7 @@ import { type SettingsTab, useStudio } from "../store";
 import { AccountsPanel } from "./Accounts";
 import { AppearanceSettings } from "./Appearance";
 import { AssetGeneration } from "./Generation";
+import { UpdatesCard } from "./Updates";
 import { useShallow } from "zustand/react/shallow";
 
 const TABS: { id: SettingsTab; label: string }[] = [
@@ -92,6 +93,7 @@ function GeneralSettings() {
 					</button>
 				</div>
 			</div>
+			<UpdatesCard />
 			<AssetGeneration />
 			<div className="card">
 				<h3>Session host</h3>

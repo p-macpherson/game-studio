@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { StudioEvent } from "../shared/ipc";
 import { type ModuleInfo, moduleOwns } from "../shared/modules";
 import type { CheckoutId, RunInfo, RunMode, TestReport } from "../shared/run";
-import type { AgentTypeInfo, ModelInfo, ProjectInfo, SessionSummary, Settings, Target, WorktreeSummary } from "../shared/types";
+import type { AgentTypeInfo, ModelInfo, ProjectInfo, SessionSummary, Settings, Target, UpdateStatus, WorktreeSummary } from "../shared/types";
 import type { HistoryStep } from "../shared/history";
 import { call } from "./api";
 
@@ -96,6 +96,8 @@ interface State {
 	openMerge(worktreeId: string | null): void;
 	/** A short message shown for a moment (e.g. "Undid: Scene main: set Transform"). */
 	notice: string | null;
+	/** The stable install's updates (Settings → General; the sidebar shows when one is available). */
+	update: UpdateStatus | null;
 	refreshHistory(): Promise<void>;
 	/** Undo/redo the latest manual edit in the selected worktree. */
 	undo(): Promise<void>;
@@ -178,6 +180,7 @@ export const useStudio = create<State>((set, get) => ({
 	openChanges: (worktreeId) => set(worktreeId ? { changesOf: worktreeId, view: "worktrees" } : { changesOf: null }),
 	openMerge: (worktreeId) => set({ merging: worktreeId }),
 	notice: null,
+	update: null,
 	async refreshHistory() {
 		const worktree = get().worktree;
 		if (!worktree) return set({ history: null });
@@ -209,6 +212,7 @@ export const useStudio = create<State>((set, get) => ({
 			call("run.current"),
 		]);
 		set((s) => ({ project, settings, agentTypes, modules, run, assetsVersion: s.assetsVersion + 1 }));
+		void call("updates.status").then((update) => set({ update }), () => {});
 		await Promise.all([get().refreshSessions(), get().refreshModels(), get().refreshWorktrees()]);
 		// The worktree last selected in this project, if it's still open.
 		const saved = project ? localStorage.getItem(`worktree:${project.path}`) : null;
@@ -305,6 +309,9 @@ export const useStudio = create<State>((set, get) => ({
 
 	handleEvent(event) {
 		switch (event.type) {
+			case "update_status":
+				set({ update: event.status });
+				break;
 			case "run_changed":
 				set((s) => (s.run?.id === event.run.id ? { run: event.run } : { run: event.run, runOutput: "", frame: null }));
 				break;

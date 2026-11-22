@@ -21,6 +21,7 @@ import type {
 	SessionSummary,
 	Settings,
 	Target,
+	UpdateStatus,
 	WorktreeSummary,
 } from "./types";
 
@@ -187,6 +188,13 @@ export interface StudioApi {
 	"release.publish"(checkout: string | null, version: string, target: ReleaseTarget): Promise<string>;
 	/** butler status of the release's itch.io page. */
 	"release.itchStatus"(checkout: string | null): Promise<string>;
+	/** The stable install's version and the newer pushed commits (none for a development checkout). */
+	"updates.status"(): Promise<UpdateStatus>;
+	"updates.check"(): Promise<UpdateStatus>;
+	/** Builds and tests the newest version beside this one (progress as update_status events). */
+	"updates.prepare"(): Promise<UpdateStatus>;
+	/** Closes the studio, switches to the prepared version and reopens. */
+	"updates.restart"(): Promise<void>;
 	"itch.hasKey"(): Promise<boolean>;
 	/** Saves the itch.io API key for butler (null removes it). */
 	"itch.setKey"(key: string | null): Promise<void>;
@@ -213,7 +221,8 @@ export type StudioEvent =
 	| { type: "login_prompt"; loginId: string; prompt: LoginPrompt }
 	/** Edit → Undo/Redo (the app menu's shortcuts): text undo in a text field, else the worktree's manual-edit history. */
 	| { type: "edit_command"; command: "undo" | "redo" }
-	| { type: "release_progress"; checkout: string; target: ReleaseTarget; text: string };
+	| { type: "release_progress"; checkout: string; target: ReleaseTarget; text: string }
+	| { type: "update_status"; status: UpdateStatus };
 
 /** What the preload exposes. */
 export interface StudioBridge {
