@@ -9,6 +9,7 @@ whole game. The API and its rules are in "Multiplayer (client-hosted)" in `engin
 before writing netcode. The short version:
 
 - `engine.net_host` / `engine.net_join`, or the flags `--host[=PORT]` and `--join=ADDR[:PORT]` (`--name=Alice`).
+  Over the internet players join with an invite code instead: see below.
 - React to `engine.net_events()`: `.Hosting` (spawn the host's avatar), `.Player_Joined` (the host spawns that
   player's avatar with `engine.net_spawn(prefab, pos, owner = ev.player)`), `.Player_Left`, `.Message`.
 - **Ownership.** An entity with `Net_Entity` is simulated by its owner and copied to everyone else. Run a player's
@@ -25,11 +26,29 @@ For each piece of state, write down who decides it (its owner, or the host) befo
 client deciding something only the host should (two players both "win"), or logic running on every copy (a coin
 scored once per player).
 
+## Playing over the internet
+Read "Playing over the internet" in `engine/docs/making-a-game.md` (if it isn't there, this project's engine is
+too old: tell the user to press Update engine). The short version:
+
+- Host with `engine.net_host(0, name, online = true)`: the engine asks the host's router to open the port, in the
+  background. Without `online`, only players on the host's own network can join.
+- Show the host `engine.net_invite()` every frame: `.Opening` (a few seconds), `.Online` (show `code`: it works
+  from anywhere), `.Failed` (show `reason`; the code still works on the host's network). The code changes when it
+  goes online, so don't cache it.
+- Players join by typing the code: `engine.net_join_code(code, name)`. One text field can take a code or an
+  address: `engine.net_is_code(text)` tells them apart.
+- Design the menu for failure: some routers refuse and some internet connections can't be opened at all. Say
+  what `reason` says and suggest the other player hosts.
+- You can't open a real router from a test. `--host --online --router=127.0.0.1:PORT` points the game at a
+  stand-in (the engine's `tests/multiplayer_test.py` has one, `fake_router`); the `net` command then shows
+  `invite` with its state and code. Whether it works through the user's real router is theirs to try, with a
+  friend on another network.
+
 ## Limits to design within
-Players reach the host by address and port (UDP 7777 by default): the same network works directly, the internet
-needs the host's port forwarded. No lobby or host list, no host migration (the game ends when the host leaves),
-no client-side prediction (a player's own avatar is instant because they own it; things the host owns arrive
-about a tenth of a second late), and web builds can't join or host. Say so when a design needs one of these.
+No list of games to pick from (players pass the invite code around themselves), no relay server (a host whose
+router or internet provider won't open a port can't host online), no host migration (the game ends when the host
+leaves), no client-side prediction (a player's own avatar is instant because they own it; things the host owns
+arrive about a tenth of a second late), and web builds can't join or host. Say so when a design needs one of these.
 
 ## Testing it
 Always test with at least two copies; a multiplayer feature that only ran offline hasn't been tested.
