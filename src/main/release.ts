@@ -50,6 +50,14 @@ export function releaseManifest(root: string, config: ReleaseConfig): ReleaseMan
 		const stem = p.includes(".") ? p.slice(0, p.lastIndexOf(".")) : p;
 		byStem.set(stem, [...(byStem.get(stem) ?? []), p]);
 	}
+	// By the name game code may give an asset on its own: `sounds/beep/beep.ogg` and `ui/title.json` are "beep" and "title".
+	const byName = new Map<string, string[]>();
+	for (const p of runtime) {
+		const parts = p.split("/");
+		const file = parts[parts.length - 1];
+		const name = file.includes(".") ? file.slice(0, file.lastIndexOf(".")) : file;
+		if (parts.length === 2 || (parts.length === 3 && parts[1] === name)) byName.set(name, [...(byName.get(name) ?? []), p]);
+	}
 	const reached = new Map<string, string>();
 	const queue: string[] = [];
 	const reach = (p: string, why: string) => {
@@ -58,8 +66,21 @@ export function releaseManifest(root: string, config: ReleaseConfig): ReleaseMan
 		queue.push(p);
 	};
 	const scan = (text: string, why: string, code = false) => {
-		// Game code names screens without a path: ui_show("title") is assets/ui/title.json.
-		if (code) for (const [, s] of text.matchAll(/"([\w-]+)"/g)) if (runtime.has(`ui/${s}.json`)) reach(`ui/${s}.json`, why);
+		if (code) {
+			// Game code names assets without a path: ui_show("title") is assets/ui/title.json, and a helper given "gun-shot"
+			// that builds the path itself plays assets/sounds/gun-shot/gun-shot.ogg.
+			for (const [, s] of text.matchAll(/"([\w-]+)"/g)) for (const p of byName.get(s) ?? []) reach(p, why);
+			// A path built at run time, fmt.tprintf("sounds/%s/%s-%d.ogg", ...): every file of that shape.
+			for (const [, s] of text.matchAll(/"([^"\n]*\/[^"\n]*)"/g)) {
+				if (!/%[sdvi]/.test(s)) continue;
+				const shape = (s.startsWith("assets/") ? s.slice("assets/".length) : s)
+					.split(/(%[sdvi])/)
+					.map((part) => (part === "%d" || part === "%i" ? "\\d+" : /^%[sv]$/.test(part) ? "[^/]+" : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+					.join("");
+				const re = new RegExp(`^${shape}$`);
+				for (const p of runtime) if (re.test(p)) reach(p, why);
+			}
+		}
 		for (const [, s] of text.matchAll(/"([^"\n]+\/[^"\n]+)"/g)) {
 			const p = s.startsWith("assets/") ? s.slice("assets/".length) : s;
 			if (runtime.has(p)) reach(p, why);

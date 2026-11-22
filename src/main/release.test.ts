@@ -55,6 +55,21 @@ describe("releaseManifest", () => {
 		});
 	});
 
+	it("ships assets the game code names without a path, or by a path it builds", () => {
+		const root = project({
+			"game/main.odin": 'snd("gun-shot", 2)\nfx :: proc(n: string) -> string {return fmt.tprintf("effects/%s.json", n)}\nvoice := fmt.tprintf("voices/guide/line-%d.ogg", i)',
+			"assets/sounds/gun-shot/gun-shot.ogg": "ogg",
+			"assets/sounds/gun-shot/gun-shot-2.ogg": "ogg",
+			"assets/sounds/horn/horn.ogg": "ogg",
+			"assets/effects/boom.json": "{}",
+			"assets/voices/guide/line-1.ogg": "ogg",
+			"assets/voices/guide/outtake.ogg": "ogg",
+		});
+		const m = releaseManifest(root, config);
+		expect(m.files.map((f) => f.path).sort()).toEqual(["assets/effects/boom.json", "assets/sounds/gun-shot/gun-shot-2.ogg", "assets/sounds/gun-shot/gun-shot.ogg", "assets/voices/guide/line-1.ogg"]);
+		expect(m.leftOut.map((f) => f.path).sort()).toEqual(["assets/sounds/horn/horn.ogg", "assets/voices/guide/outtake.ogg"]);
+	});
+
 	it("follows release.json's include and exclude", () => {
 		const root = project({
 			"game/main.odin": '"sounds/a/a.ogg"',
