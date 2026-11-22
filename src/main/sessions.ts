@@ -580,13 +580,16 @@ export class SessionService {
 		const model = delegateModel(type, parent.record.model, await this.availableModels(), p.model?.trim() || undefined);
 		if (target !== parent.record.target) {
 			const from = this.worktreeOf(parent).record.label;
+			const title = p.title?.trim() || p.task.split("\n")[0].slice(0, 60).trim() || type.name;
 			const other = await this.create({
 				agentType: type.id,
 				target,
 				model,
 				prompt: `[Asked for by the ${parentType?.name ?? parent.record.agentType} session “${parent.record.title}”, which works on the ${parent.record.target} in its worktree “${from}”. It isn't waiting for you and gets no report: the user coordinates between the two worktrees.]\n\n${p.task}`,
-				title: p.title ?? (p.task.split("\n")[0].slice(0, 60) || type.name),
-				worktreeLabel: `${from} (${target})`,
+				title,
+				// Named for what it changes (the session's title, which it follows when the agent retitles it), not after the
+				// asking worktree: several can be running at once.
+				worktreeLabel: title,
 			});
 			return [
 				`${type.name} works in the ${target} repo, not in your worktree, so it can't be your sub-agent. It was started as a separate session, “${other.title}”, in its own ${target} worktree “${other.worktreeLabel}”.`,

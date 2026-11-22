@@ -279,9 +279,14 @@ describe("SessionService", () => {
 		const boss: AgentTypeInfo = { ...general, id: "boss", name: "Boss", targets: ["project"], delegatesTo: ["mech"], studioTools: [] };
 		const svc = new SessionService({ host: await inProcessHost(join(root, "pi-cross")), settings: () => settings, projectPath: () => project, agentTypes: () => [boss, mech], skillsDir: join(root, "skills"), emit: () => {} });
 		try {
-			const b = await svc.create({ agentType: "boss", target: "project", model: "faux/echo", prompt: 'tool delegate {"agentType": "mech", "task": "engine note"}' });
+			const b = await svc.create({ agentType: "boss", target: "project", model: "faux/echo", prompt: 'tool delegate {"agentType": "mech", "task": "engine note", "title": "Cave mesh streaming"}' });
 			await waitFor(() => svc.get(b.id).status === "idle");
 			const other = svc.list().find((s) => s.agentType === "mech")!;
+			// Its worktree is named for what it changes, not after the game's worktree: several can run at once.
+			expect(other.worktreeLabel).toBe("Cave mesh streaming");
+			await svc.send(b.id, `tool delegate ${JSON.stringify({ agentType: "mech", task: "Rope physics for climbing\nDetails follow" })}`);
+			await waitFor(() => svc.list().filter((s) => s.agentType === "mech").length === 2 && svc.get(b.id).status === "idle");
+			expect(svc.list().filter((s) => s.agentType === "mech").map((s) => s.worktreeLabel).sort()).toEqual(["Cave mesh streaming", "Rope physics for climbing"]);
 			expect(other.parentId).toBeUndefined();
 			expect(other.target).toBe("engine");
 			expect(other.worktreeId).not.toBe(b.worktreeId);
