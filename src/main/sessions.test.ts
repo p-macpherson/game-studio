@@ -54,6 +54,21 @@ describe("SessionService", () => {
 
 	const settled = (id: string) => waitFor(() => service.get(id).status === "idle");
 
+	it("shows a question's images when they exist in the session's checkout", async () => {
+		mkdirSync(join(project, "shots"), { recursive: true });
+		writeFileSync(join(project, "shots/map.png"), "png");
+		sh(project, "add", "-A");
+		sh(project, "commit", "-qm", "a screenshot");
+		const s = await service.create({
+			agentType: "general",
+			target: "project",
+			model: "faux/echo",
+			prompt: `tool ask_user ${JSON.stringify({ question: "Is the map right?", images: ["shots/map.png", "shots/missing.png"] })}`,
+		});
+		await waitFor(() => !!service.get(s.id).pendingQuestion);
+		expect(service.get(s.id).pendingQuestion).toMatchObject({ question: "Is the map right?", images: ["shots/map.png"] });
+	});
+
 	it("opens a game session with the design docs its type works to, as its worktree has them", async () => {
 		mkdirSync(join(project, "docs/design"), { recursive: true });
 		writeFileSync(join(project, "docs/design/Art Style.md"), "---\nstatus: not-established\n---\n# Art Style\n\n## For now\nGrey boxes only.\n");

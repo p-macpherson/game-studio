@@ -6,6 +6,7 @@ import { MODULE_VIEWS } from "./modules";
 import { type View, useStudio } from "./store";
 import "./styles.css";
 import { applyAppearance, loadAppearance } from "./appearance";
+import { ImageViewer } from "./views/ImageViewer";
 import { MergeDialog } from "./views/MergeDialog";
 import { NewSessionDialog } from "./views/NewSession";
 import { Play } from "./views/Play";
@@ -218,6 +219,7 @@ function App() {
 			</main>
 			{newSession && <NewSessionDialog preset={newSession} />}
 			{merging && <MergeDialog key={merging} worktreeId={merging} />}
+			<ImageViewer />
 			{notice && (
 				<div className="toast" data-testid="notice">
 					{notice}

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { PromptMode } from "../../shared/host";
 import type { ContextUsage, SessionSummary } from "../../shared/types";
 import { findAgentType } from "../../shared/agents";
-import { call, relativeTime } from "../api";
+import { call, relativeTime, studioFile } from "../api";
 import { useStudio } from "../store";
 import { Chat, FullTranscript } from "./Chat";
 import { Markdown } from "./Markdown";
@@ -50,6 +50,21 @@ function QuestionCard({ sessionId, question, busy, onAnswer }: { sessionId: stri
 					The agent is waiting for your answer
 				</div>
 				<Markdown className="question-text" text={question.question} />
+				{!!question.images?.length && (
+					<div className="question-images" data-testid="question-images">
+						{question.images.map((p, i) => (
+							<button
+								key={p}
+								className="question-image"
+								title={`${p} (click to enlarge)`}
+								onClick={() => useStudio.getState().showImages(question.images!.map((x) => ({ src: studioFile(sessionId, x), label: x })), i)}
+							>
+								<img src={studioFile(sessionId, p)} alt={p} />
+								<span className="small ellipsis">{p.split("/").pop()}</span>
+							</button>
+						))}
+					</div>
+				)}
 				{options.length > 0 && (
 					<div className="question-options" role="radiogroup" aria-label="Suggested answers">
 						{options.map((o, i) => {

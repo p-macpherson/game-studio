@@ -64,6 +64,7 @@ export interface HostApi {
 
 /** Studio services an agent's tools can call in the main process (`studio_request`). */
 export type StudioRequestMethod =
+	| "open_in_studio"
 	| "add_doc_image"
 	| "save_release"
 	| "delete_release"
@@ -110,7 +111,7 @@ export type HostEvent =
 	| { type: "session_event"; id: string; event: { type: string; [k: string]: unknown } }
 	| { type: "session_error"; id: string; error: string }
 	| { type: "studio_tool"; id: string; tool: "set_session_title" | "request_review" | "open_in_studio"; params: Record<string, string> }
-	| { type: "ask_user"; id: string; questionId: string; question: string; options?: string[] }
+	| { type: "ask_user"; id: string; questionId: string; question: string; options?: string[]; images?: string[] }
 	/** A tool needs a main-process service; answered with `studioReply`. */
 	| { type: "studio_request"; id: string; requestId: string; method: StudioRequestMethod; params: Record<string, unknown> }
 	| { type: "studio_request_cancel"; id: string; requestId: string }

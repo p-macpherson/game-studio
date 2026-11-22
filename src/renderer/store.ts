@@ -4,7 +4,7 @@ import { type ModuleInfo, moduleOwns } from "../shared/modules";
 import { type CheckoutId, MAX_RUN_PLAYERS, type RunInfo, type RunMode, type TestReport } from "../shared/run";
 import type { AgentTypeInfo, ModelInfo, ProjectInfo, SessionSummary, Settings, Target, UpdateStatus, WorktreeSummary } from "../shared/types";
 import type { HistoryStep } from "../shared/history";
-import { call } from "./api";
+import { call, studioFile } from "./api";
 
 export type View = "sessions" | "worktrees" | "source-control" | "settings" | "play" | "release" | `module:${string}`;
 
@@ -98,6 +98,9 @@ interface State {
 	notice: string | null;
 	/** The stable install's updates (Settings → General; the sidebar shows when one is available). */
 	update: UpdateStatus | null;
+	/** Images shown full size over the studio (an agent's screenshots: open_in_studio, a question's images). */
+	viewer: { images: { src: string; label: string }[]; index: number } | null;
+	showImages(images: { src: string; label: string }[], index?: number): void;
 	refreshHistory(): Promise<void>;
 	/** Undo/redo the latest manual edit in the selected worktree. */
 	undo(): Promise<void>;
@@ -186,6 +189,8 @@ export const useStudio = create<State>((set, get) => ({
 	openMerge: (worktreeId) => set({ merging: worktreeId }),
 	notice: null,
 	update: null,
+	viewer: null,
+	showImages: (images, index = 0) => set({ viewer: images.length ? { images, index } : null }),
 	async refreshHistory() {
 		const worktree = get().worktree;
 		if (!worktree) return set({ history: null });
@@ -322,6 +327,9 @@ export const useStudio = create<State>((set, get) => ({
 		switch (event.type) {
 			case "update_status":
 				set({ update: event.status });
+				break;
+			case "show_images":
+				get().showImages(event.paths.map((p) => ({ src: studioFile(event.sessionId, p), label: p })));
 				break;
 			case "run_changed":
 				set((s) => (s.run?.id === event.run.id ? { run: event.run } : { run: event.run, runOutput: "", frame: null, peerFrames: {} }));

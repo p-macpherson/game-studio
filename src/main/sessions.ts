@@ -660,6 +660,14 @@ export class SessionService {
 		this.deps.emit({ type: "sessions_changed" });
 	}
 
+	/** A session started to create something adopts the first asset it shows (open_in_studio) as its own. */
+	adoptLinkedAsset(id: string, path: string): void {
+		const e = this.entries.get(id);
+		if (!e || e.record.linkedAsset) return;
+		e.record.linkedAsset = path;
+		this.save(e);
+	}
+
 	async answer(id: string, questionId: string, answer: string): Promise<void> {
 		this.questions.delete(id);
 		await this.deps.host.call("answerQuestion", id, questionId, answer);
@@ -1148,15 +1156,16 @@ export class SessionService {
 					r.title = event.params.title;
 				}
 				else if (event.tool === "request_review") r.reviewRequested = true;
-				else if (event.tool === "open_in_studio") {
-					// A session started to create something adopts the first asset it shows as its own.
-					r.linkedAsset ??= event.params.path;
-					this.deps.emit({ type: "focus_asset", path: event.params.path, sessionId: r.id });
-				}
 				this.save(e);
 				break;
 			case "ask_user":
-				this.questions.set(event.id, { questionId: event.questionId, question: event.question, options: event.options });
+				this.questions.set(event.id, {
+					questionId: event.questionId,
+					question: event.question,
+					options: event.options,
+					// Only images that exist in its checkout: a wrong path would show as a broken picture.
+					images: event.images?.filter((p) => existsSync(join(this.worktreePath(e), p))),
+				});
 				this.deps.emit({ type: "sessions_changed" });
 				break;
 		}

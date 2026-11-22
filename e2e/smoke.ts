@@ -1217,6 +1217,32 @@ try {
 	if (existsSync(join(releasePath, "builds/1.0.0"))) throw new Error("deleting a release should remove its builds");
 	await nav.getByRole("button", { name: "Settings" }).click();
 
+	// An agent's question with screenshots: thumbnails in the question, full size in the image viewer.
+	await nav.getByRole("button", { name: "Sessions" }).click();
+	await page.getByRole("button", { name: "+ New session" }).click();
+	const shot = resolve("gen/workers/fixtures/concept.png");
+	await page.getByTestId("new-session-prompt").fill(`tool bash ${JSON.stringify({ command: `mkdir -p build/review && cp ${shot} build/review/cave.png` })}`);
+	await page.getByRole("button", { name: "Start session" }).click();
+	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
+	await page.getByTestId("composer").fill(`tool ask_user ${JSON.stringify({ question: "Is the cave layout right?", options: ["Yes", "No"], images: ["build/review/cave.png"] })}`);
+	await page.getByTestId("composer").press("Enter");
+	const thumb = page.getByTestId("question-images").locator("img");
+	await thumb.waitFor({ timeout: 30_000 });
+	for (let i = 0; !(await thumb.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)); i++) {
+		if (i > 50) throw new Error("the question's image didn't load");
+		await page.waitForTimeout(100);
+	}
+	await step("63-question-images", page);
+	await thumb.click();
+	await page.getByTestId("image-viewer").getByText("build/review/cave.png").waitFor();
+	await step("64-image-viewer", page);
+	await page.keyboard.press("Escape");
+	await page.getByTestId("image-viewer").waitFor({ state: "detached" });
+	await page.getByTestId("question-option").filter({ hasText: "Yes" }).click();
+	await page.getByTestId("question-send").click();
+	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
+	await nav.getByRole("button", { name: "Settings" }).click();
+
 	// Appearance: a theme and fonts apply at once (the page's variables), survive a reload, and Simple Dark comes back.
 	await page.getByRole("button", { name: "Appearance", exact: true }).click();
 	await page.locator("[data-testid=theme-card][data-theme-id=catppuccin-mocha]").waitFor();

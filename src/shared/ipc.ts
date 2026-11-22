@@ -231,7 +231,9 @@ export type StudioEvent =
 	| { type: "release_progress"; checkout: string; version: string; target: ReleaseTarget; text: string }
 	/** A build started or ended, a session was put on one, builds were removed: read release.info again. */
 	| { type: "release_changed" }
-	| { type: "update_status"; status: UpdateStatus };
+	| { type: "update_status"; status: UpdateStatus }
+	/** An agent showed images (open_in_studio): paths in the session's checkout, for the image viewer. */
+	| { type: "show_images"; sessionId: string; paths: string[] };
 
 /** What the preload exposes. */
 export interface StudioBridge {

@@ -25,6 +25,7 @@ import { TexturePipeline, textureRequests } from "./textures";
 import { effectRequests, ParticleTexturePipeline } from "./effects";
 import { ReleaseService, releaseRequests } from "./release-service";
 import { UpdateService } from "./updates";
+import { openInStudioRequests } from "./open-in-studio";
 import { runInBrowser, serveFolder } from "./web-runner";
 import { shaderRequests } from "./shaders";
 import { UiArtPipeline, uiRequests } from "./ui";
@@ -110,6 +111,7 @@ async function main(): Promise<void> {
 		assetRequests(moduleInfos),
 		designDocRequests(),
 		releaseRequests(() => release, () => project?.name ?? "Game"),
+		openInStudioRequests(moduleInfos, emit, (id, path) => sessions.adoptLinkedAsset(id, path)),
 	);
 	const sessions = new SessionService({
 		host,

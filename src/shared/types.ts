@@ -82,6 +82,8 @@ export interface PendingQuestion {
 	questionId: string;
 	question: string;
 	options?: string[];
+	/** Images shown with the question (paths in the session's checkout): screenshots, renders. */
+	images?: string[];
 }
 
 /** How full a session's context window is; tokens and percent are unknown right after a compaction. */

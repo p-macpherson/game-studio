@@ -590,21 +590,29 @@ export function studioTools(ctx: StudioToolContext) {
 		defineTool({
 			name: "open_in_studio",
 			label: "Open in studio",
-			description: "Show a file (an asset or design doc, as a path relative to the repo root) to the user in Game Studio.",
+			description:
+				"Show a file to the user in Game Studio (a path relative to the repo root): an asset or design doc opens in its section, an image " +
+				"(.png, .jpg, .webp: a screenshot or render, even under build/) in an image viewer. The result says whether it could be shown; files the " +
+				"studio has no view for aren't. To show images with a question, give them to ask_user instead.",
 			parameters: Type.Object({ path: Type.String() }),
-			async execute(_id, { path }) {
-				tool("open_in_studio", { path });
-				return ok(`Opened ${path}.`);
+			async execute(_id, { path }, signal) {
+				return ok(String(await ctx.request("open_in_studio", { path }, signal, () => {})));
 			},
 		}),
 		defineTool({
 			name: "ask_user",
 			label: "Ask user",
-			description: "Ask the user a question and wait for the answer. Offer options when the answer is a choice; the user can still answer freely.",
-			parameters: Type.Object({ question: Type.String(), options: Type.Optional(Type.Array(Type.String())) }),
-			async execute(_id, { question, options }, signal) {
+			description:
+				"Ask the user a question and wait for the answer. Offer options when the answer is a choice; the user can still answer freely. Give " +
+				"images (screenshots, renders) the answer depends on: they're shown with the question, and the user can enlarge them.",
+			parameters: Type.Object({
+				question: Type.String(),
+				options: Type.Optional(Type.Array(Type.String())),
+				images: Type.Optional(Type.Array(Type.String(), { description: "Paths relative to the repo root, e.g. build/review/1-map-top.png" })),
+			}),
+			async execute(_id, { question, options, images }, signal) {
 				const questionId = `${ctx.sessionId}-q${++questions}`;
-				ctx.post({ type: "ask_user", id: ctx.sessionId, questionId, question, options });
+				ctx.post({ type: "ask_user", id: ctx.sessionId, questionId, question, options, images });
 				return ok(`User answered: ${await ctx.ask(questionId, signal)}`);
 			},
 		}),
