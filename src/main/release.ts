@@ -364,7 +364,8 @@ export function testFlags(script: string): string[] {
 
 /** Each of the game's tests/*.jsonl, run against the packaged release build. */
 async function checkTests(root: string, play: Play): Promise<ReleaseCheck[]> {
-	const tests = existsSync(join(root, "tests")) ? readdirSync(join(root, "tests")).filter((f) => f.endsWith(".jsonl")).sort() : [];
+	// Multiplayer scripts (*.mp.jsonl) need several copies of the game talking to each other: not run against packages yet.
+	const tests = existsSync(join(root, "tests")) ? readdirSync(join(root, "tests")).filter((f) => f.endsWith(".jsonl") && !f.endsWith(".mp.jsonl")).sort() : [];
 	const checks: ReleaseCheck[] = [];
 	for (const t of tests) {
 		const res = await play([...testFlags(readFileSync(join(root, "tests", t), "utf8")), "--fixed-dt", `--script=tests/${t}`], true);

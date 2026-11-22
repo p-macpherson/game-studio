@@ -5,7 +5,7 @@ targets: [project]
 defaultModel: anthropic/claude-sonnet-5-5
 models: [anthropic/claude-opus-5-5]
 thinking: medium
-skills: [odin-build, engine-control, delegation, studio-git, ui-design]
+skills: [odin-build, engine-control, multiplayer, delegation, studio-git, ui-design]
 delegatesTo: [art-director, audio-director, engine-engineer]
 designDocs: [design-pillars, gameplay-loop, progression, technical-direction]
 ---

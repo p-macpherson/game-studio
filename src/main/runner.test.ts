@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { StudioEvent } from "../shared/ipc";
@@ -109,6 +109,73 @@ describe.skipIf(!existsSync(join(engineRepo, "third_party/lib")))("RunService", 
 		expect((await runner.start(null, "hidden", { scene: "scenes/main.json" })).state).toBe("running");
 		if (pads) expect(((await runner.call("pads")) as { read: boolean }).read).toBe(false);
 		await runner.stop();
+	}, 60_000);
+
+	it("runs a multiplayer game: a host and a second copy that joins it, each streamed and commanded on its own", async () => {
+		runner.setStreaming(true);
+		const run = await runner.start(null, "hidden", { players: 2 });
+		expect(run.state).toBe("running");
+		expect(run.players).toMatchObject([
+			{ index: 0, name: "Player 1", role: "host", state: "running" },
+			{ index: 1, name: "Player 2", role: "client", state: "running" },
+		]);
+		type Net = { role: string; local_id: number; players: { name: string }[] };
+		// (waitFor takes a plain condition; these ask the game, so they poll with awaits.)
+		const until = async (what: string, cond: () => Promise<boolean>) => {
+			const end = Date.now() + 10_000;
+			while (!(await cond())) {
+				if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+				await new Promise((r) => setTimeout(r, 50));
+			}
+		};
+		// The engine's own networking: the second copy is a peer of the first.
+		await until("the host to see two players", async () => ((await runner.call("net")) as Net).players.length === 2);
+		expect(((await runner.call("net")) as Net).role).toBe("Host");
+		await until("the second copy to be welcomed", async () => ((await runner.call("net", {}, 1)) as Net).players.length === 2);
+		const joined = (await runner.call("net", {}, 1)) as Net;
+		expect(joined).toMatchObject({ role: "Client", local_id: 1 });
+		expect(joined.players.map((p) => p.name).sort()).toEqual(["Player 1", "Player 2"]);
+		// Each copy streams its own frames, and only the host's reads a real controller.
+		const framesOf = (player: number) => events.filter((e) => e.type === "run_frame" && e.runId === run.id && e.player === player);
+		await waitFor(() => framesOf(0).length > 0 && framesOf(1).length > 0);
+		const pads = (await runner.call("pads", {}, 1).catch(() => null)) as { read?: boolean } | null;
+		if (pads) expect(pads.read).toBe(false);
+		await expect(runner.call("info", {}, 2)).rejects.toThrow(/Player 3's copy/);
+		// One copy leaving is seen by the other; stopping ends them all.
+		await runner.call("quit", {}, 1).catch(() => {});
+		await waitFor(() => runner.current()?.players?.[1].state === "exited");
+		await until("the host to see it leave", async () => ((await runner.call("net")) as Net).players.length === 1);
+		expect(runner.current()?.state).toBe("running");
+		await runner.stop();
+		expect(runner.current()?.state).toBe("exited");
+		// An ordinary run has no players list.
+		expect((await runner.start(null, "hidden")).players).toBeUndefined();
+		await runner.stop();
+	}, 60_000);
+
+	it("runs a multiplayer test script across two copies of the game, each line on the player it names", async () => {
+		// (An engine commit from before the tool existed: use the checkout's copy.)
+		if (!existsSync(join(project, "engine/tools/mptest.py"))) cpSync(join(engineRepo, "tools/mptest.py"), join(project, "engine/tools/mptest.py"));
+		writeFileSync(
+			join(project, "tests/two.mp.jsonl"),
+			'// players: 2\n{"player": "all", "cmd": "assert", "entity": "Cube", "exists": true}\n{"player": 2, "cmd": "net"}\n{"player": 2, "cmd": "quit"}\n{"player": 2, "cmd": "info"}\n',
+		);
+		try {
+			expect(runner.tests(null)).toContain("tests/two.mp.jsonl");
+			const report = await runner.test(null, "tests/two.mp.jsonl");
+			expect(report.buildOk).toBe(true);
+			expect(report.steps.map((s) => [s.line, s.ok])).toEqual([
+				[2, true],
+				[3, true],
+				[4, true],
+				[5, false],
+			]);
+			expect(report.steps[1].result).toMatchObject({ role: "Client", local_id: 1 });
+			expect(report.steps[3].error).toMatch(/player 2 has left/);
+			expect(report.ok).toBe(false);
+		} finally {
+			rmSync(join(project, "tests/two.mp.jsonl"));
+		}
 	}, 60_000);
 
 	it("reports a scripted test step by step, with its screenshots", async () => {

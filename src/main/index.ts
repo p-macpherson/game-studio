@@ -281,7 +281,7 @@ async function main(): Promise<void> {
 		"run.build": (sessionId) => runner.build(sessionId),
 		"run.start": (sessionId, mode, options) => runner.start(sessionId, mode, options),
 		"run.stop": () => runner.stop(),
-		"run.call": (cmd, args) => runner.call(cmd, args),
+		"run.call": (cmd, args, player) => runner.call(cmd, args, player),
 		"run.stream": async (on) => runner.setStreaming(on),
 		"run.tests": async (sessionId) => runner.tests(sessionId),
 		"run.test": (sessionId, script) => runner.test(sessionId, script),

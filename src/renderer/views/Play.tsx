@@ -2,7 +2,7 @@
 // (hidden mode, frames streamed over the control protocol, input injected) or in its own window, inspect the
 // world, and run the project's scripted tests.
 import { type KeyboardEvent, type MouseEvent, type WheelEvent, useEffect, useRef, useState } from "react";
-import type { CheckoutId, CheckoutInfo, Diagnostic, RunInfo, TestReport } from "../../shared/run";
+import { type CheckoutId, type CheckoutInfo, type Diagnostic, MAX_RUN_PLAYERS, type RunInfo, type TestReport } from "../../shared/run";
 import { call } from "../api";
 import { testKey, useStudio } from "../store";
 import { useShallow } from "zustand/react/shallow";
@@ -167,16 +167,24 @@ export function Play() {
 }
 
 function RunPanel() {
-	const { run, runOutput, frame, startRun, playCheckout, showError } = useStudio(
+	const { run, runOutput, frame, peerFrames, startRun, playCheckout, playPlayers, setPlayPlayers, showError } = useStudio(
 		useShallow((s) => ({
 			run: s.run,
 			runOutput: s.runOutput,
 			frame: s.frame,
+			peerFrames: s.peerFrames,
 			startRun: s.startRun,
 			playCheckout: s.playCheckout,
+			playPlayers: s.playPlayers,
+			setPlayPlayers: s.setPlayPlayers,
 			showError: s.showError,
 		})),
 	);
+	// A multiplayer run: the copy of the game the controls, console and inspector are about (and that takes the keyboard).
+	const [focus, setFocus] = useState(0);
+	useEffect(() => setFocus(0), [run?.id]);
+	const players = run?.players;
+	const player = players?.some((p) => p.index === focus) ? focus : 0;
 	const { label: fixLabel, fix } = useFix();
 	const running = run?.state === "running";
 	const busy = run?.state === "building" || run?.state === "starting";
@@ -189,13 +197,13 @@ function RunPanel() {
 
 	useEffect(() => {
 		if (!running) return setInfo(null);
-		const poll = () => call("run.call", "info").then((r) => setInfo(r as typeof info), () => {});
+		const poll = () => call("run.call", "info", {}, player).then((r) => setInfo(r as typeof info), () => setInfo(null));
 		poll();
 		const t = setInterval(poll, 1000);
 		return () => clearInterval(t);
-	}, [running, run?.id]);
+	}, [running, run?.id, player]);
 
-	const command = (cmd: string, args?: Record<string, unknown>) => call("run.call", cmd, args).catch(showError);
+	const command = (cmd: string, args?: Record<string, unknown>) => call("run.call", cmd, args, player).catch(showError);
 	const otherCheckout = run && run.sessionId !== playCheckout && run.state !== "exited" && run.state !== "build_failed";
 
 	return (
@@ -213,6 +221,16 @@ function RunPanel() {
 				<button disabled={!running && !busy} onClick={() => call("run.stop").catch(showError)}>
 					■ Stop
 				</button>
+				<label className="row run-players" title="Multiplayer: start this many copies of the game. The first hosts, the others join it on this machine.">
+					<span className="muted">Players</span>
+					<select value={playPlayers} onChange={(e) => setPlayPlayers(Number(e.target.value))} data-testid="run-players">
+						{Array.from({ length: MAX_RUN_PLAYERS }, (_, i) => (
+							<option key={i} value={i + 1}>
+								{i + 1}
+							</option>
+						))}
+					</select>
+				</label>
 				{running && (
 					<>
 						<span className="sep" />
@@ -239,12 +257,32 @@ function RunPanel() {
 			{otherCheckout && <div className="notice">Running {run.label}, not the checkout selected above.</div>}
 			<div className="run-body">
 				<div className="run-main">
-					{running && run.mode === "hidden" && frame?.runId === run.id ? (
-						<Viewport frame={frame} />
+					{running && run.mode === "hidden" && players ? (
+						<div className={`viewports players-${players.length}`} data-testid="viewports">
+							{players.map((p) => {
+								const f = p.index ? peerFrames[p.index] : frame;
+								return (
+									<div key={p.index} className={`viewport-cell ${p.index === player ? "focused" : ""}`} data-testid="player-view" data-player={p.index} onMouseDown={() => setFocus(p.index)}>
+										<div className="row viewport-label">
+											<strong>{p.name}</strong>
+											<span className="muted">{p.role === "host" ? "hosts" : "joined"}</span>
+											<span className="grow" />
+											{p.state !== "running" && <span className="muted">{p.state === "starting" ? "starting…" : "stopped"}</span>}
+											{p.index === player && <span className="badge current">controls</span>}
+										</div>
+										{p.state === "running" && f?.runId === run.id ? <Viewport frame={f} player={p.index} compact /> : <div className="viewport empty">{p.state === "exited" ? "This copy of the game has stopped." : "Starting…"}</div>}
+									</div>
+								);
+							})}
+						</div>
+					) : running && run.mode === "hidden" && frame?.runId === run.id ? (
+						<Viewport frame={frame} player={0} />
 					) : (
 						<div className="viewport empty">
 							{running && run.mode === "window"
-								? "Playing in a separate window. The inspector and console still work."
+								? players
+									? `Playing in ${players.length} windows, one per player. The inspector and console work on ${players[player].name}'s copy.`
+									: "Playing in a separate window. The inspector and console still work."
 								: busy
 									? STATE_LABEL[run!.state]
 									: "Run the game to see it here. Click the picture to play with keyboard and mouse; a controller works without clicking."}
@@ -257,15 +295,27 @@ function RunPanel() {
 						</div>
 					)}
 					{run && <Diagnostics list={run.diagnostics} sessionId={run.sessionId} />}
-					<Console output={runOutput} running={running} />
+					{players && run.mode === "window" && running && (
+						<div className="row run-player-pick">
+							<span className="muted">Inspect and send commands to</span>
+							<div className="segmented">
+								{players.map((p) => (
+									<button key={p.index} className={p.index === player ? "on" : ""} onClick={() => setFocus(p.index)}>
+										{p.name}
+									</button>
+								))}
+							</div>
+						</div>
+					)}
+					<Console output={runOutput} running={running} player={player} label={players ? players[player].name : undefined} />
 				</div>
-				<Inspector running={running} runId={run?.id} />
+				<Inspector running={running} runId={run?.id} player={player} label={players ? players[player].name : undefined} />
 			</div>
 		</div>
 	);
 }
 
-function Viewport({ frame }: { frame: { src: string; width: number; height: number } }) {
+function Viewport({ frame, player, compact }: { frame: { src: string; width: number; height: number }; player: number; compact?: boolean }) {
 	const img = useRef<HTMLImageElement>(null);
 	const [captured, setCaptured] = useState(false);
 	const lastMove = useRef(0);
@@ -274,7 +324,7 @@ function Viewport({ frame }: { frame: { src: string; width: number; height: numb
 		const r = img.current!.getBoundingClientRect();
 		return { x: Math.round(((e.clientX - r.left) * frame.width) / r.width), y: Math.round(((e.clientY - r.top) * frame.height) / r.height) };
 	};
-	const send = (cmd: string, args: Record<string, unknown>) => void quiet(call("run.call", cmd, args));
+	const send = (cmd: string, args: Record<string, unknown>) => void quiet(call("run.call", cmd, args, player));
 	const key = (e: KeyboardEvent, state: "down" | "up") => {
 		const name = raylibKey(e.code);
 		if (!name) return;
@@ -307,14 +357,20 @@ function Viewport({ frame }: { frame: { src: string; width: number; height: numb
 			onContextMenu={(e) => e.preventDefault()}
 		>
 			<img ref={img} src={frame.src} alt="Game view" draggable={false} />
-			<span className="viewport-hint">{captured
-					? "Playing: keyboard, mouse and controller go to the game. Click outside to stop."
-					: "Click to play with keyboard and mouse · a controller always works"}</span>
+			<span className="viewport-hint">
+				{compact
+					? captured
+						? "Playing this player. Click another to switch."
+						: "Click to play this player"
+					: captured
+						? "Playing: keyboard, mouse and controller go to the game. Click outside to stop."
+						: "Click to play with keyboard and mouse · a controller always works"}
+			</span>
 		</div>
 	);
 }
 
-function Console({ output, running }: { output: string; running: boolean }) {
+function Console({ output, running, player, label }: { output: string; running: boolean; player: number; label?: string }) {
 	const [line, setLine] = useState("");
 	const end = useRef<HTMLDivElement>(null);
 	useEffect(() => {
@@ -348,8 +404,8 @@ function Console({ output, running }: { output: string; running: boolean }) {
 			return;
 		}
 		try {
-			const result = await call("run.call", cmd, args);
-			appendOutput(`> ${text}\n${pretty(result)}\n`);
+			const result = await call("run.call", cmd, args, player);
+			appendOutput(`${label ? `[${label}] ` : ""}> ${text}\n${pretty(result)}\n`);
 		} catch (err) {
 			appendOutput(`> ${text}\nerror: ${(err as Error).message}\n`);
 		}
@@ -363,7 +419,7 @@ function Console({ output, running }: { output: string; running: boolean }) {
 			</pre>
 			<input
 				disabled={!running}
-				placeholder={running ? "Control command, e.g. entities, spawn name=Box position=[0,3,0], or {\"cmd\": …}" : "Run the game to send commands"}
+				placeholder={running ? `${label ? `To ${label}: c` : "C"}ontrol command, e.g. entities, spawn name=Box position=[0,3,0], or {"cmd": …}` : "Run the game to send commands"}
 				value={line}
 				onChange={(e) => setLine(e.target.value)}
 				onKeyDown={(e) => e.key === "Enter" && void submit()}
@@ -382,7 +438,7 @@ interface EntityRow {
 	components: string[];
 }
 
-function Inspector({ running, runId }: { running: boolean; runId?: string }) {
+function Inspector({ running, runId, player, label }: { running: boolean; runId?: string; player: number; label?: string }) {
 	const [entities, setEntities] = useState<EntityRow[]>([]);
 	const [selected, setSelected] = useState<number | null>(null);
 	const [detail, setDetail] = useState<unknown>(null);
@@ -390,23 +446,26 @@ function Inspector({ running, runId }: { running: boolean; runId?: string }) {
 	useEffect(() => {
 		setSelected(null);
 		if (!running) return setEntities([]);
-		const poll = () => call("run.call", "entities").then((r) => setEntities(r as EntityRow[]), () => {});
+		const poll = () => call("run.call", "entities", {}, player).then((r) => setEntities(r as EntityRow[]), () => setEntities([]));
 		poll();
 		const t = setInterval(poll, 1000);
 		return () => clearInterval(t);
-	}, [running, runId]);
+	}, [running, runId, player]);
 
 	useEffect(() => {
 		if (selected === null || !running) return setDetail(null);
-		const poll = () => call("run.call", "entity", { entity: selected }).then(setDetail, () => setDetail(null));
+		const poll = () => call("run.call", "entity", { entity: selected }, player).then(setDetail, () => setDetail(null));
 		poll();
 		const t = setInterval(poll, 500);
 		return () => clearInterval(t);
-	}, [selected, running]);
+	}, [selected, running, player]);
 
 	return (
 		<div className="inspector">
-			<h3>Entities {running && <span className="muted">({entities.length})</span>}</h3>
+			<h3>
+				Entities {running && <span className="muted">({entities.length})</span>}
+				{label && running && <span className="muted"> · {label}</span>}
+			</h3>
 			{!running && <div className="muted">Not running.</div>}
 			<div className="entity-list">
 				{entities.map((e) => (
@@ -448,7 +507,8 @@ function TestsPanel() {
 		<div className="tab-body tests-panel">
 			<div className="row">
 				<span className="muted grow">
-					Control scripts in <code>tests/</code>, run headlessly with <code>./build.sh test</code>. A test passes when every command succeeds.
+					Control scripts in <code>tests/</code>, run headlessly with <code>./build.sh test</code>. A test passes when every command succeeds. A <code>.mp.jsonl</code> script is
+					a multiplayer test: it runs across several copies of the game, each line sent to the player it names.
 				</span>
 				<button className="primary" disabled={busy || !scripts?.length} onClick={() => scripts && runTests(scripts)}>
 					▶ Run all

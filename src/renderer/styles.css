@@ -1420,6 +1420,49 @@ button.agent-type-card.on,
 	outline: none;
 	cursor: pointer;
 }
+/* A multiplayer run: every player's view side by side; the focused one takes the controls */
+.viewports {
+	flex: 3;
+	min-height: 200px;
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 8px;
+}
+.viewports.players-3,
+.viewports.players-4 {
+	grid-template-rows: 1fr 1fr;
+}
+.viewport-cell {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	min-width: 0;
+	gap: 4px;
+	padding: 4px;
+	border: 1px solid transparent;
+	border-radius: 8px;
+}
+.viewport-cell.focused {
+	border-color: var(--accent);
+	background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.viewport-cell .viewport {
+	flex: 1;
+	min-height: 0;
+}
+.viewport-label {
+	font-size: 12px;
+	gap: 6px;
+	padding: 0 2px;
+}
+.run-players {
+	gap: 6px;
+	font-size: 12px;
+}
+.run-player-pick {
+	font-size: 12px;
+	gap: 8px;
+}
 .viewport.captured {
 	border-color: var(--accent);
 	cursor: crosshair;

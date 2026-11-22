@@ -9,9 +9,13 @@ import type { StudioEvent } from "../shared/ipc";
 import {
 	type CheckoutId,
 	type CheckoutInfo,
+	MAX_RUN_PLAYERS,
 	type RunInfo,
 	type RunMode,
 	type RunOptions,
+	type RunPlayer,
+	isEditorRun,
+	isMultiplayerTest,
 	type TestReport,
 	pairReplies,
 	parseDiagnostics,
@@ -75,6 +79,8 @@ interface ActiveRun {
 	client?: EngineClient;
 	/** Removes what the run needed outside the checkout (the Shaders view's temp scene). */
 	cleanup?(): void;
+	/** A multiplayer run's other copies of the game (players 2 and up), each joined to the first. */
+	peers?: { index: number; proc: ChildProcess; client?: EngineClient }[];
 }
 
 export interface RunServiceDeps {
@@ -259,6 +265,13 @@ export class RunService {
 
 		const port = await freePort();
 		const args = runArgs(mode, port, options);
+		// Multiplayer: this copy hosts; the others join it once it runs (below). Only the plain game, not a section's view.
+		const players = isEditorRun(run.info) ? 1 : Math.max(1, Math.min(MAX_RUN_PLAYERS, Math.floor(options.players ?? 1)));
+		const gamePort = players > 1 ? await freePort() : 0;
+		if (players > 1) {
+			args.push(`--host=${gamePort}`, "--name=Player 1");
+			run.info.players = Array.from({ length: players }, (_, index) => ({ index, name: `Player ${index + 1}`, role: index ? ("client" as const) : ("host" as const), state: "starting" as const }));
+		}
 		let shaderCamera: { position: number[]; target: number[] } | undefined;
 		if (options.shader) {
 			// A temp scene outside the checkout, gone when the run ends.
@@ -289,6 +302,9 @@ export class RunService {
 			run.cleanup?.();
 			run.info.state = "exited";
 			run.info.exitCode = code;
+			if (run.info.players) run.info.players[0] = { ...run.info.players[0], state: "exited", exitCode: code };
+			// Without their host the other copies have nothing to play in.
+			for (const peer of run.peers ?? []) peer.proc.kill();
 			this.changed(run);
 		});
 
@@ -313,8 +329,10 @@ export class RunService {
 			await run.client.call("ui_show", { screen: options.screen }).catch(() => {});
 		}
 		run.info.state = "running";
+		if (run.info.players) run.info.players[0] = { ...run.info.players[0], state: "running" };
 		this.changed(run);
-		if (mode === "hidden") void this.pumpFrames(run);
+		if (mode === "hidden") void this.pumpFrames(run, run.client, 0);
+		for (let index = 1; index < players; index++) await this.join(run, co, mode, index, gamePort);
 		return run.info;
 	}
 
@@ -324,17 +342,54 @@ export class RunService {
 		const proc = run?.proc;
 		if (!proc || proc.exitCode !== null || proc.signalCode !== null) return;
 		const exited = new Promise((r) => proc.once("exit", r));
+		for (const peer of run.peers ?? []) peer.client?.call("quit").catch(() => {});
 		run.client?.call("quit").catch(() => {});
 		if (!(await Promise.race([exited.then(() => true), sleep(2000).then(() => false)]))) {
 			proc.kill("SIGKILL");
 			await exited;
 		}
+		for (const peer of run.peers ?? []) if (peer.proc.exitCode === null && peer.proc.signalCode === null) peer.proc.kill("SIGKILL");
+	}
+
+	/** Starts one more copy of the game for a multiplayer run and joins it to the host. */
+	private async join(run: ActiveRun, co: CheckoutInfo, mode: RunMode, index: number, gamePort: number): Promise<void> {
+		if (this.run !== run || run.info.state !== "running") return;
+		const set = (patch: Partial<RunPlayer>) => {
+			if (!run.info.players) return;
+			run.info.players = run.info.players.map((p) => (p.index === index ? { ...p, ...patch } : p));
+			this.changed(run);
+		};
+		const name = `Player ${index + 1}`;
+		const port = await freePort();
+		// No --read-pads: a real controller plays the host's copy only (the others take input from the studio).
+		const args = [`--mode=${mode}`, `--control=${port}`, ...(mode === "hidden" ? ["--fps=60"] : []), `--join=127.0.0.1:${gamePort}`, `--name=${name}`];
+		const proc = await this.launch(co, args);
+		const peer: NonNullable<ActiveRun["peers"]>[number] = { index, proc };
+		(run.peers ??= []).push(peer);
+		const say = (text: string) => this.output(run, text.replace(/^(?=.)/gm, `[${name}] `));
+		proc.stdout?.setEncoding("utf8").on("data", say);
+		proc.stderr?.setEncoding("utf8").on("data", say);
+		proc.on("error", (err) => say(`${err.message}\n`));
+		proc.on("exit", (code) => {
+			peer.client?.close();
+			set({ state: "exited", exitCode: code });
+		});
+		try {
+			peer.client = await EngineClient.connect(port, () => proc.exitCode === null && this.run === run && run.info.state === "running");
+		} catch (err) {
+			say(`Could not connect to this copy of the game: ${(err as Error).message}\n`);
+			proc.kill();
+			return;
+		}
+		set({ state: "running" });
+		if (mode === "hidden") void this.pumpFrames(run, peer.client, index);
 	}
 
 	/** Sends a control-protocol command to the running game. */
-	call(cmd: string, args: Record<string, unknown> = {}): Promise<unknown> {
-		const client = this.run?.info.state === "running" ? this.run.client : undefined;
-		if (!client) return Promise.reject(new Error("The game isn't running"));
+	call(cmd: string, args: Record<string, unknown> = {}, player = 0): Promise<unknown> {
+		const run = this.run?.info.state === "running" ? this.run : undefined;
+		const client = player ? run?.peers?.find((p) => p.index === player && p.proc.exitCode === null)?.client : run?.client;
+		if (!client) return Promise.reject(new Error(player ? `Player ${player + 1}'s copy of the game isn't running` : "The game isn't running"));
 		return client.call(cmd, args);
 	}
 
@@ -716,7 +771,7 @@ export class RunService {
 		const co = this.checkout(sessionId);
 		const text = readFileSync(safeJoin(co.cwd, script), "utf8");
 		const started = Date.now();
-		const r = await this.exec(co, ["test", script], undefined, TEST_TIMEOUT_MS);
+		const r = isMultiplayerTest(script) ? await this.multiplayerTest(co, script) : await this.exec(co, ["test", script], undefined, TEST_TIMEOUT_MS);
 		const buildOk = /^>> built /m.test(r.stdout);
 		const { steps, notRun } = buildOk ? pairReplies(text, r.stdout) : { steps: [], notRun: scriptCommands(text).length };
 		const screenshots = steps.flatMap((s) => {
@@ -754,6 +809,42 @@ export class RunService {
 		this.children.clear();
 	}
 
+	/**
+	 * A multiplayer script (tests/*.mp.jsonl): the game is built, then the engine's tools/mptest.py starts a host and
+	 * the other players on this machine and sends each line to the player it names. One reply per line on stdout, like
+	 * a single-player script's.
+	 */
+	private async multiplayerTest(co: CheckoutInfo, script: string): Promise<ExecResult> {
+		const built = await this.exec(co, ["build"]);
+		if (built.code !== 0) return built;
+		const tool = join(co.engineDir ?? join(co.cwd, "engine"), "tools/mptest.py");
+		if (!existsSync(tool)) return { code: 1, stdout: built.stdout, stderr: `${built.stderr}This game's engine can't run multiplayer tests yet (no tools/mptest.py): update the engine first.\n` };
+		const ran = await this.inTurn(co.cwd, () => this.spawnTool("python3", [tool, "build/game", script], co.cwd, TEST_TIMEOUT_MS));
+		return { code: ran.code, stdout: built.stdout + ran.stdout, stderr: built.stderr + ran.stderr };
+	}
+
+	private spawnTool(cmd: string, args: string[], cwd: string, timeoutMs: number): Promise<ExecResult> {
+		return new Promise((resolve) => {
+			const proc = this.track(spawn(cmd, args, { cwd, env: { ...process.env, NO_COLOR: "1" } }));
+			let stdout = "";
+			let stderr = "";
+			proc.stdout.setEncoding("utf8").on("data", (t: string) => (stdout += t));
+			proc.stderr.setEncoding("utf8").on("data", (t: string) => (stderr += t));
+			const timer = setTimeout(() => {
+				stderr += `stopped: no result after ${Math.round(timeoutMs / 1000)} s\n`;
+				proc.kill("SIGKILL");
+			}, timeoutMs);
+			proc.on("error", (err) => {
+				clearTimeout(timer);
+				resolve({ code: null, stdout, stderr: `${stderr}${err.message}\n` });
+			});
+			proc.on("close", (code) => {
+				clearTimeout(timer);
+				resolve({ code, stdout, stderr });
+			});
+		});
+	}
+
 	private track<P extends ChildProcess>(proc: P): P {
 		this.children.add(proc);
 		proc.once("exit", () => this.children.delete(proc));
@@ -767,14 +858,15 @@ export class RunService {
 		return p;
 	}
 
-	private async pumpFrames(run: ActiveRun): Promise<void> {
+	private async pumpFrames(run: ActiveRun, client: EngineClient | undefined, player: number): Promise<void> {
 		let inFlight = 0;
 		let lastRequest = 0;
-		while (this.run === run && run.info.state === "running") {
+		const alive = () => (player ? run.info.players?.[player]?.state === "running" : true);
+		while (client && this.run === run && run.info.state === "running" && alive()) {
 			if (this.streaming && inFlight < FRAMES_IN_FLIGHT && Date.now() - lastRequest >= FRAME_INTERVAL_MS) {
 				lastRequest = Date.now();
 				inFlight++;
-				run.client!.call("screenshot", FRAME_REQUEST).then(
+				client.call("screenshot", FRAME_REQUEST).then(
 					(reply) => {
 						inFlight--;
 						// Engines older than JPEG support ignore `format` and reply with a PNG.
@@ -782,7 +874,7 @@ export class RunService {
 						const image = r.jpeg_base64 ?? r.png_base64;
 						if (!image || this.run !== run) return;
 						const mime = r.jpeg_base64 ? "image/jpeg" : "image/png";
-						this.deps.emit({ type: "run_frame", runId: run.info.id, image, mime, width: r.width, height: r.height });
+						this.deps.emit({ type: "run_frame", runId: run.info.id, image, mime, width: r.width, height: r.height, player });
 					},
 					() => {
 						// The game is exiting; the exit handler reports it.

@@ -5,7 +5,8 @@
 #   ./build.sh release [windows]  release build for players (the engine's tools/release.sh): build/game-release(.exe)
 #   ./build.sh run [-- args]      build and run from the project root (e.g. -- --mode=hidden --control)
 #   ./build.sh check              type-check only
-#   ./build.sh test [script]      headless scripted test (default: tests/smoke.jsonl); exit code = verdict
+#   ./build.sh test [script]      headless scripted test (default: tests/smoke.jsonl); exit code = verdict.
+#                                 A multiplayer script (tests/*.mp.jsonl) runs across several copies of the game.
 #
 # ENGINE_DIR selects the engine checkout (default: the engine/ submodule). Engine sessions point it at
 # their worktree to test an engine change against this game before merging it.
@@ -47,7 +48,12 @@ case "$cmd" in
 	check) odin check game "$COLLECTION" ;;
 	test)
 		build -debug
-		build/game --mode=hidden --fixed-dt --script="${1:-tests/smoke.jsonl}"
+		script="${1:-tests/smoke.jsonl}"
+		if [[ "$script" == *.mp.jsonl ]]; then
+			python3 "$ENGINE_DIR/tools/mptest.py" build/game "$script"
+		else
+			build/game --mode=hidden --fixed-dt --script="$script"
+		fi
 		;;
-	*) sed -n '2,10p' "$0"; exit 1 ;;
+	*) sed -n '2,11p' "$0"; exit 1 ;;
 esac

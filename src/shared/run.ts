@@ -38,6 +38,11 @@ export interface RunInfo {
 	exitCode?: number | null;
 	diagnostics: Diagnostic[];
 	startedAt: string;
+	/**
+	 * A multiplayer run: every copy of the game it started on this machine. Player 1 hosts (the engine's client-hosted
+	 * multiplayer, `--host`), the others join it over the loopback address. Absent for an ordinary run.
+	 */
+	players?: RunPlayer[];
 	/** Set for the Scenes editor's run: the scene (assets-relative) shown paused, with the game's UI hidden. */
 	scene?: string;
 	/** Set for the UI section's run: the screen (assets/ui/<screen>.json) shown alone over the game, paused. */
@@ -51,7 +56,23 @@ export interface RunInfo {
 /** A section's live view (Scenes, UI, Shaders) rather than the game run from Play & Test: other sections may take it over. */
 export const isEditorRun = (run: { scene?: string; screen?: string; shader?: string; effect?: string }) => !!(run.scene || run.screen || run.shader || run.effect);
 
+/** One copy of the game in a multiplayer run. */
+export interface RunPlayer {
+	/** 0 is the host; `run.call`'s `player` and a frame's `player` are this. */
+	index: number;
+	/** The name it joined with (`--name`): "Player 1"… */
+	name: string;
+	role: "host" | "client";
+	state: "starting" | "running" | "exited";
+	exitCode?: number | null;
+}
+
+/** How many copies of the game a multiplayer run may start. */
+export const MAX_RUN_PLAYERS = 4;
+
 export interface RunOptions {
+	/** Start this many copies of the game (2 to MAX_RUN_PLAYERS): the first hosts, the rest join it. Play & Test only. */
+	players?: number;
 	/** Open this scene or prefab (assets-relative) paused, as the Scenes editor's live view. */
 	scene?: string;
 	/** Open the game paused with only this UI screen shown (the UI section's live view). */
@@ -87,6 +108,9 @@ export interface TestReport {
 	durationMs: number;
 	finishedAt: string;
 }
+
+/** A multiplayer test script (tests/*.mp.jsonl): run by the engine's tools/mptest.py across several copies of the game. */
+export const isMultiplayerTest = (script: string) => script.endsWith(".mp.jsonl");
 
 const DIAGNOSTIC = /^(.+?)\((\d+):(\d+)\) (Error|Warning|Syntax Error): (.*)$/;
 

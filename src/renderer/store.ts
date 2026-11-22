@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { StudioEvent } from "../shared/ipc";
 import { type ModuleInfo, moduleOwns } from "../shared/modules";
-import type { CheckoutId, RunInfo, RunMode, TestReport } from "../shared/run";
+import { type CheckoutId, MAX_RUN_PLAYERS, type RunInfo, type RunMode, type TestReport } from "../shared/run";
 import type { AgentTypeInfo, ModelInfo, ProjectInfo, SessionSummary, Settings, Target, UpdateStatus, WorktreeSummary } from "../shared/types";
 import type { HistoryStep } from "../shared/history";
 import { call } from "./api";
@@ -111,6 +111,11 @@ interface State {
 	run: RunInfo | null;
 	runOutput: string;
 	frame: { runId: string; src: string; width: number; height: number } | null;
+	/** A multiplayer run's other copies of the game: each one's latest frame by player index (1 and up). */
+	peerFrames: Record<number, { runId: string; src: string; width: number; height: number }>;
+	/** How many copies of the game Play & Test starts (1: an ordinary run). */
+	playPlayers: number;
+	setPlayPlayers(n: number): void;
 	testReports: Record<string, TestReport>;
 	testsRunning: string[];
 
@@ -200,6 +205,12 @@ export const useStudio = create<State>((set, get) => ({
 	run: null,
 	runOutput: "",
 	frame: null,
+	peerFrames: {},
+	playPlayers: Math.max(1, Math.min(MAX_RUN_PLAYERS, Number(localStorage.getItem("play-players")) || 1)),
+	setPlayPlayers(n) {
+		localStorage.setItem("play-players", String(n));
+		set({ playPlayers: n });
+	},
 	testReports: {},
 	testsRunning: [],
 
@@ -287,7 +298,7 @@ export const useStudio = create<State>((set, get) => ({
 		const checkout = get().playCheckout;
 		try {
 			if (mode === "build") await call("run.build", checkout);
-			else await call("run.start", checkout, mode);
+			else await call("run.start", checkout, mode, get().playPlayers > 1 ? { players: get().playPlayers } : undefined);
 		} catch (err) {
 			get().showError(err);
 		}
@@ -313,13 +324,17 @@ export const useStudio = create<State>((set, get) => ({
 				set({ update: event.status });
 				break;
 			case "run_changed":
-				set((s) => (s.run?.id === event.run.id ? { run: event.run } : { run: event.run, runOutput: "", frame: null }));
+				set((s) => (s.run?.id === event.run.id ? { run: event.run } : { run: event.run, runOutput: "", frame: null, peerFrames: {} }));
 				break;
 			case "run_output":
 				set((s) => (s.run?.id === event.runId ? { runOutput: (s.runOutput + event.text).slice(-OUTPUT_LIMIT) } : {}));
 				break;
 			case "run_frame":
-				set({ frame: { runId: event.runId, src: `data:${event.mime};base64,${event.image}`, width: event.width, height: event.height } });
+				{
+					const frame = { runId: event.runId, src: `data:${event.mime};base64,${event.image}`, width: event.width, height: event.height };
+					if (event.player) set((s) => ({ peerFrames: { ...s.peerFrames, [event.player]: frame } }));
+					else set({ frame });
+				}
 				break;
 			case "test_report":
 				set((s) => ({ testReports: { ...s.testReports, [testKey(event.report.sessionId, event.report.script)]: event.report } }));

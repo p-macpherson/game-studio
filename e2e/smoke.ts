@@ -294,6 +294,21 @@ try {
 	await page.getByRole("button", { name: "■ Stop" }).click();
 	await page.getByTestId("run-state").getByText("Stopped").waitFor();
 
+	// Multiplayer: two copies of the game side by side, the first hosting; the console and inspector follow the one clicked.
+	await page.getByTestId("run-players").selectOption("2");
+	await page.getByRole("button", { name: "▶ Run in studio" }).click();
+	await page.waitForFunction(() => document.querySelectorAll("[data-testid=player-view] [data-testid=viewport] img").length === 2, undefined, { timeout: 60_000 });
+	const netOf = (player: number) => page.evaluate((p) => window.studio.call("run.call", "net", {}, p), player) as Promise<{ role: string; players: unknown[] }>;
+	for (let i = 0; i < 100 && (await netOf(1)).players.length !== 2; i++) await page.waitForTimeout(100);
+	if ((await netOf(0)).role !== "Host" || (await netOf(1)).role !== "Client" || (await netOf(1)).players.length !== 2) throw new Error("the second copy of the game should have joined the first");
+	await page.locator("[data-testid=player-view][data-player='1']").click();
+	await page.locator("[data-testid=player-view][data-player='1'].focused").waitFor();
+	await page.locator(".inspector h3", { hasText: "Player 2" }).waitFor();
+	await step("12a-play-multiplayer", page);
+	await page.getByRole("button", { name: "■ Stop" }).click();
+	await page.getByTestId("run-state").getByText("Stopped").waitFor();
+	await page.getByTestId("run-players").selectOption("1");
+
 	// Tests: the template's smoke test passes, with its screenshot.
 	await page.getByRole("button", { name: "Tests", exact: true }).click();
 	await page.getByRole("button", { name: "▶ Run all" }).click();

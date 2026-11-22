@@ -80,7 +80,8 @@ export interface StudioApi {
 	"run.start"(sessionId: CheckoutId, mode: RunMode, options?: RunOptions): Promise<RunInfo>;
 	"run.stop"(): Promise<void>;
 	/** A control-protocol command for the running game (see engine/docs/control-protocol.md). */
-	"run.call"(cmd: string, args?: Record<string, unknown>): Promise<unknown>;
+	/** `player`: which copy of a multiplayer run (default 0, the host). */
+	"run.call"(cmd: string, args?: Record<string, unknown>, player?: number): Promise<unknown>;
 	"run.stream"(on: boolean): Promise<void>;
 	"run.tests"(sessionId: CheckoutId): Promise<string[]>;
 	"run.test"(sessionId: CheckoutId, script: string): Promise<TestReport>;
@@ -218,7 +219,7 @@ export type StudioEvent =
 	| { type: "run_changed"; run: RunInfo }
 	| { type: "run_output"; runId: string; text: string }
 	/** A streamed frame: base64 image data of type `mime`. */
-	| { type: "run_frame"; runId: string; image: string; mime: string; width: number; height: number }
+	| { type: "run_frame"; runId: string; image: string; mime: string; width: number; height: number; /** Which copy of a multiplayer run (0: the host, or the only one). */ player: number }
 	| { type: "test_report"; report: TestReport }
 	| { type: "gen_job"; job: GenJob }
 	| { type: "gen_changed" }
