@@ -163,6 +163,10 @@ a {
 	border-radius: 6px;
 	color: var(--muted);
 }
+.nav-item:hover {
+	background: color-mix(in srgb, var(--panel-2) 55%, transparent);
+	color: var(--text);
+}
 .nav-item.active {
 	background: var(--panel-2);
 	color: var(--text);
