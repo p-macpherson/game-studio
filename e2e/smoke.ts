@@ -105,10 +105,17 @@ try {
 
 	// New Session can show the agent types as the delegation graph: a node picks the type.
 	await page.getByRole("button", { name: "+ New session" }).click();
+	// The dialog shows the type it starts with; "Change…" opens the full chooser.
+	await page.getByTestId("new-session-type").filter({ hasText: "Chief Director" }).waitFor();
+	await step("01a-new-session", page);
+	await page.getByTestId("new-session-change-type").click();
 	await page.getByTestId("new-session-layout-graph").click();
-	await page.getByTestId("agent-node").filter({ hasText: "Gameplay Engineer" }).click();
-	await page.getByTestId("new-session-type-description").filter({ hasText: "Gameplay Engineer" }).waitFor();
+	await page.getByTestId("agent-node").filter({ hasText: "Auditor" }).hover();
 	await step("01b-new-session-graph", page);
+	// Picking a node chooses the type and closes the chooser.
+	await page.getByTestId("agent-node").filter({ hasText: "Gameplay Engineer" }).click();
+	await page.getByTestId("new-session-type").filter({ hasText: "Gameplay Engineer" }).waitFor();
+	await page.getByTestId("new-session-change-type").click();
 	await page.getByTestId("new-session-layout-list").click(); // remembered: the steps below pick from the list
 	await page.getByRole("button", { name: "Cancel" }).click();
 
@@ -362,6 +369,7 @@ try {
 	await selectMain(page);
 	await nav.getByRole("button", { name: "Sessions" }).click();
 	await page.getByRole("button", { name: "+ New session" }).click();
+	await page.getByTestId("new-session-change-type").click();
 	await page.locator(".agent-type", { has: page.locator("strong", { hasText: /^3D Modeller$/ }) }).click();
 	await page.getByTestId("new-session-prompt").fill('tool generate_concept_images {"model": "crate", "prompt": "a wooden crate", "count": 2, "seed": 4}');
 	await page.getByRole("button", { name: "Start session" }).click();
@@ -549,6 +557,7 @@ try {
 	await page.locator(".session-header").first().waitFor();
 	await nav.getByRole("button", { name: "Sessions" }).click();
 	await page.getByRole("button", { name: "+ New session" }).click();
+	await page.getByTestId("new-session-change-type").click();
 	await page.locator(".agent-type", { hasText: "Composer" }).first().click();
 	await page.getByTestId("new-session-prompt").fill(`write assets/music/e2e-theme-sketch-1/song.json: ${JSON.stringify({ ...theme, title: "E2E Theme sketch 1" })}`);
 	await page.getByRole("button", { name: "Start session" }).click();

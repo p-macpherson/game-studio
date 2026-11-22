@@ -42,6 +42,8 @@ export function NewSessionDialog({ preset }: { preset: NewSessionPreset }) {
 	const [model, setModel] = useState(defaultModel(type?.defaultModel));
 	const [prompt, setPrompt] = useState(preset.prompt ?? "");
 	const [busy, setBusy] = useState(false);
+	// The agent type shows as the current choice; "Change…" opens the full list or graph, and picking closes it again.
+	const [choosing, setChoosing] = useState(false);
 	const [layout, setLayoutState] = useState<"list" | "graph">(() => (localStorage.getItem(LAYOUT_KEY) === "graph" ? "graph" : "list"));
 	const setLayout = (l: "list" | "graph") => {
 		localStorage.setItem(LAYOUT_KEY, l);
@@ -77,8 +79,26 @@ export function NewSessionDialog({ preset }: { preset: NewSessionPreset }) {
 
 	return (
 		<div className="modal-backdrop" onClick={() => openNewSession(null)}>
-			<div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: layout === "graph" ? "min(1040px, 94vw)" : 680 }}>
+			<div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: choosing && layout === "graph" ? "min(1040px, 94vw)" : 680 }}>
 				<h2>New session</h2>
+				{!choosing ? (
+					<div className="col">
+						<h3>Agent type</h3>
+						<div className="row agent-current">
+							{type ? (
+								<div className="agent-type on grow" data-testid="new-session-type">
+									<strong>{type.name}</strong>
+									<small>{type.description}</small>
+								</div>
+							) : (
+								<span className="grow muted">No agent type chosen</span>
+							)}
+							<button onClick={() => setChoosing(true)} data-testid="new-session-change-type">
+								Change…
+							</button>
+						</div>
+					</div>
+				) : (
 				<div className="col">
 					<div className="row">
 						<h3 className="grow">Agent type</h3>
@@ -94,7 +114,7 @@ export function NewSessionDialog({ preset }: { preset: NewSessionPreset }) {
 					{layout === "graph" ? (
 						<>
 							<div className="new-session-graph">
-								<AgentGraph types={agentTypes} models={models} picked={typeId ?? null} onPick={chooseType} />
+								<AgentGraph types={agentTypes} models={models} picked={typeId ?? null} onPick={(id) => (chooseType(id), setChoosing(false))} />
 							</div>
 							{type && (
 								<div className="small" data-testid="new-session-type-description">
@@ -106,14 +126,18 @@ export function NewSessionDialog({ preset }: { preset: NewSessionPreset }) {
 					) : (
 						<div className="agent-types">
 							{agentTypes.map((t) => (
-								<button key={t.id} className={`agent-type ${t.id === typeId ? "on" : ""}`} onClick={() => chooseType(t.id)}>
+								<button key={t.id} className={`agent-type ${t.id === typeId ? "on" : ""}`} onClick={() => (chooseType(t.id), setChoosing(false))}>
 									<strong>{t.name}</strong>
 									<small>{t.description}</small>
 								</button>
 							))}
 						</div>
 					)}
+					<div className="row" style={{ justifyContent: "flex-end" }}>
+						<button onClick={() => setChoosing(false)}>Keep {type?.name ?? "the current type"}</button>
+					</div>
 				</div>
+				)}
 				<div className="row">
 					<label className="field grow">
 						<span>Works on</span>

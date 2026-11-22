@@ -1134,6 +1134,12 @@ button.agent-type-card.on,
 .agent-warn {
 	color: var(--yellow);
 }
+.agent-current {
+	align-items: stretch;
+}
+.agent-current > button {
+	align-self: center;
+}
 .new-session-graph {
 	max-height: 46vh;
 	overflow: auto;

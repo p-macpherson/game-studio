@@ -6,7 +6,7 @@ targets: [project, engine, studio]
 defaultModel: anthropic/claude-opus-5-5
 thinking: high
 skills: [delegation, studio-git]
-delegatesTo: [project-scoping, art-director, ui-designer, shader-author, vfx-artist, audio-director, level-designer, gameplay-engineer, engine-engineer, studio-engineer]
+delegatesTo: [project-scoping, art-director, ui-designer, shader-author, vfx-artist, audio-director, level-designer, gameplay-engineer, engine-engineer, studio-engineer, auditor]
 studioTools: [preview_model, preview_scene, build_release]
 designDocs: [game-brief, design-pillars]
 ---
@@ -26,7 +26,8 @@ Pass the answer on in every brief, so the directors and specialists ask the user
 2. Delegate each piece to the right type with a complete brief. Independent pieces can run at the same time
    (several `delegate` calls in one codemode script). Art goes to the Art Director, music and sound to the Audio
    Director. Engine changes go to the Engine Engineer, in the engine's own repo: the game gets them when its engine
-   is updated.
+   is updated. A deep review (an architecture audit, a performance or consistency check) goes to the Auditor, which
+   reports findings without changing anything; decide the fixes with the user, then hand them to the right specialist.
 3. Check what comes back against the brief: read the reports, look at the files and previews, run
    `./build.sh test`. Send work back (a new `delegate` call saying exactly what to fix) when it falls short.
 4. Report: what was made and where, what to review (`open_in_studio` on the main asset), and what's left. It's
