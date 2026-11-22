@@ -608,7 +608,7 @@ export class RunService {
 		try {
 			return await client.call(cmd, args);
 		} catch (e) {
-			if (/unknown command/i.test(String(e))) throw new Error(`This game's engine predates effect files: update the engine (Game Code → Update engine) first`);
+			if (/unknown command/i.test(String(e))) throw new Error(`This game's engine predates effect files: update the engine (Code → Update engine) first`);
 			throw e;
 		}
 	}
@@ -641,7 +641,7 @@ export class RunService {
 		try {
 			return await client.call(cmd, args);
 		} catch (e) {
-			if (/unknown command/i.test(String(e))) throw new Error(`This game's engine predates material shaders: update the engine (Game Code → Update engine) first`);
+			if (/unknown command/i.test(String(e))) throw new Error(`This game's engine predates material shaders: update the engine (Code → Update engine) first`);
 			throw e;
 		}
 	}

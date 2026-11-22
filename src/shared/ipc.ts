@@ -49,8 +49,8 @@ export interface StudioApi {
 	/** Adds a remote to a project with none and pushes its branch there (see publishProject). */
 	"git.publish"(url: string): Promise<void>;
 	/** Engine submodule: commit currently pinned vs the engine repo's main. */
-	"git.engineInfo"(): Promise<{ pinned: string; latest: string; behind: number } | null>;
-	"git.updateEngine"(): Promise<void>;
+	"git.engineInfo"(checkout?: string | null): Promise<{ pinned: string; latest: string; behind: number } | null>;
+	"git.updateEngine"(checkout?: string | null): Promise<void>;
 
 	"accounts.providers"(): Promise<ProviderInfo[]>;
 	"accounts.login"(loginId: string, provider: string, type: "oauth" | "api_key"): Promise<void>;

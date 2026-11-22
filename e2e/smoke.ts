@@ -207,9 +207,9 @@ try {
 	await page.locator(".markdown", { hasText: "edited by hand" }).waitFor();
 	await page.getByTestId("doc-banner").filter({ hasText: "Established" }).waitFor();
 	await step("10b-doc-status-and-edit", page);
-	await page.locator(".sidebar").getByTestId("worktree-save").click();
+	await page.getByTestId("worktree-save").click();
 	await page.getByTestId("save-ok").click();
-	await page.locator(".sidebar").getByTestId("worktree-unsaved").waitFor({ state: "detached", timeout: 10_000 });
+	await page.getByTestId("worktree-unsaved").waitFor({ state: "detached", timeout: 10_000 });
 	await page.getByText("Sessions on this doc").waitFor();
 	await step("10-doc-draft-of-existing", page);
 	// The same session removes a doc: listed as removed; the sidebar counts the section's changes by kind; the
@@ -261,7 +261,7 @@ try {
 
 	// Game Code lists the template's code.
 	const nav = page.locator("nav.sidebar");
-	await nav.getByRole("button", { name: "Game Code" }).click();
+	await nav.getByRole("button", { name: "Code", exact: true }).click();
 	await page.getByTestId("asset-item").filter({ hasText: "main.odin" }).waitFor();
 	await page.getByTestId("code-view").getByText("package game").first().waitFor();
 	await step("11-game-code", page);
@@ -290,7 +290,7 @@ try {
 	// A session's code that doesn't compile (started from main, so in a new worktree): build its worktree, follow the
 	// error into its code there.
 	await selectMain(page);
-	await nav.getByRole("button", { name: "Game Code" }).click();
+	await nav.getByRole("button", { name: "Code", exact: true }).click();
 	await page.getByRole("button", { name: "+ New feature" }).click();
 	await page.getByTestId("new-session-prompt").fill("write game/extra.odin: package game\n\nextra :: proc() {\n\tx := nope\n}\n");
 	await page.getByRole("button", { name: "Start session" }).click();
@@ -536,7 +536,7 @@ try {
 
 	// Manual edits are unsaved, with an undo history: ↶ undoes the duplicate, the app menu's Edit → Undo the move;
 	// ↷ redoes; Save commits them (message from the steps) and the unsaved row goes away.
-	const sidebar = page.locator(".sidebar");
+	const sidebar = page.getByTestId("worktree-picker"); // the worktree bar (these lived in the sidebar once)
 	await sidebar.getByTestId("unsaved-count").filter({ hasText: "2 unsaved" }).waitFor({ timeout: 10_000 });
 	await sidebar.getByTestId("undo").click();
 	await page.getByTestId("notice").filter({ hasText: "Undid: Scene main: duplicated an entity" }).waitFor();
@@ -824,6 +824,21 @@ try {
 	await step("27-sidebar-collapsed", page);
 	await page.getByTestId("sidebar-toggle").click();
 	await nav.getByRole("button", { name: "Source Control" }).waitFor();
+	// The menu's groups (Project, Game, Visual, Audio) fold away and come back.
+	await page.getByTestId("nav-group-toggle-audio").click();
+	await page.getByTestId("nav-group-toggle-visual").click();
+	await nav.getByRole("button", { name: "Music" }).waitFor({ state: "hidden" });
+	await nav.getByRole("button", { name: "Textures" }).waitFor({ state: "hidden" });
+	await step("27c-sidebar-groups-folded", page);
+	await page.getByTestId("nav-group-toggle-audio").click();
+	await page.getByTestId("nav-group-toggle-visual").click();
+	await nav.getByRole("button", { name: "Music" }).waitFor();
+	// The worktree bar hides with the button beside Collapse, and comes back.
+	await page.getByTestId("worktree-bar-toggle").click();
+	await page.getByTestId("worktree-picker").waitFor({ state: "hidden" });
+	await step("27b-worktree-bar-hidden", page);
+	await page.getByTestId("worktree-bar-toggle").click();
+	await page.getByTestId("worktree-current").waitFor();
 
 	// Sound Effects: "New sound" starts a Sound Designer session whose takes (fake worker) make a sound; the section
 	// shows it, its takes and where it's used, and using a second take re-renders it with two variants.
@@ -947,17 +962,47 @@ try {
 	if (readFileSync(join(engineRepo, "faux-notes.md"), "utf8") !== "an engine note\n") throw new Error("the engine worktree's merge didn't reach the engine's main");
 	await nav.getByRole("button", { name: "Settings" }).click(); // where the steps after this expect to be
 
-	// Free up space: the menu shows each worktree's size; a clean, idle one's folder can go, and selecting it brings
-	// it back with its committed work.
+	// The Worktrees page (also reached from the bar's menu): every open worktree with its size; a clean, idle one's
+	// folder can go, and switching to it brings it back with its committed work. Main is one click away too.
 	await selectMain(page);
 	await page.getByTestId("worktree-current").click();
-	const noteRow = page.locator(".worktree-option-row").filter({ hasText: "add a note" });
-	await noteRow.getByTestId("worktree-size").filter({ hasText: "MB" }).waitFor({ timeout: 15_000 });
-	await page.getByTestId("worktree-space-total").waitFor();
-	await step("50-worktree-space", page);
-	await noteRow.getByTestId("worktree-unload").click();
-	await noteRow.getByTestId("worktree-size").filter({ hasText: "unloaded" }).waitFor({ timeout: 15_000 });
-	await noteRow.getByTestId("worktree-option").click();
+	await page.getByTestId("worktree-manage").click();
+	await page.getByTestId("worktrees-page").waitFor();
+	await page.getByTestId("worktrees-main").getByText("current").waitFor();
+	await nav.getByTestId("worktrees-count").waitFor();
+	const noteRow = page.getByTestId("worktrees-row").filter({ hasText: "add a note" });
+	await noteRow.getByTestId("worktrees-size").filter({ hasText: "MB" }).waitFor({ timeout: 15_000 });
+	await page.getByTestId("worktrees-space-total").waitFor();
+	await step("50-worktrees-page", page);
+	await noteRow.getByTestId("worktrees-unload").click();
+	await noteRow.getByTestId("worktrees-size").filter({ hasText: "no folder" }).waitFor({ timeout: 15_000 });
+	await noteRow.getByTestId("worktrees-switch").click();
+	await noteRow.getByTestId("worktrees-current").waitFor({ timeout: 30_000 });
+	await page.getByTestId("worktrees-switch-main").click();
+	await page.getByTestId("worktree-current").filter({ hasText: "main" }).waitFor();
+	await noteRow.getByTestId("worktrees-switch").click();
+	await step("50b-worktrees-page-current", page);
+	// Update all: every worktree behind main is updated, one by one; those that don't conflict stop offering Update.
+	const behindBefore = await page.getByTestId("worktrees-update").count();
+	await page.getByTestId("worktrees-update-all").click();
+	await page.getByTestId("notice").filter({ hasText: /Updated \d+ worktrees? from main/ }).waitFor({ timeout: 120_000 });
+	await page.waitForTimeout(1500);
+	const behindAfter = await page.getByTestId("worktrees-update").count();
+	if (!(behindBefore > 0 && behindAfter < behindBefore)) throw new Error(`Update all left ${behindAfter} of ${behindBefore} worktrees behind main`);
+	await step("50c-worktrees-updated", page);
+	// Update engine: the engine's main moved on (the engine worktree merged above), so main and each game worktree
+	// offer to pin its latest; taking it in a worktree commits the new pin on that worktree's branch only.
+	await page.getByTestId("worktrees-main").getByTestId("worktrees-update-engine").waitFor({ timeout: 15_000 });
+	await noteRow.getByTestId("worktrees-update-engine").click();
+	await page.getByTestId("notice").filter({ hasText: "Updated the engine in" }).waitFor({ timeout: 60_000 });
+	await noteRow.getByTestId("worktrees-update-engine").waitFor({ state: "hidden", timeout: 15_000 });
+	const pins = (await page.evaluate(async () => {
+		const id = ((await window.studio.call("worktrees.list")) as { id: string; label: string; status: string }[]).find((w) => w.label === "add a note" && w.status === "active")!.id;
+		return [await window.studio.call("git.engineInfo", id), await window.studio.call("git.engineInfo", null)];
+	})) as { pinned: string; latest: string; behind: number }[];
+	if (pins[0].pinned !== pins[0].latest || pins[1].behind < 1) throw new Error(`Update engine: the worktree pins ${pins[0].pinned} (latest ${pins[0].latest}); main is ${pins[1].behind} behind`);
+	await step("50d-worktrees-engine", page);
+	await nav.getByRole("button", { name: "Settings" }).click(); // where the steps after this expect to be
 	await page.getByTestId("worktree-current").filter({ hasText: "add a note" }).waitFor({ timeout: 30_000 });
 	const notePath = await page.evaluate(async () => ((await window.studio.call("worktrees.list")) as { label: string; path: string; status: string }[]).find((w) => w.label === "add a note" && w.status === "active")!.path);
 	await page.waitForFunction(async (p) => ((await window.studio.call("worktrees.list")) as { path: string; checkout: string }[]).some((w) => w.path === p && w.checkout === "active"), notePath, { timeout: 30_000 });
@@ -1015,7 +1060,7 @@ try {
 	await page.getByTestId("asset-item").first().waitFor();
 	await page.waitForTimeout(500);
 	await step("41-theme-latte", page);
-	await nav.getByRole("button", { name: "Game Code" }).click();
+	await nav.getByRole("button", { name: "Code", exact: true }).click();
 	await page.locator(".code-line").first().waitFor();
 	await step("42-theme-latte-code", page);
 	await nav.getByRole("button", { name: "Settings" }).click();

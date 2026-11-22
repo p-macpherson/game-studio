@@ -142,6 +142,8 @@ a {
 	flex-direction: column;
 	padding: 12px 8px;
 	gap: 2px;
+	min-height: 0;
+	overflow-y: auto;
 }
 .sidebar .project {
 	padding: 6px 8px 12px;
@@ -173,7 +175,48 @@ a {
 	padding: 0 6px;
 }
 .nav-section {
-	margin: 14px 10px 4px;
+	margin: 12px 0 2px;
+}
+.nav-group.first .nav-section {
+	margin-top: 4px;
+}
+.shell.collapsed .nav-group.first .nav-section {
+	display: none;
+}
+.nav-group {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+.nav-section-toggle {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	width: 100%;
+	padding: 3px 10px;
+	background: none;
+	border: none;
+	border-radius: 6px;
+	color: inherit;
+	font: inherit;
+	letter-spacing: inherit;
+	text-transform: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+.nav-section-toggle:hover {
+	background: var(--panel-2);
+	color: var(--text);
+}
+.nav-section-caret {
+	font-size: 10px;
+	opacity: 0.7;
+}
+.nav-section-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--accent);
 }
 .nav-icon {
 	width: 18px;
@@ -1762,36 +1805,115 @@ button.link {
 }
 
 /* Worktree selector (sidebar) */
-.worktree-picker {
+/* The worktree bar: along the bottom of the window, under every section; its popovers open upwards */
+.worktree-bar {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-height: 44px;
+	padding: 6px 14px;
+	background: var(--panel);
+	border-top: 1px solid var(--border);
+	flex-shrink: 0;
+	min-width: 0;
+	margin-top: auto;
+}
+.worktree-bar[hidden] {
+	display: none;
+}
+/* Collapse, and beside it the button that hides or shows the worktree bar */
+.sidebar-toggles {
+	display: flex;
+	gap: 2px;
+}
+.bar-toggle {
 	position: relative;
-	margin: 2px 0 8px;
-	padding-bottom: 8px;
-	border-bottom: 1px solid var(--border);
+	padding: 7px 8px;
+}
+.bar-toggle.on {
+	color: var(--text);
+}
+.shell.collapsed .sidebar-toggles {
+	flex-direction: column;
+}
+.worktree-select,
+.worktree-more,
+.worktree-unsaved {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+}
+.worktree-select {
+	flex: 0 1 auto;
 }
 .worktree-current {
-	width: 100%;
-	font-weight: 600;
-}
-.worktree-actions {
-	gap: 4px;
+	display: flex;
 	align-items: center;
-	padding: 2px 4px 0 10px;
+	gap: 8px;
+	max-width: 460px;
 	min-width: 0;
+	font-weight: 600;
+	padding: 5px 10px;
 }
-.worktree-actions .grow {
-	min-width: 0;
+.worktree-current .count {
+	color: var(--accent);
+	font-size: 10px;
 }
-.worktree-naming input {
-	width: 100%;
-	margin-top: 4px;
+.worktree-glyph {
+	color: var(--muted);
+}
+.worktree-fact {
+	flex-shrink: 0;
+	white-space: nowrap;
+}
+.worktree-fact.ellipsis {
+	flex-shrink: 1;
+}
+.worktree-naming {
+	flex: 0 1 380px;
+	min-width: 160px;
+}
+.worktree-status {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-shrink: 0;
+	white-space: nowrap;
+	padding-left: 10px;
+	border-left: 1px solid var(--border);
+}
+.worktree-status.conflict {
+	color: var(--yellow);
+	font-size: 12px;
+}
+.worktree-unsaved {
+	flex-shrink: 0;
+	padding-right: 10px;
+	border-right: 1px solid var(--border);
+}
+.worktree-more-menu {
+	position: absolute;
+	z-index: 30;
+	bottom: calc(100% + 6px);
+	right: 0;
+	min-width: 150px;
+	padding: 6px;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.danger-text {
+	color: var(--red);
 }
 .worktree-menu {
 	position: absolute;
 	z-index: 30;
-	top: 36px;
+	bottom: calc(100% + 6px);
 	left: 0;
-	right: 0;
-	min-width: 240px;
+	width: 320px;
 	padding: 6px;
 	display: flex;
 	flex-direction: column;
@@ -1800,14 +1922,6 @@ button.link {
 }
 .worktree-menu .nav-item {
 	gap: 8px;
-}
-.shell.collapsed .worktree-actions,
-.shell.collapsed .worktree-naming {
-	display: none;
-}
-.shell.collapsed .worktree-menu {
-	left: 100%;
-	top: 0;
 }
 
 /* Session tree */
@@ -2053,22 +2167,25 @@ textarea {
 	font-variant-ligatures: none;
 }
 
-/* Manual edits: the unsaved row under the worktree selector, its step list, and short notices */
-.worktree-unsaved {
-	gap: 4px;
-	padding: 0 8px 6px;
-}
+/* Manual edits: the unsaved group in the worktree bar, its step list, and short notices */
 .unsaved-count {
-	min-width: 0;
-	padding: 3px 4px;
+	padding: 3px 6px;
 	color: var(--yellow);
-	text-align: left;
+	white-space: nowrap;
+}
+.unsaved-count.saved {
+	color: var(--muted);
 }
 .history-list {
+	position: absolute;
+	z-index: 30;
+	bottom: calc(100% + 6px);
+	right: 0;
+	width: 300px;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 	display: flex;
 	flex-direction: column;
 	gap: 2px;
-	margin: 0 8px 8px;
 	padding: 6px;
 	max-height: 220px;
 	overflow: auto;
@@ -2085,7 +2202,7 @@ textarea {
 .toast {
 	position: fixed;
 	left: 50%;
-	bottom: 18px;
+	bottom: 62px;
 	transform: translateX(-50%);
 	z-index: 50;
 	padding: 7px 14px;
@@ -2212,14 +2329,6 @@ textarea {
 }
 
 /* Worktree update status (behind main, conflicts) and the Sessions page's scope */
-.worktree-status {
-	gap: 4px;
-	padding: 0 8px 6px 10px;
-	font-size: 12px;
-}
-.worktree-status.conflict {
-	color: var(--yellow);
-}
 .scope-banner {
 	padding: 6px 12px;
 	border-bottom: 1px solid var(--border);
@@ -2230,16 +2339,64 @@ textarea {
 	background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
-/* Worktree menu: a row per worktree with its size and the free-up-space button */
-.worktree-option-row {
-	gap: 2px;
+/* Worktrees page: a row per open worktree, its facts under its name and its actions on the right */
+.worktrees-page {
+	max-width: 1100px;
+	width: 100%;
+}
+.worktree-rows {
+	padding: 4px 14px;
+	gap: 0;
+}
+.worktree-row {
+	display: flex;
 	align-items: center;
+	gap: 14px;
+	padding: 10px 0;
+	border-bottom: 1px solid var(--border);
 }
-.worktree-option-row > .icon {
-	flex-shrink: 0;
+.worktree-row:last-child {
+	border-bottom: none;
 }
-.worktree-space-total {
-	padding: 4px 10px 2px;
+.worktree-row-main {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+}
+.worktree-row-label {
+	font-weight: 600;
+}
+.worktree-row.current .worktree-row-label {
+	color: var(--accent);
+}
+.badge.current {
+	color: var(--accent);
+	background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.worktree-row-facts {
+	flex-wrap: wrap;
+	gap: 4px 14px;
+}
+.worktree-row-facts .conflict {
+	color: var(--yellow);
+}
+.worktree-row-actions {
+	flex: none;
+	gap: 6px;
+}
+button.link {
+	background: none;
+	border: none;
+	padding: 0;
+	color: inherit;
+	font: inherit;
+	text-decoration: underline dotted;
+	cursor: pointer;
+}
+button.link:hover {
+	color: var(--text);
 }
 
 /* Music: mix bar, picking bars to recompose, muting, adding an instrument */
@@ -2477,9 +2634,6 @@ textarea {
 }
 .worktree-group-empty {
 	padding: 2px 10px 4px;
-}
-.worktree-note {
-	padding: 0 10px 4px;
 }
 
 /* UI section: screens over a live engine view, and UI art */

@@ -724,6 +724,30 @@ export class SessionService {
 		return r;
 	}
 
+	/**
+	 * Moves a game worktree's engine pin to `commit` (fetched from the local engine repo) and commits that on its
+	 * branch. Refuses while agents work in it, an update from main is open, or its engine/ folder has edits of its own.
+	 */
+	async updateWorktreeEngine(id: string, commit: string): Promise<void> {
+		const w = this.worktrees.get(id);
+		this.assertIdleWorktree(id, "updating its engine");
+		if ((await this.worktrees.updateStatus(w)).conflicts) throw new Error(`“${w.record.label}” is being updated from main: resolve its conflicts or abort first`);
+		await this.worktrees.ensureCheckout(w, (dir) => this.initSubmodules(dir));
+		const dir = this.worktrees.path(w);
+		const engine = join(dir, "engine");
+		if (!existsSync(join(engine, ".git"))) throw new Error(`“${w.record.label}” has no engine submodule`);
+		await this.syncSubmodules(dir); // not a stale checkout from before an update from main
+		const own = await g.git(engine, ["status", "--porcelain", "--untracked-files=no"]);
+		if (own.trim()) throw new Error(`“${w.record.label}” has edits inside engine/: commit or revert them first`);
+		await g.git(engine, ["-c", "protocol.file.allow=always", "fetch", "-q", this.deps.settings().engineRepo, "main"]);
+		await g.git(engine, ["checkout", "-q", commit]);
+		await g.commitPaths(dir, ["engine"], `Update engine to ${commit.slice(0, 7)}`);
+		await this.initSubmodules(dir); // shares the engine's built libraries again
+		w.record.updatedAt = new Date().toISOString();
+		this.worktrees.save(w);
+		this.deps.emit({ type: "sessions_changed" });
+	}
+
 	async abortWorktreeUpdate(id: string): Promise<void> {
 		const w = this.worktrees.get(id);
 		this.assertIdleWorktree(id, "aborting the update");

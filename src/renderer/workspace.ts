@@ -23,7 +23,7 @@ export async function runInWorktree(label: string, method: StudioRequestMethod, 
 }
 
 /** What a worktree's unsaved changes are, for a dialog: its manual edits by name, else the files. */
-async function unsavedOf(worktreeId: string): Promise<{ count: number; text: string; message: string }> {
+export async function unsavedOf(worktreeId: string): Promise<{ count: number; text: string; message: string }> {
 	const h = await call("history.get", worktreeId);
 	const steps = h.steps.filter((s) => s.done).map((s) => s.label);
 	const lines = steps.length ? steps : h.unsaved;

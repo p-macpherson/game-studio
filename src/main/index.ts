@@ -170,9 +170,13 @@ async function main(): Promise<void> {
 		emit({ type: "project_changed" });
 		return info;
 	};
-	const engineInfo = async () => {
-		if (!project || !existsSync(join(project.path, "engine/.git"))) return null;
-		const pinned = await g.revParse(join(project.path, "engine"), "HEAD");
+	/** The engine a checkout of the game pins (main's, or an open game worktree's branch) against the engine's latest. */
+	const engineInfo = async (checkout?: string | null) => {
+		if (!project) return null;
+		const dir = checkout ? checkoutRoot(checkout) : project.path;
+		if (!existsSync(join(dir, "engine/.git"))) return null;
+		// A worktree: what its branch records (its folder may lag an update from main until it's next looked at).
+		const pinned = checkout ? (await g.git(dir, ["rev-parse", "HEAD:engine"])).trim() : await g.revParse(join(dir, "engine"), "HEAD");
 		const engineRepo = settings.get().engineRepo;
 		const latest = await g.revParse(engineRepo, "main");
 		const behind = Number((await g.git(engineRepo, ["rev-list", "--count", `${pinned}..${latest}`]).catch(() => "0")).trim());
@@ -233,9 +237,14 @@ async function main(): Promise<void> {
 		"git.pull": (target) => g.git(repo(target), ["pull", "--ff-only"]),
 		"git.publish": (url) => publishProject(repo("project"), url),
 		"git.engineInfo": engineInfo,
-		"git.updateEngine": async () => {
-			const info = await engineInfo();
+		"git.updateEngine": async (checkout) => {
+			const info = await engineInfo(checkout);
 			if (!project || !info) throw new Error("This project has no engine submodule");
+			if (checkout) {
+				await sessions.updateWorktreeEngine(checkout, info.latest);
+				history.clear(checkout);
+				return;
+			}
 			const engine = join(project.path, "engine");
 			await g.git(engine, ["-c", "protocol.file.allow=always", "fetch", "-q", settings.get().engineRepo, "main"]);
 			await g.git(engine, ["checkout", "-q", info.latest]);

@@ -2,7 +2,7 @@ import type { ModuleInfo } from "../../shared/modules";
 
 export const gameCode: ModuleInfo = {
 	id: "game-code",
-	name: "Game Code",
+	name: "Code",
 	icon: "⌨",
 	roots: ["game", "tests"],
 	extensions: [".odin", ".jsonl"],
