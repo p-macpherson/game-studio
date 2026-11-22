@@ -15,7 +15,9 @@ npm run build        # build into out/
 npm run typecheck    # tsc
 npm test             # vitest: git/worktree/session lifecycle and project creation, against temp repos
 npm run e2e          # build, then drive the app with Playwright through project creation and a full session
-                     # lifecycle on the faux model; screenshots in out/e2e/ (look at them after UI changes)
+                     # lifecycle on the faux model, on a hidden display (xvfb-run: no windows, no stolen focus);
+                     # ~3 minutes; screenshots in out/e2e/
+npm run e2e:show     # the same in real windows on the desktop: only when Pat asks to watch it
 npm run test:gpu     # the real generation models end to end on the GPU (a few minutes; needs gen/setup.sh done)
 bash gen/setup.sh    # install/repair local generation: model repos, ~45 GB of weights, Python envs, the music SoundFont (idempotent)
 node spike/pi-spike.ts <scratch-dir>   # the M0 Pi SDK spike (faux provider, no credentials needed)
@@ -96,7 +98,7 @@ Install dependencies with `npm install --ignore-scripts` (Pi's recommendation). 
 
 - Use Pi's `fauxProvider` (`@earendil-works/pi-ai`) for session tests, so they run without credentials or network.
 - In the renderer, read the store through a selector (`useStudio(useShallow((s) => ({ a: s.a })))` or `useStudio((s) => s.a)`), never bare `useStudio()`: the store changes on every streamed frame and token, and a bare read redraws the component each time.
-- UI changes: build, run `e2e/smoke.ts` (or a dedicated e2e script), and look at the screenshot.
+- **Run the e2e rarely** (Pat, 2026-11-22: it made iteration slow). While iterating: `npm run typecheck` and `npm test` only. The full `npm run e2e`: once, before merging or handing over a finished UI change (then look at the screenshots), or when Pat asks. Never per change, and never launch the app in visible windows (`e2e:show`, `npm run dev`) unless asked.
 - `runner.test.ts` and the e2e build and run a real game from the template, so they need `../headless-game-engine`
   (with its `third_party/lib` built), `odin` and a display. Those runner tests skip themselves without the engine.
   `GAME_STUDIO_TEST_ENGINE=<path>` runs them against another engine checkout (e.g. to confirm a test catches

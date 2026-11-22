@@ -9,7 +9,8 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc",
-    "e2e": "electron-vite build && node e2e/smoke.ts",
+    "e2e": "electron-vite build && env -u WAYLAND_DISPLAY XDG_SESSION_TYPE=x11 xvfb-run -a -s '-screen 0 1920x1200x24' node e2e/smoke.ts",
+    "e2e:show": "electron-vite build && node e2e/smoke.ts",
     "test:gpu": "GAME_STUDIO_GEN_GPU=1 vitest run src/main/gen.gpu.test.ts"
   },
   "repository": {
