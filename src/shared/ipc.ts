@@ -1,7 +1,7 @@
 /** Contract between the renderer and the main process, exposed by the preload script as `window.studio`. */
 import type { HostInfo, PromptMode, StudioRequestMethod } from "./host";
 import type { AssetLinks } from "./asset-links";
-import type { ReleaseBuild, ReleaseInfo, ReleaseTarget } from "./release";
+import type { ReleaseBuild, ReleaseInfo, ReleaseManifest, ReleaseTarget } from "./release";
 import type { HistoryStep } from "./history";
 import type { CandidateRecord } from "./texture";
 import type { AssetSearchHit, AssetSummary, ModuleInfo, MoveResult } from "./modules";
@@ -179,7 +179,13 @@ export interface StudioApi {
 	/** Release: release.json (or its defaults), what ships, past builds and the tools there are, for a checkout. */
 	"release.info"(checkout: string | null): Promise<ReleaseInfo>;
 	/** Builds, packages and checks a release (progress as release_progress events). */
-	"release.build"(checkout: string | null, target: ReleaseTarget): Promise<ReleaseBuild>;
+	"release.build"(checkout: string | null, version: string, target: ReleaseTarget): Promise<ReleaseBuild>;
+	/** Which files a release ships and leaves out. */
+	"release.manifest"(checkout: string | null, version: string): Promise<ReleaseManifest>;
+	/** Has a session look into a build (running long, failed, or with failed checks); the session's id. */
+	"release.investigate"(checkout: string | null, version: string, target: ReleaseTarget): Promise<string>;
+	/** Removes a release's builds from builds/. */
+	"release.deleteBuilds"(checkout: string | null, version: string): Promise<void>;
 	/** Starts a built package in its own window (Windows under Wine). */
 	"release.run"(checkout: string | null, version: string, target: ReleaseTarget): Promise<void>;
 	/** Opens a build's package folder in the file manager. */
@@ -221,7 +227,9 @@ export type StudioEvent =
 	| { type: "login_prompt"; loginId: string; prompt: LoginPrompt }
 	/** Edit → Undo/Redo (the app menu's shortcuts): text undo in a text field, else the worktree's manual-edit history. */
 	| { type: "edit_command"; command: "undo" | "redo" }
-	| { type: "release_progress"; checkout: string; target: ReleaseTarget; text: string }
+	| { type: "release_progress"; checkout: string; version: string; target: ReleaseTarget; text: string }
+	/** A build started or ended, a session was put on one, builds were removed: read release.info again. */
+	| { type: "release_changed" }
 	| { type: "update_status"; status: UpdateStatus };
 
 /** What the preload exposes. */

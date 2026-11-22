@@ -482,7 +482,8 @@ a {
 }
 .working-now {
 	align-self: flex-start;
-	max-width: 900px;
+	/* Never wider than the chat: a long tool line is cut, not scrolled to */
+	max-width: min(900px, 100%);
 	min-width: 260px;
 	border: 1px solid var(--border);
 	border-radius: 8px;
@@ -505,6 +506,8 @@ a {
 }
 .working-tool {
 	color: var(--muted);
+	display: block;
+	max-width: 100%;
 }
 .chat-divider {
 	align-self: center;
@@ -3529,42 +3532,130 @@ input.bad {
 	overflow: auto;
 }
 
-/* Release */
-.release-grid {
-	display: grid;
-	grid-template-columns: minmax(320px, 1fr) minmax(320px, 1fr);
+/* Release: a list of releases, and the picked one's platforms */
+.release-title {
+	font-size: 17px;
+}
+.release-marks {
 	gap: 12px;
-	align-items: start;
-}
-.release-settings .field-row,
-.release-settings .field-row label {
-	gap: 8px;
-}
-.release-settings input:not([type="checkbox"]),
-.release-settings select {
-	flex: 1;
-}
-.release-targets {
-	flex: 1;
 	justify-content: flex-start;
-	gap: 18px;
 }
-.release-targets label {
-	display: flex;
+.release-mark-warn {
+	color: var(--yellow);
+	font-weight: 700;
+}
+.release-mark-building {
+	color: var(--accent);
+	font-weight: 700;
+}
+.release-empty {
+	gap: 14px;
 	align-items: center;
-	gap: 6px;
-	flex: none;
+	max-width: 520px;
+	margin: 40px auto;
+}
+.release-body {
+	padding: 0;
+}
+.release-pane {
+	padding: 16px;
+	gap: 10px;
+	max-width: 1000px;
+}
+.release-state {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 14px 16px;
+	border: 1px solid var(--border);
+	border-left-width: 4px;
+	border-radius: 8px;
+	background: var(--panel);
+}
+.release-state.ok {
+	border-left-color: var(--green);
+}
+.release-state.checks,
+.release-state.slow {
+	border-left-color: var(--yellow);
+}
+.release-state.failed {
+	border-left-color: var(--red);
+}
+.release-state.building {
+	border-color: var(--accent);
+	background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+}
+.release-state.building.slow {
+	border-color: var(--yellow);
+	background: color-mix(in srgb, var(--yellow) 8%, var(--panel));
+}
+.release-spinner {
+	width: 16px;
+	height: 16px;
+}
+.release-elapsed {
+	font: 13px var(--mono);
+	color: var(--muted);
+}
+/* A moving bar: the build is running, even while one step sits there for a while */
+.release-bar {
+	height: 4px;
+	border-radius: 2px;
+	overflow: hidden;
+	background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+.release-bar > div {
+	width: 30%;
+	height: 100%;
+	border-radius: 2px;
+	background: var(--accent);
+	animation: release-bar 1.4s ease-in-out infinite;
+}
+@keyframes release-bar {
+	from {
+		transform: translateX(-100%);
+	}
+	to {
+		transform: translateX(340%);
+	}
+}
+.release-help {
+	padding: 8px 10px;
+	border-radius: 6px;
+	background: color-mix(in srgb, var(--yellow) 10%, transparent);
+	font-size: 13px;
+}
+.release-state.failed .release-help {
+	background: color-mix(in srgb, var(--red) 10%, transparent);
+}
+.release-heading {
+	margin: 8px 0 0;
+	font-size: 12px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--muted);
+}
+.release-error {
+	max-height: 360px;
+	white-space: pre-wrap;
+}
+.release-settings {
+	gap: 8px;
+	max-width: 560px;
+}
+.release-settings .field-row {
+	grid-template-columns: 96px minmax(0, 1fr);
+	gap: 8px;
+	font-size: 13px;
 }
 .release-log {
-	max-height: 220px;
+	max-height: 260px;
 	overflow: auto;
-	margin-top: 8px;
-}
-.release-card {
-	margin-bottom: 8px;
+	white-space: pre-wrap;
 }
 .release-checks {
-	margin: 6px 0;
+	margin: 2px 0;
 }
 .release-check {
 	padding: 2px 0;

@@ -418,15 +418,16 @@ export function studioTools(ctx: StudioToolContext) {
 			description:
 				"Build the game for players as the Release section does: an optimised release build for 'linux' (default; runs on glibc 2.29+), " +
 				"'windows' (cross-compiled) or 'web' (WebAssembly and WebGL 2: a folder with index.html, zipped for itch.io), packaged with only the asset files the game uses into builds/<version>/<target>/ (never committed), then " +
-				"checked: the package started from another folder (release build, release.json's version, no warnings in its log), every tests/*.jsonl " +
-				"run against the packaged binary, and for Linux an AppImage that starts. Windows checks run under Wine, web checks in a hidden browser window. A web build has no multiplayer, gamepads or saved files yet. Takes a minute or two. Returns " +
-				"each check with its detail, the archives, and how many files ship. Use it to confirm a change survives packaging (a file loaded by a " +
-				"computed path needs release.json's include). Publishing to itch.io is the user's, from the Release section. The settings are release.json at " +
-				"the project root: {\"name\": \"Game Name\", \"version\": \"1.0.0\", \"icon\": \"ui/art/icons/app/app.png\" (a PNG under assets/: the window and .exe " +
-				"icon), \"targets\": [\"linux\", \"windows\"] (add \"web\" for a browser build), \"include\"/\"exclude\": [asset globs like \"sounds/extra/*\"], \"itch\": {\"target\": \"user/game\"}}; " +
-				"without it the name is the project's and the version 0.1.0.",
+				"checked: the package started from another folder (release build, the release's version, no warnings in its log), every tests/*.jsonl " +
+				"run against the packaged binary (with the game flags on a test's first line, `// flags: --mode=none --seed=3`, else in a hidden window), and for Linux an AppImage that starts. Windows checks run under Wine, web checks in a hidden browser window. A web build has no multiplayer or saved files yet. Takes a minute or two. Returns " +
+				"each check with its detail, the archives, and how many files ship; a build that fails outright throws with the error. Use it to confirm a change survives packaging (a file loaded by a " +
+				"computed path needs the release's include). Publishing to itch.io is the user's, from the Release section. The settings are release.json at " +
+				"the project root, a list of releases with the newest first: {\"releases\": [{\"name\": \"Game Name\", \"version\": \"1.0.0\", \"icon\": \"ui/art/icons/app/app.png\" (a PNG under assets/: the window and .exe " +
+				"icon), \"include\"/\"exclude\": [asset globs like \"sounds/extra/*\"], \"itch\": {\"target\": \"user/game\"}}]}. `version` picks the release (default: the newest); " +
+				"with no release.json the name is the project's and the version 0.1.0.",
 			parameters: Type.Object({
 				target: Type.Optional(Type.Union([Type.Literal("linux"), Type.Literal("windows"), Type.Literal("web")])),
+				version: Type.Optional(Type.String({ description: "Which release in release.json; default: the newest" })),
 			}),
 			async execute(_id, params, signal, onUpdate) {
 				return ok(JSON.stringify(await ctx.request("build_release", params, signal, progressTo(onUpdate)), null, 2));

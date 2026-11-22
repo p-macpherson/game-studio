@@ -64,7 +64,8 @@ export interface HostApi {
 
 /** Studio services an agent's tools can call in the main process (`studio_request`). */
 export type StudioRequestMethod =
-	| "edit_release"
+	| "save_release"
+	| "delete_release"
 	| "build_release"
 	| "move_asset"
 	| "write_doc"

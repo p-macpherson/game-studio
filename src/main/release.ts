@@ -17,15 +17,29 @@ import {
 	isCompanion,
 	notRuntime,
 	parseReleaseConfig,
+	parseReleases,
 	releaseArchiveName,
 	releaseSlug,
 } from "../shared/release";
 import { walk } from "./assets";
 import { linkEngineLibs } from "./sessions";
 
-export function readReleaseConfig(root: string, projectName: string): { config: ReleaseConfig; problems: string[] } {
+/** release.json's releases, newest first. */
+export function readReleases(root: string, projectName: string): { releases: ReleaseConfig[]; problems: string[] } {
 	const file = join(root, RELEASE_FILE);
-	return parseReleaseConfig(existsSync(file) ? readFileSync(file, "utf8") : undefined, projectName);
+	return parseReleases(existsSync(file) ? readFileSync(file, "utf8") : undefined, projectName);
+}
+
+/**
+ * One release's settings: the one with `version`, else the newest; with no release.json at all, the defaults (the
+ * project's name at 0.1.0), so an agent can build before anyone has made a release.
+ */
+export function readReleaseConfig(root: string, projectName: string, version?: string): { config: ReleaseConfig; problems: string[] } {
+	const { releases, problems } = readReleases(root, projectName);
+	const config = version ? releases.find((r) => r.version === version) : releases[0];
+	if (config) return { config, problems: problems.filter((p) => p.startsWith(`${config.version}: `) || !/^\d/.test(p)) };
+	const fallback = parseReleaseConfig(undefined, projectName).config;
+	return { config: fallback, problems: version ? [...problems, `there's no release ${version}`] : problems };
 }
 
 /**
@@ -132,13 +146,39 @@ export async function buildRelease(opts: {
 	/** The studio's engine checkout: its fetched sysroot and Windows SDK are linked into the game's engine. */
 	engineRepo?: string;
 	target: ReleaseTarget;
+	/** Which release (default: the newest). */
+	version?: string;
 	tools?: ReleaseTools;
 	onProgress?: (step: string) => void;
 }): Promise<ReleaseBuild> {
+	const { root, target } = opts;
+	const { config, problems } = readReleaseConfig(root, opts.projectName, opts.version);
+	if (problems.length) throw new Error(`release.json: ${problems.join("; ")}`);
+	const started = Date.now();
+	const log: string[] = [];
+	const onProgress = (step: string) => {
+		log.push(step);
+		opts.onProgress?.(step);
+	};
+	const out = join(root, "builds", config.version, target);
+	const record = (b: ReleaseBuild) => {
+		mkdirSync(out, { recursive: true });
+		writeFileSync(join(out, "build.json"), `${JSON.stringify(b, null, "\t")}\n`);
+		return b;
+	};
+	try {
+		const built = await makeRelease({ ...opts, onProgress }, config);
+		return record({ ...built, log, seconds: Math.round((Date.now() - started) / 1000) });
+	} catch (err) {
+		// The build itself failed: nothing to run, but the section shows what happened (and a session looks into it).
+		record({ target, version: config.version, dir: "", archives: [], checks: [], ok: false, error: (err as Error).message, log, seconds: Math.round((Date.now() - started) / 1000), files: 0, bytes: 0, builtAt: new Date().toISOString() });
+		throw err;
+	}
+}
+
+async function makeRelease(opts: Parameters<typeof buildRelease>[0], config: ReleaseConfig): Promise<ReleaseBuild> {
 	const { root, target, tools = {} } = opts;
 	const progress = opts.onProgress ?? (() => {});
-	const { config, problems } = readReleaseConfig(root, opts.projectName);
-	if (problems.length) throw new Error(`release.json: ${problems.join("; ")}`);
 	if (opts.engineRepo) await linkEngineLibs(join(root, "engine"), opts.engineRepo);
 	const script = join(root, target === "web" ? "engine/tools/web.sh" : "engine/tools/release.sh");
 	if (!existsSync(script)) throw new Error(target === "web" ? "the game's engine can't build for the web yet (no tools/web.sh): update the engine first" : "the game's engine has no tools/release.sh: update the engine first");
@@ -231,7 +271,6 @@ export async function buildRelease(opts: {
 			bytes: manifest.bytes,
 			builtAt: new Date().toISOString(),
 		};
-		writeFileSync(join(out, "build.json"), `${JSON.stringify(result, null, "\t")}\n`);
 		return result;
 	} finally {
 		rmSync(work, { recursive: true, force: true });

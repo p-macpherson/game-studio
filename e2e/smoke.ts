@@ -1119,33 +1119,66 @@ try {
 	await page.getByTestId("itch-account").getByText("API key saved").waitFor();
 	await selectMain(page);
 	await nav.getByRole("button", { name: "Release" }).click();
-	await page.getByTestId("release-settings").waitFor();
-	await page.getByTestId("release-files").getByText("scenes/main.json").waitFor();
+	await page.getByTestId("release").getByText("No releases yet.").waitFor();
+	await step("59-release-empty", page);
+	// A new release is only its settings (no platforms): it lands in the list, with a tab per platform and nothing built.
+	await page.getByTestId("release-new").click();
 	await page.getByTestId("release-version").fill("1.0.0");
 	await page.getByTestId("release-itch").fill("e2e/e2e-game");
-	await step("59-release", page);
+	await step("59a-release-new", page);
 	await page.getByTestId("release-save").click();
-	await page.getByTestId("release-build-linux").and(page.locator(":enabled")).waitFor({ timeout: 30_000 });
-	await page.getByTestId("release-build-linux").click();
-	await page.getByTestId("release-card").filter({ hasText: "Checks passed" }).waitFor({ timeout: 240_000 });
+	await page.getByTestId("release-item").filter({ hasText: "E2E Game 1.0.0" }).waitFor({ timeout: 30_000 });
+	await page.getByTestId("release-none").getByText("No Linux build of 1.0.0 yet").waitFor();
+	await page.getByTestId("release-tab-files").click();
+	await page.getByTestId("release-files").getByText("scenes/main.json").waitFor();
+	await page.getByTestId("release-tab-linux").click();
+	await step("59b-release-not-built", page);
+	await page.getByTestId("release-build").click();
+	// While it builds, the tab says so: the step it's on and for how long (and it survives leaving the page).
+	await page.getByTestId("release-building").getByText("Building 1.0.0 for Linux").waitFor({ timeout: 30_000 });
+	await nav.getByRole("button", { name: "Scenes" }).click();
+	await nav.getByRole("button", { name: "Release" }).click();
+	await page.getByTestId("release-building").getByTestId("release-elapsed").waitFor({ timeout: 10_000 });
+	await step("60a-release-building", page);
+	await page.locator("[data-testid=release-built][data-standing=ok]").waitFor({ timeout: 240_000 });
+	await page.getByTestId("release-status").getByText("Linux build: every check passed").waitFor();
+	await page.getByTestId("release-run").waitFor();
+	await page.getByTestId("release-rebuild").waitFor();
 	await step("60-release-built", page);
 	await page.getByTestId("release-publish").click();
 	await page.getByTestId("release-log").getByText("Uploaded").waitFor({ timeout: 30_000 });
 	const pushed = readFileSync(join(root, "butler-args"), "utf8");
 	if (!/^push \S+\/builds\/1\.0\.0\/linux\/e2e-game e2e\/e2e-game:linux --userversion 1\.0\.0 -i /.test(pushed)) throw new Error(`butler was called with: ${pushed}`);
 	await step("61-release-published", page);
-	// The web build: opted into under Platforms, built by Emscripten, checked in a hidden browser window.
+	// A build that fails outright (here: game code that doesn't compile) says so, and a session is started to look into it.
+	const releasePath = await page.evaluate(async () => ((await window.studio.call("worktrees.list")) as { label: string; path: string; status: string }[]).find((w) => w.label === "Release 1.0.0" && w.status === "active")!.path);
+	writeFileSync(join(releasePath, "game/zz_broken.odin"), "package game\n\nthis is not odin\n");
+	await page.getByTestId("release-tab-windows").click();
+	await page.getByTestId("release-none").getByText("No Windows build of 1.0.0 yet").waitFor();
+	await page.getByTestId("release-build").click();
+	await page.locator("[data-testid=release-built][data-standing=failed]").waitFor({ timeout: 120_000 });
+	rmSync(join(releasePath, "game/zz_broken.odin"));
+	await page.getByTestId("release-status").getByText("The Windows build failed").waitFor();
+	await page.getByTestId("release-error").waitFor();
+	if (await page.getByTestId("release-run").count()) throw new Error("a failed build has nothing to run");
+	await step("62a-release-failed", page);
+	await page.getByTestId("release-session").click();
+	await page.getByTestId("chat").getByText("the build failed: no package was made").waitFor({ timeout: 30_000 });
+	await step("62b-release-investigation", page);
+	await nav.getByRole("button", { name: "Release" }).click();
+	// The web build: built on demand like the others (Emscripten), checked in a hidden browser window.
 	if (existsSync(join(realEngine, "third_party/lib/web/libraylib.a"))) {
-		await page.getByTestId("release-target-web").check();
-		await page.getByTestId("release-save").click();
-		await page.getByTestId("release-build-web").and(page.locator(":enabled")).waitFor({ timeout: 30_000 });
-		await page.getByTestId("release-build-web").click();
-		const webCard = page.getByTestId("release-card").filter({ hasText: "1.0.0 · Web" });
-		await webCard.waitFor({ timeout: 240_000 });
+		await page.getByTestId("release-tab-web").click();
+		await page.getByTestId("release-build").click();
+		await page.locator("[data-testid=release-built]").waitFor({ timeout: 240_000 });
 		await step("62-release-web", page);
-		await webCard.filter({ hasText: "Checks passed" }).waitFor({ timeout: 5_000 });
-		await webCard.getByText("e2e-game-1.0.0-web.zip").waitFor();
+		await page.getByTestId("release-status").getByText("Web build: every check passed").waitFor({ timeout: 5_000 });
+		await page.getByTestId("release-built").getByText("e2e-game-1.0.0-web.zip").waitFor();
 	}
+	// Deleting the release takes its builds with it (the confirm dialog is accepted by the test).
+	await page.getByTestId("release-delete").click();
+	await page.getByTestId("release").getByText("No releases yet.").waitFor({ timeout: 30_000 });
+	if (existsSync(join(releasePath, "builds/1.0.0"))) throw new Error("deleting a release should remove its builds");
 	await nav.getByRole("button", { name: "Settings" }).click();
 
 	// Appearance: a theme and fonts apply at once (the page's variables), survive a reload, and Simple Dark comes back.

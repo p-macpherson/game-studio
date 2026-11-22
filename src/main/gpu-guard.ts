@@ -5,7 +5,7 @@
 // - a model is only loaded when the card has the memory it needs free (a game, or another app, may be using it).
 //   What a family needs is learned from the peaks its workers report (peak_vram_gib), with cautious defaults first.
 import { execFile } from "node:child_process";
-import { existsSync, openSync, readFileSync, unlinkSync, writeFileSync, closeSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync, closeSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { GenFamily } from "../shared/gen";
@@ -35,6 +35,8 @@ export class GpuGuard {
 	/** Takes the machine's GPU lock; false when another live studio holds it. */
 	tryLock(): boolean {
 		if (this.held) return true;
+		// The generation folder may not exist yet (nothing set up, or a test's own root): without it the lock can't be made.
+		mkdirSync(this.root, { recursive: true });
 		for (let attempt = 0; attempt < 2; attempt++) {
 			try {
 				const fd = openSync(this.lockFile, "wx");

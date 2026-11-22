@@ -4,7 +4,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 import { leafName } from "../shared/asset-names";
 import { EditHistory } from "./edit-history";
 import type { StudioApi, StudioEvent, StudioMethod } from "../shared/ipc";
-import type { ProjectInfo, Target } from "../shared/types";
+import type { NewSessionRequest, ProjectInfo, Target } from "../shared/types";
 import { agentTypeCache } from "./agent-types";
 import { withModelSettings } from "../shared/agent-models";
 import { AssetService, MODULES } from "./assets";
@@ -109,7 +109,7 @@ async function main(): Promise<void> {
 		effectRequests(particles, (sessionId, p) => runner.previewEffect(sessionId, p)),
 		assetRequests(moduleInfos),
 		designDocRequests(),
-		releaseRequests(() => release),
+		releaseRequests(() => release, () => project?.name ?? "Game"),
 	);
 	const sessions = new SessionService({
 		host,
@@ -149,6 +149,9 @@ async function main(): Promise<void> {
 		emit,
 		butler: process.env.GAME_STUDIO_BUTLER,
 		appimagetool: process.env.GAME_STUDIO_APPIMAGETOOL,
+		// The Gameplay Engineer (the game's code, tests and build): in the build's worktree, or from main in one of its own.
+		investigate: async (checkout, title, prompt) =>
+			(await sessions.create({ agentType: "gameplay-engineer", target: "project", prompt, title, ...(checkout ? { worktreeId: checkout } : { worktreeLabel: title }) } as NewSessionRequest)).id,
 	});
 	const assets = new AssetService(checkoutRoot, sessions);
 	/** A generation job queued or running for a worktree (a section's step, or one of its sessions' tools). */
@@ -298,7 +301,10 @@ async function main(): Promise<void> {
 		"worktrees.commits": (id) => sessions.worktreeCommits(id),
 		"worktrees.diff": (id) => sessions.worktreeDiff(id),
 		"release.info": async (checkout) => release.info(checkout),
-		"release.build": (checkout, target) => release.build(checkout, target),
+		"release.build": (checkout, version, target) => release.build(checkout, version, target),
+		"release.manifest": async (checkout, version) => release.manifest(checkout, version),
+		"release.investigate": (checkout, version, target) => release.investigate(checkout, version, target),
+		"release.deleteBuilds": async (checkout, version) => release.deleteBuilds(checkout, version),
 		"release.run": async (checkout, version, target) => release.run(checkout, version, target),
 		"release.reveal": async (checkout, version, target) => void (await shell.openPath(release.folder(checkout, version, target))),
 		"release.publish": (checkout, version, target) => release.publish(checkout, version, target),
