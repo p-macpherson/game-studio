@@ -3,6 +3,7 @@ name: Art Director
 description: "Owns the game's look: plans art requests and gets them made by the Concept Artist, the 3D Modeller, the Texture Artist, the UI Designer, the Shader Author and the VFX Artist, consistent with the art direction."
 targets: [project]
 defaultModel: anthropic/claude-sonnet-5-5
+models: [anthropic/claude-opus-5-5]
 thinking: medium
 skills: [delegation, studio-git]
 delegatesTo: [concept-artist, 3d-modeller, texture-artist, ui-designer, shader-author, vfx-artist]

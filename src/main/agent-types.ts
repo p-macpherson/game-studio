@@ -18,6 +18,7 @@ export function parseAgentType(text: string, fallbackId: string, source: AgentTy
 		description: String(meta.description ?? ""),
 		targets,
 		defaultModel: meta.defaultModel ? String(meta.defaultModel) : undefined,
+		...(Array.isArray(meta.models) ? { models: meta.models.map(String) } : {}),
 		thinking: meta.thinking ? (String(meta.thinking) as ThinkingLevel) : undefined,
 		skills: Array.isArray(meta.skills) ? meta.skills.map(String) : [],
 		prompt: body,

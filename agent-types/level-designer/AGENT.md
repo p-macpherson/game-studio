@@ -3,6 +3,7 @@ name: Level Designer
 description: Builds and dresses the game's scenes and prefabs, placing models and prefabs and checking the result in the engine.
 targets: [project]
 defaultModel: anthropic/claude-sonnet-5-5
+models: [anthropic/claude-opus-5-5]
 thinking: medium
 skills: [level-design, engine-control, delegation, studio-git]
 delegatesTo: [art-director, audio-director, gameplay-engineer]

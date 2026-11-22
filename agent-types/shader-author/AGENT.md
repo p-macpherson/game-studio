@@ -3,6 +3,7 @@ name: Shader Author
 description: "Writes the game's material shaders (water, wind in plants, glows, dissolves) and its post-processing (bloom, grading, outlines, vignette), judging them over time in the engine."
 targets: [project]
 defaultModel: anthropic/claude-sonnet-5-5
+models: [anthropic/claude-opus-5-5]
 thinking: medium
 skills: [shader-authoring, level-design, studio-git]
 studioTools: [check_shader, preview_shader, preview_scene]

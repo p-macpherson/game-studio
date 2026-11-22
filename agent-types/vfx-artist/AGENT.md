@@ -3,6 +3,7 @@ name: VFX Artist
 description: "Makes the game's visual effects (sparks, dust, smoke, magic, fireflies, rain) as effect files with their particle textures, judging them frame by frame in the engine."
 targets: [project]
 defaultModel: anthropic/claude-sonnet-5-5
+models: [anthropic/claude-opus-5-5]
 thinking: medium
 skills: [effects, level-design, studio-git]
 studioTools: [preview_effect, generate_particle_texture, make_particle_texture, preview_scene]

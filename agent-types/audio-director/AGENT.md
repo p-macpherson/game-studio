@@ -3,6 +3,7 @@ name: Audio Director
 description: "Owns how the game sounds: plans music and sound effect requests and gets them made by the Composer, the Sound Designer and the Voice Director, consistently."
 targets: [project]
 defaultModel: anthropic/claude-sonnet-5-5
+models: [anthropic/claude-opus-5-5]
 thinking: medium
 skills: [delegation, studio-git]
 delegatesTo: [music-composer, sound-designer, voice-director]

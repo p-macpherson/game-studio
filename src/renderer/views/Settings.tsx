@@ -1,9 +1,9 @@
-import { DESIGN_DOCS } from "../../shared/design-docs";
 import { useEffect, useState } from "react";
 import type { Settings } from "../../shared/types";
 import { call } from "../api";
 import { type SettingsTab, useStudio } from "../store";
 import { AccountsPanel } from "./Accounts";
+import { AgentTypes } from "./AgentTypes";
 import { AppearanceSettings } from "./Appearance";
 import { AssetGeneration } from "./Generation";
 import { useShallow } from "zustand/react/shallow";
@@ -103,49 +103,3 @@ function GeneralSettings() {
 	);
 }
 
-/** The agent types, which repos they work in, and the delegation graph: who each may hand tasks to. */
-function AgentTypes() {
-	const { agentTypes } = useStudio(useShallow((s) => ({ agentTypes: s.agentTypes })));
-	const name = (id: string) => agentTypes.find((t) => t.id === id)?.name ?? id;
-	const delegatedBy = (id: string) => agentTypes.filter((t) => t.delegatesTo?.includes(id)).map((t) => t.name);
-	return (
-		<div className="col" data-testid="agent-types">
-			<p className="muted">
-				Any of these can be started from New Session. Sessions delegate along these edges only (a type lists them as <code>delegatesTo</code> in its
-				AGENT.md); the edges never form a loop.
-			</p>
-			{agentTypes.map((t) => (
-				<div key={t.id} className="card col agent-type-card" data-testid="agent-type-card">
-					<div className="row">
-						<strong className="grow">{t.name}</strong>
-						<span className="muted small">
-							{t.targets.join(", ")} · {t.defaultModel ?? "any model"} · {t.source}
-						</span>
-					</div>
-					<div className="muted small">{t.description}</div>
-					<div className="small">
-						<span className="muted">Delegates to: </span>
-						{t.delegatesTo?.length ? t.delegatesTo.map(name).join(", ") : "nobody"}
-						{delegatedBy(t.id).length > 0 && (
-							<>
-								<span className="muted"> · delegated to by </span>
-								{delegatedBy(t.id).join(", ")}
-							</>
-						)}
-					</div>
-					{Array.isArray(t.designDocs) && t.designDocs.length > 0 && (
-						<div className="small">
-							<span className="muted">Works to: </span>
-							{t.designDocs.map((d) => DESIGN_DOCS.find((x) => x.id === d)?.title ?? d).join(", ")}
-						</div>
-					)}
-					{t.problems?.map((p) => (
-						<div key={p} className="msg error small">
-							{p}
-						</div>
-					))}
-				</div>
-			))}
-		</div>
-	);
-}

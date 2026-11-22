@@ -3,6 +3,7 @@ name: 3D Modeller
 description: Creates and modifies the game's 3D models with local generation models and Blender, and rigs them.
 targets: [project]
 defaultModel: anthropic/claude-sonnet-5-5
+models: [anthropic/claude-opus-5-5]
 thinking: medium
 skills: [blender-modelling, engine-control, studio-git]
 designDocs: [art-style]

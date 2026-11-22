@@ -1014,6 +1014,23 @@ try {
 	await page.getByRole("button", { name: "Agents", exact: true }).click();
 	await page.getByTestId("agent-type-card").filter({ hasText: "Delegates to: Game Designer, Art Director, UI Designer, Shader Author, VFX Artist, Audio Director" }).waitFor();
 	await step("33-agent-types", page);
+	// Picking a type opens its models; the graph view shows who delegates to whom. A change is kept in Settings and can be reset.
+	await page.getByTestId("agent-type-card").filter({ has: page.locator("strong", { hasText: /^Gameplay Engineer$/ }) }).click();
+	await page.getByTestId("agent-panel").locator("strong", { hasText: "Gameplay Engineer" }).waitFor();
+	await page.getByTestId("agent-panel").getByText("Default model").waitFor();
+	await page.getByTestId("agents-layout-graph").click();
+	await page.getByTestId("agent-node").filter({ hasText: "Chief Director" }).waitFor();
+	const allowOpus = page.getByTestId("agent-allow-model").and(page.locator("[data-model='anthropic/claude-opus-5-5']"));
+	if (!(await allowOpus.isChecked())) throw new Error("a parent should be allowed to start the Gameplay Engineer on Opus by default");
+	await step("33a-agent-graph", page);
+	await allowOpus.click(); // saved through Settings, so the box changes a moment later (not `uncheck`, which expects it at once)
+	await page.getByTestId("agent-models-reset").waitFor();
+	if (await allowOpus.isChecked()) throw new Error("unticking a model should stop parents choosing it");
+	await step("33b-agent-models-changed", page);
+	await page.getByTestId("agent-models-reset").click();
+	await page.getByTestId("agent-models-reset").waitFor({ state: "detached" });
+	if (!(await allowOpus.isChecked())) throw new Error("Reset should bring back what AGENT.md says");
+	await page.getByTestId("agents-layout-list").click();
 
 	// Engine (and studio) worktrees are in the selector too, under their repo: selecting one shows its sessions,
 	// leaves the sections on the game's main, and merges into that repo's main.

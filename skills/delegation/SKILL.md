@@ -17,6 +17,12 @@ The sub-agent starts with nothing but your brief. Include:
 
 Give it a short `title`, which names its session.
 
+## Model
+Each sub-agent starts on its type's usual model, which suits its usual work: leave `model` out. Where `delegate`
+lists other models for a type, you may name one, and a more capable model costs the user more. Ask for one only
+when the task is unusually hard for that type: subtle or wide-reaching, or a second attempt at something the usual
+model got wrong. Say in your reply to the user when you did, and why.
+
 ## Side by side
 Independent tasks can run at once: several `delegate` calls in one codemode script.
 

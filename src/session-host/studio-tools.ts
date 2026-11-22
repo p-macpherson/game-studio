@@ -2,7 +2,7 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { ANIMATION_CLIPS } from "../shared/gen";
-import type { HostEvent, StudioRequestMethod } from "../shared/host";
+import type { DelegateTarget, HostEvent, StudioRequestMethod } from "../shared/host";
 
 export interface StudioToolContext {
 	sessionId: string;
@@ -12,7 +12,7 @@ export interface StudioToolContext {
 	/** The studio tools it may use beyond the always-on ones; absent means all. */
 	studioTools?: string[];
 	/** The agent types this session may delegate to; none means no `delegate` tool. */
-	delegatesTo?: { id: string; name: string; description: string }[];
+	delegatesTo?: DelegateTarget[];
 	/** Calls a main-process service (asset generation) and waits for its reply. */
 	request(method: StudioRequestMethod, params: Record<string, unknown>, signal: AbortSignal | undefined, progress: (text: string) => void): Promise<unknown>;
 }
@@ -65,11 +65,17 @@ export function studioTools(ctx: StudioToolContext) {
 						"done looks like, and paths to the files involved. A type that works in another repository than yours (the engine, the studio) can't share your " +
 						"worktree, so it isn't a sub-agent: it starts as a separate session in its own worktree and this returns at once, without a report; " +
 						"its work reaches you only after the user merges it, so tell the user what you asked for. You can delegate to: " +
-						ctx.delegatesTo.map((t) => `${t.id} (${t.name}: ${t.description})`).join("; "),
+						ctx.delegatesTo.map((t) => `${t.id} (${t.name}: ${t.description}${t.models?.length ? ` Usual model ${t.defaultModel ?? "yours"}; may also run on ${t.models.join(", ")}.` : ""})`).join("; ") +
+						(ctx.delegatesTo.some((t) => t.models?.length)
+							? ". Each sub-agent starts on its type's usual model. `model` starts it on another, only one listed for that type: a more capable model costs more, so ask for one only when the task is unusually hard for its type (subtle, wide-reaching, or a retry of work the usual model got wrong), never as a habit."
+							: ""),
 					parameters: Type.Object({
 						agentType: Type.Union(ctx.delegatesTo.map((t) => Type.Literal(t.id))),
 						task: Type.String({ description: "The task, with everything the sub-agent needs to know" }),
 						title: Type.Optional(Type.String({ description: "A short title for its session" })),
+						...(ctx.delegatesTo.some((t) => t.models?.length)
+							? { model: Type.Optional(Type.String({ description: "Another model for this sub-agent, from those listed for its type. Leave out for its usual model." })) }
+							: {}),
 					}),
 					async execute(_id, params, signal, onUpdate) {
 						const report = await ctx.request("delegate", params, signal, progressTo(onUpdate));

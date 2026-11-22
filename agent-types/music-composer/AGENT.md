@@ -3,6 +3,7 @@ name: Composer
 description: Composes and arranges the game's music as editable multi-track scores, rendered to loops the game plays.
 targets: [project]
 defaultModel: anthropic/claude-sonnet-5-5
+models: [anthropic/claude-opus-5-5]
 thinking: medium
 skills: [music-composition, engine-control, studio-git]
 designDocs: [audio-style, world-and-lore]

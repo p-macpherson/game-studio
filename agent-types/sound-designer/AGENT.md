@@ -3,6 +3,7 @@ name: Sound Designer
 description: Makes the game's sound effects from generated and synthesised layers, processed into the files the game plays, with variants for repeated sounds.
 targets: [project]
 defaultModel: anthropic/claude-sonnet-5-5
+models: [anthropic/claude-opus-5-5]
 thinking: medium
 skills: [sound-design, engine-control, studio-git]
 designDocs: [audio-style, world-and-lore]

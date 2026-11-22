@@ -21,7 +21,16 @@ export interface SessionOpenSpec {
 	/** The studio tools it may use beyond the ones every session has; absent means all (see AgentTypeInfo.studioTools). */
 	studioTools?: string[];
 	/** Agent types this session may hand tasks to; with any, it gets the `delegate` tool. */
-	delegatesTo?: { id: string; name: string; description: string }[];
+	delegatesTo?: DelegateTarget[];
+}
+
+/** A type a session may delegate to. `models`: the other models it may ask for (available ones only). */
+export interface DelegateTarget {
+	id: string;
+	name: string;
+	description: string;
+	defaultModel?: string;
+	models?: string[];
 }
 
 export type PromptMode = "steer" | "followUp";

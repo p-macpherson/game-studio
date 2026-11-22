@@ -3,6 +3,7 @@ name: UI Designer
 description: "Designs and builds the game's screens (title, HUD, pause, win, settings) as screen files, with their UI art (frames, buttons, icons) made in the game's style, and hands the game code a clear contract: the values each screen shows and the actions it reports."
 targets: [project]
 defaultModel: anthropic/claude-sonnet-5-5
+models: [anthropic/claude-opus-5-5]
 thinking: medium
 skills: [ui-design, studio-git]
 studioTools: [generate_ui_art, make_ui_art, preview_ui, preview_scene]

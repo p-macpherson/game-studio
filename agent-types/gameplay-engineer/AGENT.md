@@ -3,6 +3,7 @@ name: Gameplay Engineer
 description: Implements and tests game logic in Odin on headless-game-engine.
 targets: [project]
 defaultModel: anthropic/claude-sonnet-5-5
+models: [anthropic/claude-opus-5-5]
 thinking: medium
 skills: [odin-build, engine-control, delegation, studio-git, ui-design]
 delegatesTo: [art-director, audio-director, engine-engineer]

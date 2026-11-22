@@ -6,7 +6,8 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renam
 import { basename, join } from "node:path";
 import { designBrief } from "../shared/design-docs";
 import { readDesignDocs } from "./design-docs";
-import type { HostEvent, PromptMode, StudioRequestMethod } from "../shared/host";
+import { delegateModel, delegateOptions } from "../shared/agent-models";
+import type { DelegateTarget, HostEvent, PromptMode, StudioRequestMethod } from "../shared/host";
 import type { StudioEvent } from "../shared/ipc";
 import type { AgentTypeInfo, ContextUsage, GitCommit, NewSessionRequest, PendingQuestion, SessionRecord, SessionSummary, Settings, Target, WorktreeRecord, WorktreeSummary } from "../shared/types";
 import { findAgentType } from "../shared/agents";
@@ -519,7 +520,7 @@ export class SessionService {
 			thinking: e.record.thinking,
 			appendSystemPrompt: [this.preamble(e, agentType), agentType.prompt, this.designBrief(e, agentType)].filter(Boolean),
 			skillPaths: agentType.skills.map((s) => join(this.deps.skillsDir, s)).filter((p) => existsSync(p)),
-			delegatesTo: this.delegatesTo(e, agentType),
+			delegatesTo: await this.delegateTargets(e, agentType),
 			...(agentType.studioTools ? { studioTools: agentType.studioTools } : {}),
 		});
 		this.live.add(e.record.id);
@@ -531,13 +532,25 @@ export class SessionService {
 	}
 
 	/** Who a session may delegate to: its type's edges, minus any type already above it in its chain of sessions. */
-	private delegatesTo(e: Entry, agentType: AgentTypeInfo): { id: string; name: string; description: string }[] {
+	private delegatesTo(e: Entry, agentType: AgentTypeInfo): AgentTypeInfo[] {
 		const chain = this.chainTypes(e);
 		const types = this.deps.agentTypes();
-		return (agentType.delegatesTo ?? [])
-			.filter((id) => !chain.has(id))
-			.flatMap((id) => types.filter((t) => t.id === id))
-			.map((t) => ({ id: t.id, name: t.name, description: t.description }));
+		return (agentType.delegatesTo ?? []).filter((id) => !chain.has(id)).flatMap((id) => types.filter((t) => t.id === id));
+	}
+
+	/** The same, as the `delegate` tool describes them: with each type's usual model and the others it may be started on now. */
+	private async delegateTargets(e: Entry, agentType: AgentTypeInfo): Promise<DelegateTarget[]> {
+		const to = this.delegatesTo(e, agentType);
+		if (!to.length) return [];
+		const available = await this.availableModels();
+		return to.map((t) => {
+			const models = delegateOptions(t, available);
+			return { id: t.id, name: t.name, description: t.description, ...(models.length ? { defaultModel: delegateModel(t, e.record.model, available), models } : {}) };
+		});
+	}
+
+	private async availableModels(): Promise<Set<string>> {
+		return new Set((await this.deps.host.call("models").catch(() => [])).map((m) => m.ref));
 	}
 
 	/**
@@ -547,7 +560,7 @@ export class SessionService {
 	 * sub-agent: it starts as a session of its own in a new worktree of its repo, and the call returns at once, without
 	 * a report. A person coordinates between the two worktrees (merge one, update the engine in the other).
 	 */
-	private async delegate(parent: Entry, p: { agentType?: string; task?: string; title?: string }, requestId: string, progress: (text: string) => void): Promise<string> {
+	private async delegate(parent: Entry, p: { agentType?: string; task?: string; title?: string; model?: string }, requestId: string, progress: (text: string) => void): Promise<string> {
 		const types = this.deps.agentTypes();
 		const parentType = findAgentType(types, parent.record.agentType);
 		const type = p.agentType ? findAgentType(types, p.agentType) : undefined;
@@ -561,9 +574,9 @@ export class SessionService {
 		// The parent's repo when the type works there; otherwise its own (an Engine Engineer under a game session).
 		const target = type.targets.includes(parent.record.target) ? parent.record.target : type.targets[0];
 		if (!target) throw new Error(`${type.name} has no repos to work in`);
-		// The child's own default model when it's available (a Sonnet specialist under an Opus director), else the parent's.
-		const available = new Set((await this.deps.host.call("models").catch(() => [])).map((m) => m.ref));
-		const model = type.defaultModel && available.has(type.defaultModel) ? type.defaultModel : parent.record.model;
+		// The child's own default model when it's available (a Sonnet specialist under an Opus director), else the parent's;
+		// or the one the parent asked for, when the type allows it (Settings → Agents).
+		const model = delegateModel(type, parent.record.model, await this.availableModels(), p.model?.trim() || undefined);
 		if (target !== parent.record.target) {
 			const from = this.worktreeOf(parent).record.label;
 			const other = await this.create({

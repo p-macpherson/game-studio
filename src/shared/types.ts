@@ -114,6 +114,15 @@ export interface Settings {
 	worktreeRoot: string;
 	recentProjects: string[];
 	lastProject?: string;
+	/** Settings → Agents: per agent type (by id), the models chosen here in place of what its AGENT.md says. */
+	agentModels?: Record<string, AgentModelSettings>;
+}
+
+export interface AgentModelSettings {
+	/** The model its sessions start on. */
+	defaultModel?: string;
+	/** The other models a parent agent may start it on (`delegate`'s `model`). */
+	models?: string[];
 }
 
 export interface ProjectInfo {
@@ -151,6 +160,10 @@ export interface AgentTypeInfo {
 	description: string;
 	targets: Target[];
 	defaultModel?: string;
+	/** Other models a parent agent may start it on when it delegates (AGENT.md `models`, or Settings → Agents). */
+	models?: string[];
+	/** Its models were set in Settings → Agents; these are what its AGENT.md says (shown by Reset). */
+	fileModels?: AgentModelSettings;
 	thinking?: ThinkingLevel;
 	skills: string[];
 	/** System prompt text appended to Pi's base prompt. */

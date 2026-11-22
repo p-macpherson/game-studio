@@ -3,6 +3,7 @@ name: Texture Artist
 description: "Makes the game's tileable surface textures (ground, paths, walls, floors, wood, stone) in its style: seamless, sized in metres, with normal and roughness maps."
 targets: [project]
 defaultModel: anthropic/claude-sonnet-5-5
+models: [anthropic/claude-opus-5-5]
 thinking: medium
 skills: [texture-art, engine-control, studio-git]
 designDocs: [art-style]

@@ -1033,6 +1033,100 @@ label.field > span {
 	font-size: 12px;
 	color: var(--muted);
 }
+/* Settings → Agents: list or graph, with the picked type's panel beside it */
+.agents-body {
+	display: flex;
+	gap: 16px;
+	align-items: flex-start;
+}
+.agents-main {
+	flex: 1;
+	min-width: 0;
+}
+button.agent-type-card {
+	text-align: left;
+	width: 100%;
+	font: inherit;
+	color: inherit;
+}
+button.agent-type-card:hover {
+	border-color: var(--muted);
+}
+button.agent-type-card.on,
+.agent-node.on {
+	border-color: var(--accent);
+	background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+}
+.agent-graph-scroll {
+	overflow: auto;
+	padding: 8px 4px 16px;
+}
+.agent-graph {
+	position: relative;
+}
+.agent-graph svg {
+	position: absolute;
+	inset: 0;
+	overflow: visible;
+}
+.agent-edge {
+	fill: none;
+	stroke: var(--border);
+	stroke-width: 1.5;
+	transition: opacity 0.12s;
+}
+.agent-edge.on {
+	stroke: var(--accent);
+	stroke-width: 2;
+}
+.agent-edge.dim {
+	opacity: 0.25;
+}
+.agent-node {
+	position: absolute;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	gap: 1px;
+	text-align: left;
+	padding: 4px 10px;
+	background: var(--panel);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	transition: opacity 0.12s;
+}
+.agent-node:hover {
+	border-color: var(--muted);
+}
+.agent-node.dim {
+	opacity: 0.4;
+}
+.agent-node.problem {
+	border-color: var(--red);
+}
+.agent-panel {
+	width: 330px;
+	flex: none;
+	position: sticky;
+	top: 0;
+	gap: 8px;
+}
+.agent-field {
+	gap: 4px;
+	margin-top: 6px;
+	padding-top: 10px;
+	border-top: 1px solid var(--border);
+}
+.agent-model-option {
+	gap: 8px;
+	align-items: baseline;
+}
+.agent-model-name {
+	white-space: nowrap;
+}
+.agent-warn {
+	color: var(--yellow);
+}
 .agent-types {
 	display: grid;
 	grid-template-columns: 1fr 1fr;

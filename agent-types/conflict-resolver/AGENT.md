@@ -3,6 +3,7 @@ name: Conflict Resolver
 description: "Finishes updating a worktree from main when files conflict: works out what each side meant (from the commits and the worktree's sessions) and merges both, then checks the game still builds and passes its tests."
 targets: [project, engine, studio]
 defaultModel: anthropic/claude-sonnet-5-5
+models: [anthropic/claude-opus-5-5]
 thinking: high
 skills: [merge-conflicts, studio-git, engine-control]
 designDocs: none

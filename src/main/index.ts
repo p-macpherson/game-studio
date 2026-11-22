@@ -6,6 +6,7 @@ import { EditHistory } from "./edit-history";
 import type { StudioApi, StudioEvent, StudioMethod } from "../shared/ipc";
 import type { ProjectInfo, Target } from "../shared/types";
 import { agentTypeCache } from "./agent-types";
+import { withModelSettings } from "../shared/agent-models";
 import { AssetService, MODULES } from "./assets";
 import * as g from "./git";
 import { utilityHostLink } from "./host-link";
@@ -75,7 +76,7 @@ async function main(): Promise<void> {
 	// Sub-agents run side by side in the one session host, each maybe with a codemode script (Pi's default is 2 workers).
 	const host = await utilityHostLink(piDir, { PI_CODEMODE_MAX_WORKERS: "8", ...(process.env.GAME_STUDIO_FAUX === "1" ? { GAME_STUDIO_FAUX: "1" } : {}) });
 	const cachedAgentTypes = agentTypeCache(join(appRoot, "agent-types"));
-	const agentTypes = () => cachedAgentTypes(project?.path);
+	const agentTypes = () => withModelSettings(cachedAgentTypes(project?.path), settings.get().agentModels);
 	const genRoot = process.env.GAME_STUDIO_GEN ?? join(app.getPath("home"), ".local/share/game-studio/gen");
 	const gen = new GenService({
 		root: genRoot,
@@ -189,7 +190,8 @@ async function main(): Promise<void> {
 		"settings.get": async () => settings.get(),
 		"settings.update": async (patch) => {
 			const next = settings.update(patch);
-			sessions.load();
+			// Only the repos' places change which sessions there are.
+			if (("engineRepo" in patch) || ("studioRepo" in patch) || ("worktreeRoot" in patch)) sessions.load();
 			return next;
 		},
 

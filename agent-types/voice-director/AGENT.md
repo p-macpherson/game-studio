@@ -3,6 +3,7 @@ name: Voice Director
 description: "Gives the game's characters their voices: describes each voice, writes the direction for every line, and has a local model perform takes for the user to audition."
 targets: [project]
 defaultModel: anthropic/claude-sonnet-5-5
+models: [anthropic/claude-opus-5-5]
 thinking: medium
 skills: [voice-lines, studio-git]
 studioTools: [generate_voice_takes, render_voice]
