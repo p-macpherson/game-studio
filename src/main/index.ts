@@ -24,6 +24,7 @@ import { studioRequests } from "./studio-requests";
 import { TexturePipeline, textureRequests } from "./textures";
 import { effectRequests, ParticleTexturePipeline } from "./effects";
 import { ReleaseService, releaseRequests } from "./release-service";
+import { UpdateService } from "./updates";
 import { runInBrowser, serveFolder } from "./web-runner";
 import { shaderRequests } from "./shaders";
 import { UiArtPipeline, uiRequests } from "./ui";
@@ -132,6 +133,7 @@ async function main(): Promise<void> {
 		return sessions.checkoutPath(checkout);
 	};
 	serveStudioFiles(checkoutRoot);
+	const updates = new UpdateService(appRoot, emit);
 	/** Web builds a person has opened: each package folder stays served until the studio quits. */
 	const webServers = new Map<string, string>();
 	const release = new ReleaseService({
@@ -301,6 +303,11 @@ async function main(): Promise<void> {
 		"release.reveal": async (checkout, version, target) => void (await shell.openPath(release.folder(checkout, version, target))),
 		"release.publish": (checkout, version, target) => release.publish(checkout, version, target),
 		"release.itchStatus": (checkout) => release.itchStatus(checkout),
+		"updates.status": async () => updates.status(),
+		"updates.check": () => updates.check(),
+		"updates.prepare": () => updates.prepare(),
+		// Closing the windows runs the usual shutdown (sessions, workers, the game) before the updater takes over.
+		"updates.restart": async () => updates.restart(() => BrowserWindow.getAllWindows().forEach((w) => w.close())),
 		"itch.hasKey": async () => release.hasItchKey(),
 		"itch.setKey": async (key) => release.setItchKey(key),
 		"worktrees.status": (id) => sessions.worktreeStatus(id),
@@ -421,9 +428,11 @@ async function main(): Promise<void> {
 	watchProject(project?.path);
 	setMenu();
 	createWindow();
+	updates.start();
 
 	app.on("window-all-closed", () => {
 		runner.dispose();
+		updates.dispose();
 		sessions.dispose();
 		audio.dispose();
 		host.kill();

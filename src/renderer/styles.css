@@ -3515,6 +3515,20 @@ input.bad {
 		linear-gradient(to bottom, color-mix(in srgb, var(--accent) 40%, transparent) 1px, transparent 1px);
 }
 
+/* Updates */
+.update-nav .nav-icon,
+.update-nav .nav-label {
+	color: var(--accent);
+}
+.update-list {
+	margin: 0;
+	padding-left: 18px;
+}
+.update-log {
+	max-height: 140px;
+	overflow: auto;
+}
+
 /* Release */
 .release-grid {
 	display: grid;
