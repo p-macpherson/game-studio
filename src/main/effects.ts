@@ -41,7 +41,7 @@ export class ParticleTexturePipeline {
 	}
 
 	/** Generated candidates: FLUX on the GPU (on black for glows, on white for solid sprites), cut out on the CPU. */
-	async candidates(ctx: PipelineContext, p: { name: string; mode: "glow" | "solid"; prompt: string; style?: string; count?: number; seed?: number }) {
+	async candidates(ctx: PipelineContext, p: { name: string; mode: "glow" | "solid"; prompt: string; style?: string; count?: number; seed?: number; references?: string[] }) {
 		if (p.mode !== "glow" && p.mode !== "solid") throw new Error('mode is "glow" (sparks, embers, flames, magic) or "solid" (leaves, coins, petals, debris)');
 		const existing = this.read(ctx.cwd, p.name);
 		if (existing && existing.mode !== p.mode) throw new Error(`${p.name} is a ${existing.mode} texture, not ${p.mode}`);
@@ -51,7 +51,7 @@ export class ParticleTexturePipeline {
 		try {
 			const count = Math.min(Math.max(Math.round(p.count ?? 3), 1), 4);
 			const prompt = [p.prompt, p.style, PARTICLE_FRAMING[p.mode]].filter(Boolean).join(", ");
-			const g = await this.step(ctx, "image", `Particle texture ${p.name}`, { prompt, raw_prompt: true, out_dir: raw, name: leafName(p.name), count, seed: p.seed, width: 512, height: 512 });
+			const g = await this.step(ctx, "image", `Particle texture ${p.name}`, { prompt, raw_prompt: true, out_dir: raw, name: leafName(p.name), count, seed: p.seed, width: 512, height: 512, references: (p.references ?? []).map((r) => safeJoin(ctx.cwd, r)) });
 			// The image job also makes a contact sheet; this step shows its own cut-out one, so this one goes now (it was left in /tmp).
 			if (typeof g.sheet === "string") rmSync(g.sheet, { force: true });
 			const c = await this.step(ctx, "particle_cut", `Cutting out ${p.name}`, { images: g.images, out_dir: out, mode: p.mode });

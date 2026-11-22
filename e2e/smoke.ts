@@ -221,6 +221,16 @@ try {
 	await page.getByTestId("doc-save").click();
 	await page.locator(".markdown", { hasText: "edited by hand" }).waitFor();
 	await page.getByTestId("doc-banner").filter({ hasText: "Established" }).waitFor();
+	// A reference image: picked, captioned, saved in docs/design/references/ and shown in the doc.
+	await page.getByTestId("doc-image-input").setInputFiles({ name: "glade.png", mimeType: "image/png", buffer: readFileSync(resolve("gen/workers/fixtures/concept.png")) });
+	await page.getByTestId("doc-image-caption").locator("input").fill("the clearing's light");
+	await page.getByTestId("doc-image-add").click();
+	const ref = page.locator('.markdown img[title="the clearing\'s light"]');
+	await ref.waitFor();
+	for (let i = 0; !(await ref.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)); i++) {
+		if (i > 50) throw new Error("the reference image didn't load");
+		await page.waitForTimeout(100);
+	}
 	await step("10b-doc-status-and-edit", page);
 	await page.getByTestId("worktree-save").click();
 	await page.getByTestId("save-ok").click();

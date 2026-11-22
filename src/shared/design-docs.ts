@@ -2,6 +2,37 @@
 // sets, and the brief agents are given from them. See the vault note "Design Docs: Standard Set".
 
 export const DOC_ROOT = "docs/design";
+/** Where a doc's reference images go: docs/design/references/. */
+export const REFERENCE_DIR = `${DOC_ROOT}/references`;
+
+/** The images a doc shows (\`![caption](path)\`), as repo paths, skipping web images. */
+export function docImages(docPath: string, text: string): { path: string; caption: string }[] {
+	const dir = docPath.split("/").slice(0, -1);
+	const out: { path: string; caption: string }[] = [];
+	for (const [, caption, src] of text.matchAll(/!\[([^\]]*)\]\(<?([^)\s>]+)>?(?:\s+"[^"]*")?\)/g)) {
+		if (/^[a-z]+:/i.test(src)) continue;
+		const parts = [...dir];
+		for (const seg of decodeURIComponent(src).split("/")) {
+			if (seg === "..") parts.pop();
+			else if (seg && seg !== ".") parts.push(seg);
+		}
+		out.push({ path: parts.join("/"), caption: caption.trim() });
+	}
+	return out;
+}
+
+/** A doc with an image added at the end of its "## References" section (made when there's none). */
+export function addDocImage(text: string, src: string, caption: string): string {
+	const line = `![${caption.replace(/[[\]]/g, "")}](${src.split("/").map(encodeURIComponent).join("/")})`;
+	const lines = text.replace(/\s+$/, "").split("\n");
+	const start = lines.findIndex((l) => /^##\s+References\s*$/i.test(l));
+	if (start < 0) return `${lines.join("\n")}\n\n## References\n${line}\n`;
+	let end = lines.findIndex((l, i) => i > start && /^#{1,2}\s/.test(l));
+	if (end < 0) end = lines.length;
+	while (end > start + 1 && !lines[end - 1].trim()) end--;
+	lines.splice(end, 0, line);
+	return `${lines.join("\n")}\n`;
+}
 
 export const DOC_STATUSES = ["not-established", "draft", "established"] as const;
 export type DocStatus = (typeof DOC_STATUSES)[number];
@@ -115,6 +146,7 @@ export const DESIGN_DOCS: DesignDocDef[] = [
 			["Lighting and effects", "Lighting mood, time of day, post-processing, shader effects."],
 			["UI", "The look of screens and HUD: frames, fonts, icons."],
 			["Scale", "Real-world sizes: the player's height, a door, a tile."],
+			["References", "Images of the look you're after (screenshots, art, photos), each captioned with what it shows: add them with “Add reference image”."],
 			["Prompt phrases", "Wording to put in every generation prompt so assets match."],
 		],
 	},
@@ -264,6 +296,15 @@ export function designBrief(docs: { path: string; text: string }[], follows: str
 			const text = body.trim();
 			out.push("", `### ${summarizeMarkdown(d.text, d.path).title}: ${label(status)} (\`${d.path}\`)`);
 			out.push(text.length > INLINE_LIMIT ? `${text.slice(0, INLINE_LIMIT)}\n…(cut: read the rest in \`${d.path}\`)` : text.replace(/^#\s+.*\n+/, ""));
+			const images = docImages(d.path, d.text);
+			if (images.length) {
+				out.push(
+					"",
+					`**Reference images** for this doc. Look at each (open it with \`read\`) before making or judging work it covers. They show the ` +
+						"intended direction: match their feel, don't copy them, and don't pass them to generation tools as references unless the user asks.",
+					...images.map((i) => `- \`${i.path}\`${i.caption ? `: ${i.caption}` : ""}`),
+				);
+			}
 		}
 	}
 	if (rest.length) {

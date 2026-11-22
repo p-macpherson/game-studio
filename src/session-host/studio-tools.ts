@@ -373,6 +373,11 @@ export function studioTools(ctx: StudioToolContext) {
 				prompt: Type.String(),
 				style: Type.Optional(Type.String({ description: "The game's art direction, e.g. 'whimsical hand-painted fantasy, warm colours'" })),
 				count: Type.Optional(Type.Number({ description: "Candidates (1-4, default 3)" })),
+				references: Type.Optional(
+					Type.Array(Type.String(), {
+						description: "Repo-relative images to steer the look (e.g. the Art Style doc's references in docs/design/references/). Only when the user asks for it: a reference is copied closely",
+					}),
+				),
 				seed: Type.Optional(Type.Number()),
 			}),
 			async execute(_id, params, signal, onUpdate) {
@@ -510,6 +515,11 @@ export function studioTools(ctx: StudioToolContext) {
 				prompt: Type.String({ description: "One element: 'a bright four-pointed star sparkle', 'a single small autumn leaf'" }),
 				style: Type.Optional(Type.String({ description: "The game's art style, e.g. 'stylised hand-painted'" })),
 				count: Type.Optional(Type.Number({ description: "Candidates (1-4, default 3)" })),
+				references: Type.Optional(
+					Type.Array(Type.String(), {
+						description: "Repo-relative images to steer the look (e.g. the Art Style doc's references in docs/design/references/). Only when the user asks for it: a reference is copied closely",
+					}),
+				),
 				seed: Type.Optional(Type.Number()),
 			}),
 			async execute(_id, params, signal, onUpdate) {

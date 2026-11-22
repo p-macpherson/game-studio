@@ -1,6 +1,7 @@
 // The Design Docs section: the standard docs first, each with its status (set here by the user), rendered as
 // markdown, editable by hand (Edit: an undo step in the selected worktree) or with the Game Designer.
-import { useEffect, useState } from "react";
+import { type ClipboardEvent, type DragEvent, useCallback, useEffect, useRef, useState } from "react";
+import { studioFile } from "../../renderer/api";
 import { DOC_STATUSES, type DocStatus, STATUS_LABEL, missingDocs, parseDoc, setDocBody, standardDoc } from "../../shared/design-docs";
 import type { AssetSummary, ModuleInfo } from "../../shared/modules";
 import { useStudio } from "../../renderer/store";
@@ -95,10 +96,19 @@ export function DesignDocsView({ module }: { module: ModuleInfo }) {
 	);
 }
 
+/** A picked, pasted or dropped image file as the add_doc_image request takes it. */
+async function imageParams(f: File): Promise<{ name: string; data: string }> {
+	const bytes = new Uint8Array(await f.arrayBuffer());
+	let bin = "";
+	for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+	return { name: f.name || "pasted.png", data: btoa(bin) };
+}
+
 function DocContent({
 	asset,
 	text,
 	assets,
+	checkout,
 	module,
 	editing,
 	onSave,
@@ -106,6 +116,36 @@ function DocContent({
 }: AssetContentProps & { module: ModuleInfo; editing: boolean; onSave(text: string): Promise<void>; onAddStandard(): void }) {
 	const showAsset = useStudio((s) => s.showAsset);
 	const openNewSession = useStudio((s) => s.openNewSession);
+	const showError = useStudio((s) => s.showError);
+	const picker = useRef<HTMLInputElement>(null);
+	const source = useRef<HTMLTextAreaElement>(null);
+	const imageSrc = useCallback((src: string) => studioFile(checkout, resolveLink(asset.path, src)), [checkout, asset.path]);
+	/** Adds reference images (an undo step in the worktree); appended to the References section, or returned to insert. */
+	const addImages = async (files: File[], insert: boolean, caption = ""): Promise<string[]> => {
+		const out: string[] = [];
+		for (const f of files.filter((x) => x.type.startsWith("image/"))) {
+			try {
+				const { result } = await runInWorktree(`Docs: ${asset.title}`, "add_doc_image", { path: asset.path, ...(await imageParams(f)), caption, insert });
+				out.push((result as { markdown: string }).markdown);
+			} catch (err) {
+				showError(err);
+			}
+		}
+		useStudio.setState((s) => ({ assetsVersion: s.assetsVersion + 1 }));
+		return out;
+	};
+	/** Picked images wait for a caption: what they're a reference for. */
+	const [pending, setPending] = useState<File[] | null>(null);
+	const [caption, setCaption] = useState("");
+	/** Pasted or dropped images while editing go in at the cursor. */
+	const insertImages = async (e: ClipboardEvent | DragEvent, files: FileList | undefined) => {
+		const list = [...(files ?? [])].filter((f) => f.type.startsWith("image/"));
+		if (!list.length) return;
+		e.preventDefault();
+		const at = source.current?.selectionStart ?? draft.length;
+		const md = await addImages(list, false);
+		if (md.length) setDraft((d) => `${d.slice(0, at)}${md.join("\n")}${d.slice(at)}`);
+	};
 	const { status, body } = parseDoc(text);
 	const [draft, setDraft] = useState(body);
 	// Editing starts from the doc as it is now.
@@ -128,14 +168,17 @@ function DocContent({
 		return (
 			<div className="doc-view col doc-editing">
 				<div className="row">
-					<span className="muted small grow">Markdown. The status is set from the header. Ctrl+S saves.</span>
+					<span className="muted small grow">Markdown. The status is set from the header. Paste or drop images to add references. Ctrl+S saves.</span>
 					<button className="primary" disabled={draft === body} onClick={() => void onSave(setDocBody(text, draft))} data-testid="doc-save">
 						Save
 					</button>
 				</div>
 				<textarea
+					ref={source}
 					className="doc-source"
 					value={draft}
+					onPaste={(e) => void insertImages(e, e.clipboardData.files)}
+					onDrop={(e) => void insertImages(e, e.dataTransfer.files)}
 					autoFocus
 					onChange={(e) => setDraft(e.target.value)}
 					onKeyDown={(e) => {
@@ -173,8 +216,56 @@ function DocContent({
 					)}
 				</div>
 			)}
+			<div className="row doc-tools">
+				<span className="grow" />
+				<input
+					ref={picker}
+					type="file"
+					accept="image/png,image/jpeg,image/webp,image/gif"
+					multiple
+					hidden
+					data-testid="doc-image-input"
+					onChange={(e) => {
+						const files = [...(e.target.files ?? [])];
+						e.target.value = "";
+						if (files.length) {
+							setCaption("");
+							setPending(files);
+						}
+					}}
+				/>
+				<button className="ghost small" title="Add images of the look you want: saved in docs/design/references/, shown here and to agents" onClick={() => picker.current?.click()} data-testid="doc-add-image">
+					+ Add reference image
+				</button>
+			</div>
+			{pending && (
+				<div className="row doc-caption" data-testid="doc-image-caption">
+					<span className="small">
+						{pending.length === 1 ? pending[0].name : `${pending.length} images`}: what {pending.length === 1 ? "is it" : "are they"} a reference for?
+					</span>
+					<input
+						className="grow"
+						autoFocus
+						value={caption}
+						placeholder="e.g. palette and lighting, how chunky the props are"
+						onChange={(e) => setCaption(e.target.value)}
+						onKeyDown={(e) => {
+							if (e.key === "Enter") {
+								setPending(null);
+								void addImages(pending, true, caption);
+							}
+							if (e.key === "Escape") setPending(null);
+						}}
+					/>
+					<button className="primary" onClick={() => (setPending(null), void addImages(pending, true, caption))} data-testid="doc-image-add">
+						Add
+					</button>
+					<button onClick={() => setPending(null)}>Cancel</button>
+				</div>
+			)}
 			<Markdown
 				text={body}
+				imageSrc={imageSrc}
 				onLink={(href) => {
 					const target = resolveLink(asset.path, href);
 					if (assets.some((d) => d.path === target)) showAsset({ path: target });
