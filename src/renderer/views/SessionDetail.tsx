@@ -4,7 +4,6 @@ import type { ContextUsage, SessionSummary } from "../../shared/types";
 import { findAgentType } from "../../shared/agents";
 import { call, relativeTime } from "../api";
 import { useStudio } from "../store";
-import { confirmDiscard } from "../workspace";
 import { Chat, FullTranscript } from "./Chat";
 import { Markdown } from "./Markdown";
 import { loadDraft, saveDraft } from "../drafts";
@@ -166,13 +165,12 @@ function SubAgents({ root, sessions, typeName, onOpen }: { root: SessionSummary;
 }
 
 export function SessionDetail({ session: s }: { session: SessionSummary }) {
-	const { agentTypes, models, showError, loadTranscript, openPlay, sessions, selectWorktree, selectSession } = useStudio(
+	const { agentTypes, models, showError, loadTranscript, sessions, selectWorktree, selectSession } = useStudio(
 		useShallow((st) => ({
 			agentTypes: st.agentTypes,
 			models: st.models,
 			showError: st.showError,
 			loadTranscript: st.loadTranscript,
-			openPlay: st.openPlay,
 			sessions: st.sessions,
 			selectWorktree: st.selectWorktree,
 			selectSession: st.selectSession,
@@ -203,8 +201,6 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 	};
 	collect(s.id);
 	const belowWorking = below.filter((x) => x.status === "in_progress" || x.status === "starting").length;
-	// Sessions sharing its worktree end with it on Merge or Discard.
-	const shared = sessions.filter((x) => x.worktreeId === s.worktreeId && x.status !== "done").length;
 
 	useEffect(() => {
 		if (!transcript) void loadTranscript(s.id);
@@ -260,42 +256,15 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 					<h2 className="grow ellipsis" title={s.title}>
 						{s.title}
 					</h2>
-					{hasWorktree && s.target !== "studio" && (
-						<button title="Build and run the game with this session's changes" onClick={() => openPlay({ checkout: s.worktreeId, tab: "run" })}>
-							▶ Play &amp; Test
-						</button>
-					)}
 					{running && (
 						<button disabled={busy} onClick={() => act(() => call("sessions.abort", s.id))}>
 							■ Stop
 						</button>
 					)}
 					{!running && s.status !== "done" && (
-						<>
-							{hasWorktree && (
-								<button
-									className="primary"
-									disabled={busy}
-									onClick={() => useStudio.getState().openMerge(s.worktreeId)}
-								>
-									Merge
-								</button>
-							)}
-							<button disabled={busy} onClick={() => act(() => call("sessions.markDone", s.id))}>
-								Mark done
-							</button>
-							<button
-								className="danger"
-								disabled={busy}
-								onClick={() =>
-									act(async () => {
-										if (await confirmDiscard(s.worktreeId, s.worktreeLabel, shared > 1 ? ` Its ${shared} sessions end with it.` : "")) await call("sessions.discard", s.id);
-									})
-								}
-							>
-								Discard
-							</button>
-						</>
+						<button disabled={busy} onClick={() => act(() => call("sessions.markDone", s.id))} title="Close this session. Its worktree and changes stay; merge or discard those from the worktree bar">
+							Mark done
+						</button>
 					)}
 					{s.status === "done" && (
 						<button className="primary" disabled={busy} onClick={() =>

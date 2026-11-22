@@ -131,7 +131,9 @@ try {
 	await page.locator("nav.sidebar").getByRole("button", { name: "Sessions" }).click();
 
 	// Merge: done sessions are hidden by default.
-	await page.locator(".session-header").getByRole("button", { name: "Merge" }).click();
+	// (The session's header has no worktree operations: merging is the worktree bar's.)
+	if (await page.locator(".session-header").getByRole("button", { name: /Merge|Discard|Play/ }).count()) throw new Error("the session header still has worktree buttons");
+	await page.getByTestId("worktree-merge").click();
 	await page.getByTestId("merge-confirm").click();
 	await page.locator(".session-items .empty").waitFor();
 	if (readFileSync(join(projectPath, "faux-notes.md"), "utf8") !== "add a note\n") throw new Error("merge did not reach main");
@@ -344,7 +346,7 @@ try {
 	await page.getByTestId("new-session-prompt").fill("write game/extra.odin: package game\n\nextra :: proc() {\n\tx := nope\n}\n");
 	await page.getByRole("button", { name: "Start session" }).click();
 	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
-	await page.locator(".session-header").getByRole("button", { name: "▶ Play & Test" }).click();
+	await nav.getByRole("button", { name: "Play & Test" }).click(); // it follows the selected worktree: the session's
 	await page.getByRole("button", { name: "Run", exact: true }).click();
 	await page.getByRole("button", { name: "⚒ Build" }).click();
 	await page.getByTestId("run-state").getByText("Build failed").waitFor({ timeout: 60_000 });
