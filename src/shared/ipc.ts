@@ -1,6 +1,7 @@
 /** Contract between the renderer and the main process, exposed by the preload script as `window.studio`. */
 import type { HostInfo, PromptMode, StudioRequestMethod } from "./host";
 import type { AssetLinks } from "./asset-links";
+import type { SessionAssets } from "./session-assets";
 import type { ReleaseBuild, ReleaseInfo, ReleaseManifest, ReleaseTarget } from "./release";
 import type { HistoryStep } from "./history";
 import type { CandidateRecord } from "./texture";
@@ -117,6 +118,8 @@ export interface StudioApi {
 	"sessions.list"(): Promise<SessionSummary[]>;
 	"sessions.create"(req: NewSessionRequest): Promise<SessionSummary>;
 	"sessions.messages"(id: string): Promise<unknown[]>;
+	/** The assets the session touched (cards by turn) and the paths its agent wrote that name one (shared/session-assets.ts). */
+	"sessions.assets"(id: string): Promise<SessionAssets>;
 	"sessions.send"(id: string, text: string, mode?: PromptMode): Promise<void>;
 	"sessions.abort"(id: string): Promise<void>;
 	"sessions.setModel"(id: string, model: string): Promise<void>;
@@ -214,7 +217,6 @@ export type StudioEvent =
 	| { type: "sessions_changed" }
 	| { type: "session_event"; id: string; event: { type: string; [k: string]: unknown } }
 	| { type: "project_changed" }
-	| { type: "focus_asset"; path: string; sessionId?: string; line?: number }
 	| { type: "assets_changed" }
 	| { type: "run_changed"; run: RunInfo }
 	| { type: "run_output"; runId: string; text: string }
@@ -231,9 +233,7 @@ export type StudioEvent =
 	| { type: "release_progress"; checkout: string; version: string; target: ReleaseTarget; text: string }
 	/** A build started or ended, a session was put on one, builds were removed: read release.info again. */
 	| { type: "release_changed" }
-	| { type: "update_status"; status: UpdateStatus }
-	/** An agent showed images (open_in_studio): paths in the session's checkout, for the image viewer. */
-	| { type: "show_images"; sessionId: string; paths: string[] };
+	| { type: "update_status"; status: UpdateStatus };
 
 /** What the preload exposes. */
 export interface StudioBridge {

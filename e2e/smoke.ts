@@ -903,6 +903,21 @@ try {
 	await page.getByTestId("composer").fill('tool render_sound {"name": "e2e-chime"}');
 	await page.getByTestId("composer").press("Enter");
 	await page.getByTestId("chat").getByText(/^Result:[\s\S]*e2e-chime\.ogg/).waitFor({ timeout: 60_000 });
+	// The session's assets in its chat: a card for the sound its turns made (with the sound to listen to), the paths in
+	// the agent's words as links, and open_in_studio puts a card there without moving the user out of the session.
+	const chimeCard = page.locator('[data-testid=asset-card][data-path="assets/sounds/e2e-chime/sound.json"]');
+	await chimeCard.last().getByText("New").waitFor({ timeout: 15_000 });
+	await chimeCard.last().getByTestId("asset-card-play").waitFor();
+	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
+	await page.getByTestId("composer").fill('tool open_in_studio {"path": "docs/design/Game Brief.md"}');
+	await page.getByTestId("composer").press("Enter");
+	const briefCard = page.locator('[data-testid=asset-card][data-path="docs/design/Game Brief.md"]');
+	await briefCard.getByText("shown").waitFor({ timeout: 30_000 });
+	if (!(await page.locator(".session-detail").isVisible())) throw new Error("open_in_studio moved the user out of the session");
+	await page.locator(".asset-chip", { hasText: "Game Brief" }).first().waitFor();
+	await step("28a-session-assets", page);
+	await briefCard.getByRole("button").first().click();
+	await page.getByTestId("asset-item").filter({ hasText: "Game Brief" }).first().waitFor();
 	await nav.getByRole("button", { name: "Sound Effects" }).click();
 	await page.getByTestId("asset-item").filter({ hasText: "e2e-chime" }).click();
 	await page.locator("[data-testid=sound-detail] [data-testid=render-status][data-state=current]").waitFor({ timeout: 30_000 });

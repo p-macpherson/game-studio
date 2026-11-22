@@ -222,6 +222,13 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 	}, [s.id, transcript, loadTranscript]);
 
 	const messageCount = transcript?.messages.length ?? 0;
+	// Its asset cards and links: read again a moment after the conversation, its worktree or the assets change.
+	const assets = useStudio((st) => st.sessionAssets[s.id]);
+	const assetsVersion = useStudio((st) => st.assetsVersion);
+	useEffect(() => {
+		const t = setTimeout(() => void useStudio.getState().loadSessionAssets(s.id), 300);
+		return () => clearTimeout(t);
+	}, [s.id, s.status, s.worktree, messageCount, assetsVersion]);
 	const compacting = !!transcript?.compacting;
 	useEffect(() => {
 		let live = true;
@@ -380,8 +387,8 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 					))}
 			</div>
 			<div className={`tab-body ${tab === "chat" || tab === "transcript" ? "fill" : ""}`}>
-				{tab === "chat" && transcript && <Chat transcript={transcript} working={running} onShowTranscript={() => setTab("transcript")} />}
-				{tab === "transcript" && transcript && <FullTranscript transcript={transcript} />}
+				{tab === "chat" && transcript && <Chat transcript={transcript} working={running} onShowTranscript={() => setTab("transcript")} assets={assets} />}
+				{tab === "transcript" && transcript && <FullTranscript transcript={transcript} assets={assets} />}
 				{tab === "subagents" && <SubAgents root={s} sessions={sessions} typeName={(id) => findAgentType(agentTypes, id)?.name ?? id} onOpen={selectSession} />}
 				{tab === "raw" && (
 					<div className="col" style={{ padding: 12 }}>

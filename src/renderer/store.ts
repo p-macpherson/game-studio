@@ -4,7 +4,8 @@ import { type ModuleInfo, moduleOwns } from "../shared/modules";
 import { type CheckoutId, MAX_RUN_PLAYERS, type RunInfo, type RunMode, type TestReport } from "../shared/run";
 import type { AgentTypeInfo, ModelInfo, ProjectInfo, SessionSummary, Settings, Target, UpdateStatus, WorktreeSummary } from "../shared/types";
 import type { HistoryStep } from "../shared/history";
-import { call, studioFile } from "./api";
+import type { SessionAssets } from "../shared/session-assets";
+import { call } from "./api";
 
 export type View = "sessions" | "worktrees" | "source-control" | "settings" | "play" | "release" | `module:${string}`;
 
@@ -70,6 +71,9 @@ interface State {
 	view: View;
 	selectedSession: string | null;
 	transcripts: Record<string, Transcript>;
+	/** Each session's asset cards and mentions for its chat (sessions.assets), as last read. */
+	sessionAssets: Record<string, SessionAssets>;
+	loadSessionAssets(id: string): Promise<void>;
 	error: string | null;
 	newSession: NewSessionPreset | null;
 	modules: ModuleInfo[];
@@ -173,6 +177,11 @@ export const useStudio = create<State>((set, get) => ({
 	view: "sessions",
 	selectedSession: null,
 	transcripts: {},
+	sessionAssets: {},
+	async loadSessionAssets(id) {
+		const found = await call("sessions.assets", id).catch(() => null);
+		if (found) set((s) => ({ sessionAssets: { ...s.sessionAssets, [id]: found } }));
+	},
 	error: null,
 	newSession: null,
 	modules: [],
@@ -328,9 +337,6 @@ export const useStudio = create<State>((set, get) => ({
 			case "update_status":
 				set({ update: event.status });
 				break;
-			case "show_images":
-				get().showImages(event.paths.map((p) => ({ src: studioFile(event.sessionId, p), label: p })));
-				break;
 			case "run_changed":
 				set((s) => (s.run?.id === event.run.id ? { run: event.run } : { run: event.run, runOutput: "", frame: null, peerFrames: {} }));
 				break;
@@ -364,9 +370,6 @@ export const useStudio = create<State>((set, get) => ({
 				else void get()[event.command]();
 				break;
 			}
-			case "focus_asset":
-				get().showAsset({ path: event.path, checkout: event.sessionId ?? null, line: event.line });
-				break;
 			case "session_event":
 				set((s) => {
 					const t = s.transcripts[event.id];

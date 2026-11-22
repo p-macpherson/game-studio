@@ -589,10 +589,11 @@ export function studioTools(ctx: StudioToolContext) {
 		}),
 		defineTool({
 			name: "open_in_studio",
-			label: "Open in studio",
+			label: "Show in the conversation",
 			description:
-				"Show a file to the user in Game Studio (a path relative to the repo root): an asset or design doc opens in its section, an image " +
-				"(.png, .jpg, .webp: a screenshot or render, even under build/) in an image viewer. The result says whether it could be shown; files the " +
+				"Show a file to the user (a path relative to the repo root): it appears in this conversation, as a card for an asset or design doc " +
+				"(with a preview; clicking it opens its section) or as a picture for an image (.png, .jpg, .webp: a screenshot or render, even under build/). " +
+				"It never moves the user to another part of Game Studio, so don't assume they've looked. The result says whether it could be shown; files the " +
 				"studio has no view for aren't. To show images with a question, give them to ask_user instead.",
 			parameters: Type.Object({ path: Type.String() }),
 			async execute(_id, { path }, signal) {

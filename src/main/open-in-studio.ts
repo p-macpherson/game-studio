@@ -1,16 +1,18 @@
-// open_in_studio: an agent shows the user a file. An asset or design doc opens in its section; an image (a screenshot
-// or render, wherever it is) opens in the studio's image viewer; anything else can't be shown, and the agent is told so
-// (with the file's full path to pass on), rather than believing the user saw it.
+// open_in_studio: an agent shows the user a file. It never changes what the user is looking at (Pat, 2026-11-22: a
+// session must not move them to another part of the studio): the file appears in the session's conversation, as a
+// card for an asset or design doc (which opens its section when clicked) or as a picture for an image (a screenshot
+// or render, wherever it is). Anything else can't be shown, and the agent is told so (with the file's full path to
+// pass on), rather than believing the user saw it. The cards themselves are worked out from the transcript
+// (shared/session-assets.ts): this only checks the file and answers truthfully.
 import { existsSync } from "node:fs";
 import { extname } from "node:path";
-import type { StudioEvent } from "../shared/ipc";
 import { type ModuleInfo, moduleOwns } from "../shared/modules";
 import { safeJoin } from "./assets";
 import { type StudioRequestHandlers, handler } from "./studio-requests";
 
 const IMAGES = [".png", ".jpg", ".jpeg", ".webp"];
 
-export function openInStudioRequests(modules: ModuleInfo[], emit: (e: StudioEvent) => void, adopt: (sessionId: string, path: string) => void): StudioRequestHandlers {
+export function openInStudioRequests(modules: ModuleInfo[], adopt: (sessionId: string, path: string) => void): StudioRequestHandlers {
 	return {
 		open_in_studio: handler((ctx, p: { path: string }) => {
 			const path = p.path.replace(/^\.?\//, "");
@@ -18,14 +20,10 @@ export function openInStudioRequests(modules: ModuleInfo[], emit: (e: StudioEven
 			const module = modules.find((m) => moduleOwns(m, path));
 			if (module) {
 				adopt(ctx.sessionId, path);
-				emit({ type: "focus_asset", path, sessionId: ctx.sessionId });
-				return `Opened ${path} in the ${module.name} section.`;
+				return `Put a card for ${path} in the conversation: the user can open it in the ${module.name} section from there. They haven't necessarily looked yet.`;
 			}
 			if (!existsSync(file)) throw new Error(`There's no file at ${path}`);
-			if (IMAGES.includes(extname(path).toLowerCase())) {
-				emit({ type: "show_images", sessionId: ctx.sessionId, paths: [path] });
-				return `Showed ${path} to the user in the image viewer.`;
-			}
+			if (IMAGES.includes(extname(path).toLowerCase())) return `Put ${path} in the conversation as a picture the user can click to enlarge. They haven't necessarily looked yet.`;
 			return (
 				`Game Studio has no view for ${path}: it shows assets in its sections, design docs and images. The user hasn't seen it; ` +
 				`describe what it shows, or give its full path: ${file}`

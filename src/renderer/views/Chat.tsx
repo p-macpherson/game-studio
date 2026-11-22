@@ -3,7 +3,9 @@
 // it: thinking, every tool call and its output.
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { type ChatMessage, type ContentBlock, type Transcript, useStudio } from "../store";
-import { Markdown } from "./Markdown";
+import type { SessionAssets } from "../../shared/session-assets";
+import { type Chip, Markdown } from "./Markdown";
+import { AssetStrip, openCard, useChipPreview, useChips } from "./SessionAssets";
 
 function text(content: ChatMessage["content"]): string {
 	if (typeof content === "string") return content;
@@ -32,14 +34,26 @@ function ToolCall({ block, result, running }: { block: ToolBlock; result?: ChatM
 	);
 }
 
-const showLink = (path: string) => useStudio.getState().showAsset({ path });
+/** What the agent's words link to, for a click: an asset it named (its card says where), else a path in the project. */
+interface Links {
+	chips?: Record<string, Chip>;
+	open(path: string): void;
+}
+const plainLinks: Links = { open: (path) => useStudio.getState().showAsset({ path }) };
+function useLinks(assets: SessionAssets | undefined): Links {
+	const chips = useChips(assets);
+	return useMemo(() => {
+		if (!assets || !chips) return plainLinks;
+		return { chips, open: (path) => (assets.mentions[path] ? openCard(assets.mentions[path]) : plainLinks.open(path)) };
+	}, [assets, chips]);
+}
 
 // Memoised: while a reply streams, only the streaming message changes; the finished ones above it are left alone.
-const Assistant = memo(function Assistant({ m, results, running }: { m: ChatMessage; results: Map<string, ChatMessage>; running: Record<string, string> }) {
+const Assistant = memo(function Assistant({ m, results, running, links }: { m: ChatMessage; results: Map<string, ChatMessage>; running: Record<string, string>; links: Links }) {
 	return (
 		<div className="msg assistant">
 			{blocksOf(m).map((b, i) => {
-				if (b.type === "text") return b.text ? <Markdown key={i} text={b.text} onLink={showLink} /> : null;
+				if (b.type === "text") return b.text ? <Markdown key={i} text={b.text} onLink={links.open} chips={links.chips} /> : null;
 				if (b.type === "thinking") return b.thinking ? <div key={i} className="thinking">{b.thinking}</div> : null;
 				if (b.type === "toolCall") return <ToolCall key={i} block={b} result={results.get(b.id)} running={b.id in running} />;
 				return null;
@@ -56,12 +70,12 @@ function Ending({ m }: { m: ChatMessage }) {
 }
 
 /** The agent's reply to the person: its words only. */
-const Reply = memo(function Reply({ m }: { m: ChatMessage }) {
+const Reply = memo(function Reply({ m, links }: { m: ChatMessage; links: Links }) {
 	const said = text(m.content);
 	if (!said.trim() && m.stopReason !== "error" && m.stopReason !== "aborted") return null;
 	return (
 		<div className="msg assistant">
-			{said.trim() && <Markdown text={said} onLink={showLink} />}
+			{said.trim() && <Markdown text={said} onLink={links.open} chips={links.chips} />}
 			<Ending m={m} />
 		</div>
 	);
@@ -164,7 +178,12 @@ function conversation(messages: ChatMessage[]): { items: Item[]; open: { steps: 
  * The chat: the person's messages and the agent's replies. `working`: the agent is running, so its current work
  * shows in a panel at the end (what it last said, the tools running now); once done, that work is one folded line.
  */
-export function Chat({ transcript, working, onShowTranscript }: { transcript: Transcript; working: boolean; onShowTranscript: () => void }) {
+export function Chat({ transcript, working, onShowTranscript, assets }: { transcript: Transcript; working: boolean; onShowTranscript: () => void; assets?: SessionAssets }) {
+	const links = useLinks(assets);
+	const hover = useChipPreview();
+	// Turn n is what follows the person's nth message; its cards go at its end (before their next message).
+	let turn = 0;
+	const strip = (n: number, key: React.Key) => <AssetStrip key={key} cards={assets?.turns[n]} />;
 	const { items, open } = useMemo(() => conversation(transcript.messages), [transcript.messages]);
 	const streaming = transcript.streaming;
 	const streamingCalls = streaming ? toolCalls(streaming) : [];
@@ -182,9 +201,18 @@ export function Chat({ transcript, working, onShowTranscript }: { transcript: Tr
 	);
 	return (
 		<Following version={[transcript.messages.length, streaming, running.length, live]} own={userCount(transcript.messages)} testId="chat">
+			<div className="chat-links" onMouseOver={hover.onMouseOver} onMouseLeave={hover.onMouseLeave}>
 			{items.map((it, i) => {
-				if (it.kind === "user") return <div key={i} className="msg user">{text(it.m.content)}</div>;
-				if (it.kind === "reply") return <Reply key={i} m={it.m} />;
+				if (it.kind === "user") {
+					turn++;
+					return (
+						<div key={i} className="col chat-turn">
+							{strip(turn - 1, "assets")}
+							<div className="msg user">{text(it.m.content)}</div>
+						</div>
+					);
+				}
+				if (it.kind === "reply") return <Reply key={i} m={it.m} links={links} />;
 				if (it.kind === "compacted") return <div key={i} className="chat-divider">Earlier conversation summarised to free up context</div>;
 				return (
 					<div key={i} className="col" style={{ gap: 4 }}>
@@ -196,7 +224,10 @@ export function Chat({ transcript, working, onShowTranscript }: { transcript: Tr
 				);
 			})}
 			{open && !live && workLine(open.steps, "open")}
-			{streamingReply && <Reply m={streamingReply} />}
+			{streamingReply && <Reply m={streamingReply} links={links} />}
+			{strip(turn, "assets-now")}
+			</div>
+			{hover.preview}
 			{live && !streamingReply && (
 				<div className="working-now" data-testid="working-now">
 					<div className="row">
@@ -225,14 +256,15 @@ export function Chat({ transcript, working, onShowTranscript }: { transcript: Tr
 }
 
 /** Everything in the session: thinking, tool calls and their output, as it happened. */
-export function FullTranscript({ transcript }: { transcript: Transcript }) {
+export function FullTranscript({ transcript, assets }: { transcript: Transcript; assets?: SessionAssets }) {
+	const links = useLinks(assets);
 	const results = useMemo(() => new Map(transcript.messages.filter((m) => m.role === "toolResult").map((m) => [m.toolCallId!, m])), [transcript.messages]);
 	const shown = transcript.streaming ? [...transcript.messages, transcript.streaming] : transcript.messages;
 	return (
 		<Following version={[shown.length, transcript.streaming, Object.keys(transcript.runningTools).length]} own={userCount(transcript.messages)} testId="transcript">
 			{shown.map((m, i) => {
 				if (m.role === "user") return <div key={i} className="msg user">{text(m.content)}</div>;
-				if (m.role === "assistant") return <Assistant key={i} m={m} results={results} running={transcript.runningTools} />;
+				if (m.role === "assistant") return <Assistant key={i} m={m} results={results} running={transcript.runningTools} links={links} />;
 				if (m.role === "compactionSummary") return <div key={i} className="chat-divider">Earlier conversation summarised to free up context</div>;
 				return null;
 			})}

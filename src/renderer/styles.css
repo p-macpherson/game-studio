@@ -3800,3 +3800,115 @@ button.question-image img {
 	width: 120px;
 	text-align: right;
 }
+
+/* A session's assets in its chat: chips for the paths the agent names, a strip of cards under each turn. */
+.chat-links,
+.chat-turn {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+.asset-chip {
+	display: inline-flex;
+	align-items: baseline;
+	gap: 4px;
+	padding: 0 6px;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	background: var(--panel);
+	color: var(--text);
+	text-decoration: none;
+	font-size: 0.92em;
+	white-space: nowrap;
+	cursor: pointer;
+}
+.asset-chip:hover {
+	border-color: var(--accent);
+	color: var(--accent);
+}
+.chip-preview {
+	position: fixed;
+	z-index: 50;
+	width: 200px;
+	height: 200px;
+	object-fit: contain;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--panel);
+	box-shadow: 0 6px 24px color-mix(in srgb, var(--bg) 70%, transparent);
+	pointer-events: none;
+}
+.asset-strip {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: center;
+	max-width: min(900px, 100%);
+}
+.asset-card {
+	display: flex;
+	align-items: stretch;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--panel);
+	overflow: hidden;
+	max-width: 260px;
+}
+.asset-card:hover {
+	border-color: var(--accent);
+}
+.asset-card.gone .asset-card-name {
+	text-decoration: line-through;
+	color: var(--muted);
+}
+.asset-card-open {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 4px 10px 4px 4px;
+	border: 0;
+	border-radius: 0;
+	background: none;
+	color: var(--text);
+	text-align: left;
+	min-width: 0;
+	cursor: pointer;
+}
+.asset-card-thumb {
+	width: 44px;
+	height: 44px;
+	flex: none;
+	border-radius: 6px;
+	object-fit: cover;
+	background: var(--bg);
+}
+.asset-card-icon {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 20px;
+}
+.asset-card-text {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+.asset-card-name {
+	font-weight: 600;
+}
+.asset-card-kind {
+	font-size: 12px;
+	color: var(--muted);
+}
+.asset-card-play {
+	border: 0;
+	border-left: 1px solid var(--border);
+	border-radius: 0;
+	background: none;
+	color: var(--text);
+	padding: 0 12px;
+	cursor: pointer;
+}
+.asset-card-play:hover {
+	color: var(--accent);
+}

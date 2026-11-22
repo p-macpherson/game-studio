@@ -26,6 +26,7 @@ import { effectRequests, ParticleTexturePipeline } from "./effects";
 import { ReleaseService, releaseRequests } from "./release-service";
 import { UpdateService } from "./updates";
 import { openInStudioRequests } from "./open-in-studio";
+import { gatherSessionAssets } from "./session-assets";
 import { runInBrowser, serveFolder } from "./web-runner";
 import { shaderRequests } from "./shaders";
 import { UiArtPipeline, uiRequests } from "./ui";
@@ -111,7 +112,7 @@ async function main(): Promise<void> {
 		assetRequests(moduleInfos),
 		designDocRequests(),
 		releaseRequests(() => release, () => project?.name ?? "Game"),
-		openInStudioRequests(moduleInfos, emit, (id, path) => sessions.adoptLinkedAsset(id, path)),
+		openInStudioRequests(moduleInfos, (id, path) => sessions.adoptLinkedAsset(id, path)),
 	);
 	const sessions = new SessionService({
 		host,
@@ -384,6 +385,7 @@ async function main(): Promise<void> {
 		"sessions.list": async () => sessions.list(),
 		"sessions.create": (req) => sessions.create(req),
 		"sessions.messages": (id) => sessions.messages(id),
+		"sessions.assets": (id) => gatherSessionAssets(id, sessions, assets, checkoutRoot),
 		"sessions.send": (id, text, mode) => sessions.send(id, text, mode),
 		"sessions.abort": (id) => sessions.abort(id),
 		"sessions.setModel": (id, model) => sessions.setModel(id, model),
