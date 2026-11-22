@@ -4,6 +4,10 @@ import { findAgentType } from "../../shared/agents";
 import { call } from "../api";
 import { type NewSessionPreset, useStudio } from "../store";
 import { useShallow } from "zustand/react/shallow";
+import { AgentGraph } from "./AgentTypes";
+
+/** How New Session shows the agent types: cards, or the delegation graph (as in Settings → Agents). Remembered. */
+const LAYOUT_KEY = "new-session-agents-layout";
 
 const TARGET_LABEL: Record<Target, string> = { project: "Game project", engine: "Engine", studio: "Game Studio" };
 
@@ -37,6 +41,11 @@ export function NewSessionDialog({ preset }: { preset: NewSessionPreset }) {
 	const [model, setModel] = useState(defaultModel(type?.defaultModel));
 	const [prompt, setPrompt] = useState(preset.prompt ?? "");
 	const [busy, setBusy] = useState(false);
+	const [layout, setLayoutState] = useState<"list" | "graph">(() => (localStorage.getItem(LAYOUT_KEY) === "graph" ? "graph" : "list"));
+	const setLayout = (l: "list" | "graph") => {
+		localStorage.setItem(LAYOUT_KEY, l);
+		setLayoutState(l);
+	};
 
 	const chooseType = (id: string) => {
 		const next = agentTypes.find((t) => t.id === id);
@@ -65,18 +74,42 @@ export function NewSessionDialog({ preset }: { preset: NewSessionPreset }) {
 
 	return (
 		<div className="modal-backdrop" onClick={() => openNewSession(null)}>
-			<div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 680 }}>
+			<div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: layout === "graph" ? "min(1040px, 94vw)" : 680 }}>
 				<h2>New session</h2>
 				<div className="col">
-					<h3>Agent type</h3>
-					<div className="agent-types">
-						{agentTypes.map((t) => (
-							<button key={t.id} className={`agent-type ${t.id === typeId ? "on" : ""}`} onClick={() => chooseType(t.id)}>
-								<strong>{t.name}</strong>
-								<small>{t.description}</small>
+					<div className="row">
+						<h3 className="grow">Agent type</h3>
+						<div className="segmented">
+							<button className={layout === "list" ? "on" : ""} onClick={() => setLayout("list")} data-testid="new-session-layout-list">
+								List
 							</button>
-						))}
+							<button className={layout === "graph" ? "on" : ""} onClick={() => setLayout("graph")} data-testid="new-session-layout-graph">
+								Graph
+							</button>
+						</div>
 					</div>
+					{layout === "graph" ? (
+						<>
+							<div className="new-session-graph">
+								<AgentGraph types={agentTypes} models={models} picked={typeId ?? null} onPick={chooseType} />
+							</div>
+							{type && (
+								<div className="small" data-testid="new-session-type-description">
+									<strong>{type.name}</strong>
+									<span className="muted">: {type.description}</span>
+								</div>
+							)}
+						</>
+					) : (
+						<div className="agent-types">
+							{agentTypes.map((t) => (
+								<button key={t.id} className={`agent-type ${t.id === typeId ? "on" : ""}`} onClick={() => chooseType(t.id)}>
+									<strong>{t.name}</strong>
+									<small>{t.description}</small>
+								</button>
+							))}
+						</div>
+					)}
 				</div>
 				<div className="row">
 					<label className="field grow">

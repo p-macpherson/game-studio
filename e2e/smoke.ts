@@ -103,6 +103,15 @@ try {
 	await page.locator(".project-name", { hasText: "E2E Game" }).waitFor({ timeout: 60_000 });
 	await step("01-project", page);
 
+	// New Session can show the agent types as the delegation graph: a node picks the type.
+	await page.getByRole("button", { name: "+ New session" }).click();
+	await page.getByTestId("new-session-layout-graph").click();
+	await page.getByTestId("agent-node").filter({ hasText: "Gameplay Engineer" }).click();
+	await page.getByTestId("new-session-type-description").filter({ hasText: "Gameplay Engineer" }).waitFor();
+	await step("01b-new-session-graph", page);
+	await page.getByTestId("new-session-layout-list").click(); // remembered: the steps below pick from the list
+	await page.getByRole("button", { name: "Cancel" }).click();
+
 	// Start a session with the faux model.
 	await page.getByRole("button", { name: "+ New session" }).click();
 	await page.getByTestId("new-session-prompt").fill("add a note");

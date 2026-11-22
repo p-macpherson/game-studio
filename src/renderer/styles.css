@@ -1130,6 +1130,16 @@ button.agent-type-card.on,
 .agent-warn {
 	color: var(--yellow);
 }
+.new-session-graph {
+	max-height: 46vh;
+	overflow: auto;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--bg);
+}
+.new-session-graph .agent-graph-scroll {
+	padding: 10px;
+}
 .agent-types {
 	display: grid;
 	grid-template-columns: 1fr 1fr;

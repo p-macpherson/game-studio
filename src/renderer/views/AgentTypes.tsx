@@ -40,7 +40,7 @@ export function AgentTypes() {
 			</div>
 			<div className="agents-body">
 				<div className="agents-main">
-					{layout === "graph" ? <Graph types={agentTypes} models={models} picked={picked} onPick={setPicked} /> : <List types={agentTypes} models={models} picked={picked} onPick={setPicked} />}
+					{layout === "graph" ? <AgentGraph types={agentTypes} models={models} picked={picked} onPick={setPicked} /> : <List types={agentTypes} models={models} picked={picked} onPick={setPicked} />}
 				</div>
 				{type && <TypePanel key={type.id} type={type} types={agentTypes} models={models} onPick={setPicked} onClose={() => setPicked(null)} />}
 			</div>
@@ -113,8 +113,8 @@ const NODE_H = 46;
 const COL_GAP = 48;
 const ROW_GAP = 12;
 
-/** The delegation graph, left to right: an arrow from each type to the ones it hands tasks to. */
-function Graph({ types, models, picked, onPick }: ViewProps) {
+/** The delegation graph, left to right: an arrow from each type to the ones it hands tasks to. Also New Session's picker. */
+export function AgentGraph({ types, models, picked, onPick }: ViewProps) {
 	const graph = useMemo(() => layoutAgentGraph(types), [types]);
 	const [hover, setHover] = useState<string | null>(null);
 	const focus = hover ?? picked;
