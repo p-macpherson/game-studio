@@ -152,12 +152,32 @@ export function WorktreePicker({ hidden = false }: { hidden?: boolean }) {
 
 	/** A worktree's row in the menu: select it. (Sizes, sessions and the rest are on the Worktrees page.) */
 	const option = (w: WorktreeSummary) => (
-		<button key={w.id} className={`ghost nav-item ${w.id === current?.id ? "active" : ""}`} onClick={() => (selectWorktree(w.id), setOpen(false))} data-testid="worktree-option" data-target={w.target}>
+		<button
+			key={w.id}
+			className={`ghost nav-item worktree-option ${w.id === current?.id ? "active" : ""}`}
+			aria-current={w.id === current?.id}
+			onClick={() => (selectWorktree(w.id), setOpen(false))}
+			data-testid="worktree-option"
+			data-target={w.target}
+		>
+			<span className="worktree-glyph" aria-hidden>
+				⎇
+			</span>
 			<span className="grow ellipsis" title={w.label}>
 				{w.label}
 			</span>
-			{working(w) && <span className="count">●</span>}
+			{working(w) && (
+				<span className="worktree-working" title="An agent is working here">
+					<span className="worktree-working-dot" aria-hidden />
+					working
+				</span>
+			)}
 			{w.checkout === "removed" && <span className="muted small">unloaded</span>}
+			{w.id === current?.id && (
+				<span className="worktree-check" aria-hidden>
+					✓
+				</span>
+			)}
 		</button>
 	);
 
@@ -184,27 +204,46 @@ export function WorktreePicker({ hidden = false }: { hidden?: boolean }) {
 				</button>
 				{open && (
 					<div className="card worktree-menu" data-testid="worktree-menu" onMouseLeave={() => setOpen(false)}>
-						<button className={`ghost nav-item ${!current ? "active" : ""}`} onClick={() => (selectWorktree(null), setOpen(false))}>
+						<button className={`ghost nav-item worktree-option ${!current ? "active" : ""}`} aria-current={!current} onClick={() => (selectWorktree(null), setOpen(false))}>
+							<span className="worktree-glyph" aria-hidden>
+								◆
+							</span>
 							<span className="grow">main</span>
 							<span className="muted small">in the game</span>
+							{!current && (
+								<span className="worktree-check" aria-hidden>
+									✓
+								</span>
+							)}
 						</button>
 						{GROUPS.map(({ target, label }) => {
 							const group = list.filter((w) => w.target === target);
 							if (!group.length && target !== "project") return null;
 							return (
 								<div key={target} className="worktree-group" data-testid={`worktree-group-${target}`}>
-									<div className="worktree-group-label muted small">{label}</div>
+									<div className="worktree-group-label" role="presentation">
+										<span>{label}</span>
+										{group.length > 0 && <span className="worktree-group-count">{group.length}</span>}
+									</div>
 									{group.map((w) => option(w))}
 									{!group.length && <span className="muted small worktree-group-empty">No open worktrees</span>}
 								</div>
 							);
 						})}
-						<button className="ghost nav-item" onClick={() => (setOpen(false), setNaming("new"), setLabel(""))} data-testid="worktree-new">
-							+ New game worktree…
-						</button>
-						<button className="ghost nav-item" onClick={() => (setOpen(false), useStudio.getState().setView("worktrees"))} data-testid="worktree-manage">
-							Manage worktrees…
-						</button>
+						<div className="worktree-menu-actions">
+							<button className="ghost nav-item" onClick={() => (setOpen(false), setNaming("new"), setLabel(""))} data-testid="worktree-new">
+								<span className="worktree-glyph" aria-hidden>
+									+
+								</span>
+								New game worktree…
+							</button>
+							<button className="ghost nav-item" onClick={() => (setOpen(false), useStudio.getState().setView("worktrees"))} data-testid="worktree-manage">
+								<span className="worktree-glyph" aria-hidden>
+									☰
+								</span>
+								Manage worktrees…
+							</button>
+						</div>
 					</div>
 				)}
 			</div>

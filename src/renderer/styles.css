@@ -2491,6 +2491,62 @@ button.link {
 .worktree-menu .nav-item {
 	gap: 8px;
 }
+.worktree-menu {
+	max-height: 70vh;
+	overflow-y: auto;
+}
+/* Rows you can pick read as rows (full-strength text, a glyph, a tick on the current one); the repo headings
+   between them are small flat bands that don't look clickable. */
+.worktree-menu .worktree-glyph {
+	width: 14px;
+	flex-shrink: 0;
+	text-align: center;
+	color: var(--muted);
+}
+.worktree-option {
+	color: var(--text);
+}
+.worktree-option:hover {
+	background: var(--panel-2);
+}
+.worktree-option.active {
+	background: color-mix(in srgb, var(--accent) 16%, transparent);
+	font-weight: 600;
+}
+.worktree-option.active .worktree-glyph,
+.worktree-check {
+	color: var(--accent);
+}
+.worktree-check {
+	flex-shrink: 0;
+}
+.worktree-working {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	flex-shrink: 0;
+	font-size: 11px;
+	font-weight: 400;
+	color: var(--green);
+}
+.worktree-working-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--green);
+}
+.worktree-group-count {
+	font-weight: 400;
+	opacity: 0.8;
+}
+.worktree-menu-actions {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	border-top: 1px solid var(--border);
+	margin-top: 4px;
+	padding-top: 4px;
+}
 
 /* Session tree */
 .session-item.sub-agent {
@@ -3189,16 +3245,23 @@ button.link:hover {
 	flex-direction: column;
 	gap: 1px;
 }
-.worktree-group + .worktree-group {
-	border-top: 1px solid var(--border);
+.worktree-group {
 	margin-top: 4px;
-	padding-top: 4px;
 }
 .worktree-group-label {
-	padding: 2px 10px;
+	display: flex;
+	justify-content: space-between;
+	margin: 0 -6px 2px;
+	padding: 3px 16px;
+	background: var(--sunken);
+	border-block: 1px solid var(--border);
+	color: var(--muted);
 	text-transform: uppercase;
-	letter-spacing: 0.04em;
+	letter-spacing: 0.08em;
 	font-size: 10px;
+	font-weight: 700;
+	cursor: default;
+	user-select: none;
 }
 .worktree-group-empty {
 	padding: 2px 10px 4px;
