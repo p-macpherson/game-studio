@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { BLENDER_JOBS, CPU_FAMILIES, FAMILY_OF, type GenComponent, type GenFamily, type GenJob, type GenJobKind, type GenStatus } from "../shared/gen";
 import type { StudioEvent } from "../shared/ipc";
+import { GpuGuard } from "./gpu-guard";
 
 const WORKER_SCRIPT: Record<GenFamily, string> = {
 	image: "image_worker.py",
@@ -35,8 +36,11 @@ export interface GenServiceDeps {
 	fake?: boolean;
 	idleMs?: number;
 	blender?: string;
+	/** The machine-wide GPU lock and free-memory check (tests give their own). */
+	gpu?: GpuGuard;
 	/** Overrides for tests. */
 	jobTimeoutMs?: number;
+	gpuPollMs?: number;
 	workerStartTimeoutMs?: number;
 }
 
@@ -142,7 +146,12 @@ export class GenService {
 	private installer: ChildProcess | null = null;
 	private nextId = 1;
 
-	constructor(private readonly deps: GenServiceDeps) {}
+	private readonly gpu: GpuGuard;
+
+	constructor(private readonly deps: GenServiceDeps) {
+		// The fake workers (tests, the e2e) don't use the GPU: no memory check, but the lock still applies.
+		this.gpu = deps.gpu ?? new GpuGuard(deps.root, deps.fake ? async () => null : undefined);
+	}
 
 	list(): GenJob[] {
 		return this.jobs.map((j) => ({ ...j }));
@@ -300,6 +309,18 @@ export class GenService {
 		this.changed(job);
 		let cancelled = false;
 		let timedOut = false;
+		// Loading a model waits for the GPU first (another studio's worker, a game); the wait isn't part of the job's time.
+		const family = this.gpuFamily(job);
+		if (family && !(this.worker?.family === family && this.worker.alive)) {
+			this.running = { job, cancel: () => (cancelled = true) };
+			await this.waitForGpu(job, family, () => cancelled);
+			if (cancelled) {
+				this.running = null;
+				this.finish(job, "cancelled");
+				void this.pump();
+				return;
+			}
+		}
 		const limit = this.deps.jobTimeoutMs ?? JOB_TIMEOUT_MS;
 		const timer = setTimeout(() => {
 			timedOut = true;
@@ -311,6 +332,7 @@ export class GenService {
 					? await this.blender(job, (cancel) => (this.running = { job, cancel: () => ((cancelled = true), cancel()) }))
 					: await this.onWorker(job, (cancel) => (this.running = { job, cancel: () => ((cancelled = true), cancel()) }));
 			job.result = { ...result, seconds: result.seconds ?? Math.round((Date.now() - Date.parse(job.startedAt!)) / 100) / 10 };
+			if (family && typeof result.peak_vram_gib === "number") this.gpu.recordPeak(family, result.peak_vram_gib);
 			this.finish(job, "done");
 		} catch (err) {
 			const message = (err as Error).message;
@@ -328,6 +350,7 @@ export class GenService {
 		} finally {
 			clearTimeout(timer);
 			this.running = null;
+			if (!this.worker) this.gpu.release();
 			if (this.worker && !this.jobs.some((j) => j.status === "queued")) {
 				this.idleTimer = setTimeout(() => void this.stopWorker(), this.deps.idleMs ?? 5 * 60_000);
 			}
@@ -371,7 +394,11 @@ export class GenService {
 		if (!fake && !existsSync(python)) throw new Error(`The ${family} environment isn't installed (Settings → Asset generation)`);
 		const env = { ...process.env, GAME_STUDIO_GEN: root, PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True", PYTHONUNBUFFERED: "1", ...(CPU_FAMILIES.includes(family) ? { GAME_STUDIO_NO_GPU: "1" } : {}) };
 		const onExit = () => {
-			if (this.worker === worker) this.worker = null;
+			// A worker that died (or was stopped) gives the GPU back to other studios.
+			if (this.worker === worker) {
+				this.worker = null;
+				this.gpu.release();
+			}
 			this.deps.emit({ type: "gen_changed" });
 		};
 		const worker: Worker = new Worker(family, python, [script], env, this.logger(family), onExit, this.deps.workerStartTimeoutMs);
@@ -380,11 +407,43 @@ export class GenService {
 		return worker;
 	}
 
+	/** The GPU family a job loads, or null for Blender and CPU-only work. */
+	private gpuFamily(job: GenJob): GenFamily | null {
+		if ((BLENDER_JOBS as readonly string[]).includes(job.kind)) return null;
+		const { family } = FAMILY_OF[job.kind as keyof typeof FAMILY_OF];
+		return CPU_FAMILIES.includes(family) ? null : family;
+	}
+
+	/** Waits until this studio holds the GPU lock and the card has the memory `family` needs free, saying why meanwhile. */
+	private async waitForGpu(job: GenJob, family: GenFamily, cancelled: () => boolean): Promise<void> {
+		let said = "";
+		const say = (message: string) => {
+			if (message === said) return;
+			said = message;
+			job.progress = { message };
+			this.changed(job);
+		};
+		while (!cancelled()) {
+			// Our own worker of another family goes first: its memory is part of what's needed.
+			if (this.worker && this.worker.family !== family) await this.stopWorker();
+			if (!this.gpu.tryLock()) {
+				say("Waiting for the GPU: another Game Studio on this machine is using it");
+			} else {
+				const free = await this.gpu.free();
+				const need = this.gpu.need(family);
+				if (free === null || free >= need) return;
+				say(`Waiting for ${need} GB of GPU memory (${free.toFixed(1)} GB free: a game or another app is using it)`);
+			}
+			await new Promise((r) => setTimeout(r, this.deps.gpuPollMs ?? 3000));
+		}
+	}
+
 	private async stopWorker(): Promise<void> {
 		const w = this.worker;
 		this.worker = null;
 		clearTimeout(this.idleTimer);
 		await w?.stop();
+		this.gpu.release();
 		this.deps.emit({ type: "gen_changed" });
 	}
 
