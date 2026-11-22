@@ -347,7 +347,7 @@ try {
 	await page.getByRole("button", { name: "Start session" }).click();
 	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
 	await nav.getByRole("button", { name: "Play & Test" }).click(); // it follows the selected worktree: the session's
-	await page.getByRole("button", { name: "Run", exact: true }).click();
+	await page.locator("button.tab").filter({ hasText: /^Run$/ }).click();
 	await page.getByRole("button", { name: "⚒ Build" }).click();
 	await page.getByTestId("run-state").getByText("Build failed").waitFor({ timeout: 60_000 });
 	await page.getByRole("button", { name: "Send to session" }).waitFor();
@@ -1316,6 +1316,9 @@ try {
 	if (!hostPid) throw new Error("couldn't find the session host process");
 	process.kill(hostPid, "SIGKILL");
 	await page.getByTestId("session-resume-interrupted").waitFor({ timeout: 30_000 });
+	// Its cut-off question isn't shown as still waiting for an answer.
+	await page.getByTestId("working-now").waitFor({ state: "detached", timeout: 10_000 });
+	await page.getByTestId("work-line").first().waitFor();
 	await step("80-session-interrupted", page);
 	await page.getByTestId("session-resume-interrupted").click();
 	await page.getByTestId("resumed-note").waitFor({ timeout: 30_000 });

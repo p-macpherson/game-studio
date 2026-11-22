@@ -274,7 +274,15 @@ export const useStudio = create<State>((set, get) => ({
 		set((s) => ({ selected: id, worktree: game, playCheckout: game, worktreeChanges: [], assetsVersion: s.assetsVersion + 1 }));
 	},
 	async refreshSessions() {
-		set({ sessions: await call("sessions.list") });
+		const sessions = await call("sessions.list");
+		// A session cut off mid-work never reports its tools ending: nothing of it is running or being written any more.
+		set((s) => {
+			const stale = sessions.filter((x) => x.status === "interrupted" && s.transcripts[x.id] && (Object.keys(s.transcripts[x.id].runningTools).length > 0 || s.transcripts[x.id].streaming || s.transcripts[x.id].compacting));
+			if (!stale.length) return { sessions };
+			const transcripts = { ...s.transcripts };
+			for (const x of stale) transcripts[x.id] = { ...transcripts[x.id], runningTools: {}, streaming: undefined, compacting: false };
+			return { sessions, transcripts };
+		});
 	},
 	async refreshModels() {
 		set({ models: await call("models.available") });
