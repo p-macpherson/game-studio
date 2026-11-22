@@ -1306,6 +1306,21 @@ try {
 	await page.getByRole("button", { name: "Appearance", exact: true }).click();
 	await page.locator("[data-testid=theme-card][data-theme-id=simple-dark]").click();
 	await page.getByTestId("font-option").filter({ hasText: "System" }).first().click();
+	// A session cut off mid-work (the session host dies while its agent waits for an answer) can be resumed.
+	await nav.getByRole("button", { name: "Sessions" }).click();
+	await page.getByRole("button", { name: "+ New session" }).click();
+	await page.getByTestId("new-session-prompt").fill(`tool ask_user ${JSON.stringify({ question: "Carry on?" })}`);
+	await page.getByRole("button", { name: "Start session" }).click();
+	await page.getByTestId("question").waitFor({ timeout: 30_000 });
+	const hostPid = await app.evaluate(({ app }) => app.getAppMetrics().find((m) => m.serviceName === "Game Studio session host" || m.name === "Game Studio session host")?.pid);
+	if (!hostPid) throw new Error("couldn't find the session host process");
+	process.kill(hostPid, "SIGKILL");
+	await page.getByTestId("session-resume-interrupted").waitFor({ timeout: 30_000 });
+	await step("80-session-interrupted", page);
+	await page.getByTestId("session-resume-interrupted").click();
+	await page.getByTestId("resumed-note").waitFor({ timeout: 30_000 });
+	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
+	await step("81-session-resumed", page);
 	console.log(`passed; screenshots in ${shots}`);
 	passed = true;
 } catch (err) {

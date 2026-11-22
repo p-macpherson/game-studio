@@ -36,6 +36,9 @@ export interface WorktreeSummary extends WorktreeRecord {
 }
 
 /** Persisted as `<repo>/.studio/sessions/<id>/session.json` and committed with the repo. */
+/** What a session is told when a person resumes it after it was cut off mid-work (the chat shows it as a short note). */
+export const RESUME_NOTE = "[Game Studio] You were interrupted while working (the studio closed or restarted), and the user has resumed you. Whatever was running then was cut off: check what is already done, then carry on from where you left off.";
+
 export interface SessionRecord {
 	id: string;
 	title: string;
@@ -60,6 +63,8 @@ export interface SessionRecord {
 	piSessionFile?: string;
 	/** Last error from the agent run, cleared on the next prompt. */
 	error?: string;
+	/** When it was cut off mid-work (the studio closed, or the session host died). Sessions cut off together share it. */
+	interruptedAt?: string;
 }
 
 export interface SessionSummary extends SessionRecord {

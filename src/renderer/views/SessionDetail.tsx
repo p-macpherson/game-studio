@@ -217,6 +217,8 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 	};
 	collect(s.id);
 	const belowWorking = below.filter((x) => x.status === "in_progress" || x.status === "starting").length;
+	// Sub-agents cut off together with this session: Resume carries them on too.
+	const cutOffBelow = s.status === "interrupted" ? below.filter((x) => x.status === "interrupted" && x.interruptedAt === s.interruptedAt).length : 0;
 
 	useEffect(() => {
 		if (!transcript) void loadTranscript(s.id);
@@ -289,6 +291,21 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 					{!running && s.status !== "done" && (
 						<button disabled={busy} onClick={() => act(() => call("sessions.markDone", s.id))} title="Close this session. Its worktree and changes stay; merge or discard those from the worktree bar">
 							Mark done
+						</button>
+					)}
+					{s.status === "interrupted" && (
+						<button
+							className="primary"
+							disabled={busy}
+							onClick={() => act(() => call("sessions.resume", s.id))}
+							title={
+								cutOffBelow
+									? `Carry on from where it was cut off. Its ${cutOffBelow} interrupted sub-agent${cutOffBelow > 1 ? "s are" : " is"} resumed first, and it continues once they report`
+									: "Carry on from where it was cut off"
+							}
+							data-testid="session-resume-interrupted"
+						>
+							▶ Resume{cutOffBelow ? ` (+${cutOffBelow} sub-agent${cutOffBelow > 1 ? "s" : ""})` : ""}
 						</button>
 					)}
 					{s.status === "done" && (

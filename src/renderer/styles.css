@@ -4034,6 +4034,14 @@ button.question-image img {
 	background: var(--bg);
 	cursor: zoom-in;
 }
+.msg-note {
+	align-self: center;
+	font-size: 12px;
+	color: var(--muted);
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	padding: 2px 12px;
+}
 .msg-attached {
 	font-size: 12px;
 	opacity: 0.85;

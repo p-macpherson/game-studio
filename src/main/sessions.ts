@@ -10,6 +10,7 @@ import { readDesignDocs } from "./design-docs";
 import { delegateModel, delegateOptions } from "../shared/agent-models";
 import type { DelegateTarget, HostEvent, PromptMode, StudioRequestMethod } from "../shared/host";
 import type { StudioEvent } from "../shared/ipc";
+import { RESUME_NOTE } from "../shared/types";
 import type { AgentTypeInfo, ContextUsage, GitCommit, NewSessionRequest, PendingQuestion, SessionRecord, SessionSummary, Settings, Target, WorktreeRecord, WorktreeSummary } from "../shared/types";
 import { findAgentType } from "../shared/agents";
 import * as g from "./git";
@@ -73,6 +74,8 @@ interface Entry {
 
 const isRunning = (status: SessionRecord["status"]) => status === "in_progress" || status === "starting";
 
+export { RESUME_NOTE };
+
 /** The text of the last assistant message in a transcript (a sub-agent's report). */
 function lastAssistantText(messages: unknown[]): string {
 	for (const m of [...(messages as { role?: string; content?: unknown }[])].reverse()) {
@@ -101,6 +104,8 @@ export class SessionService {
 	readonly worktrees: WorktreeStore;
 	/** A parent's pending `delegate` call → the child session doing it. */
 	private readonly delegations = new Map<string, string>();
+	/** Sessions being resumed that still wait for their resumed sub-agents (Stop ends the wait). */
+	private readonly resuming = new Map<string, { cancelled: boolean }>();
 	/** Called when a session stops running (settles, fails or ends). */
 	private readonly settleWaiters = new Map<string, (() => void)[]>();
 	/** Repos whose `.studio/.gitignore` has been checked this run. */
@@ -189,6 +194,7 @@ export class SessionService {
 	/** (Re)reads every record from the project, engine and studio repos. Sessions left running become interrupted. */
 	load(): void {
 		const seen = new Set<string>();
+		const cutOff = new Date().toISOString();
 		const repos = this.repos();
 		this.worktrees.load(repos);
 		// Branches of worktrees merged before merging deleted them (`git branch -d`: only fully merged ones).
@@ -218,6 +224,7 @@ export class SessionService {
 				seen.add(id);
 				if ((record.status === "in_progress" || record.status === "starting") && !this.live.has(id)) {
 					record.status = "interrupted";
+					record.interruptedAt = cutOff;
 					this.save(entry);
 				}
 			}
@@ -607,6 +614,8 @@ export class SessionService {
 			this.delegations.delete(requestId);
 		}
 		const done = this.get(child.id);
+		// Cut off with its parent (the session host died): it stays as it is, to be resumed with the parent.
+		if (done.status === "interrupted") throw new Error(`${type.name} (session “${done.title}”) was interrupted`);
 		const report = done.error ? "" : lastAssistantText(await this.messages(child.id));
 		// Its job ends with its report (the parent retries or delegates again if needed): mark it done, so finished
 		// sub-agents don't pile up as idle. A person can still open and resume it.
@@ -665,8 +674,57 @@ export class SessionService {
 
 	/** Stops a session's agent, and its running sub-agents first. */
 	async abort(id: string): Promise<void> {
+		// One being resumed that still waits for its sub-agents has no agent running yet: it just stops waiting.
+		const wait = this.resuming.get(id);
+		if (wait) wait.cancelled = true;
+		this.resuming.delete(id);
 		for (const c of this.entries.values()) if (c.record.parentId === id && isRunning(c.record.status)) await this.abort(c.record.id);
+		if (wait) {
+			const e = this.entry(id);
+			if (isRunning(e.record.status)) {
+				e.record.status = "idle";
+				this.save(e);
+			}
+			return;
+		}
 		if (this.live.has(id)) await this.deps.host.call("abort", id);
+	}
+
+	/**
+	 * Carries on a session that was cut off mid-work, and the sub-agents cut off with it. The sub-agents go first (each
+	 * with its own, the same way); once they have all stopped, the session is told it was interrupted and given their
+	 * reports, which its cut-off `delegate` calls never returned. Returns once everything is started.
+	 */
+	private async resumeInterrupted(e: Entry): Promise<void> {
+		const children = [...this.entries.values()].filter((c) => c.record.parentId === e.record.id && c.record.status === "interrupted" && c.record.interruptedAt === e.record.interruptedAt);
+		await this.ensureOpen(e);
+		if (!children.length) return this.prompt(e, RESUME_NOTE);
+		const wait = { cancelled: false };
+		this.resuming.set(e.record.id, wait);
+		e.record.status = "in_progress"; // waiting for its sub-agents, as it was when it was cut off
+		e.record.error = undefined;
+		this.save(e);
+		this.touch(e.record.id);
+		for (const c of children) await this.resumeInterrupted(c).catch((err: Error) => this.fail(c, err.message));
+		void this.resumeAfter(e, children, wait).catch((err: Error) => this.fail(e, err.message));
+	}
+
+	private async resumeAfter(e: Entry, children: Entry[], wait: { cancelled: boolean }): Promise<void> {
+		const types = this.deps.agentTypes();
+		const reports: string[] = [];
+		for (const c of children) {
+			await this.whenSettled(c.record.id);
+			if (wait.cancelled) return;
+			const name = `${findAgentType(types, c.record.agentType)?.name ?? c.record.agentType} (session “${c.record.title}”)`;
+			if (c.record.error) reports.push(`${name} stopped with an error: ${c.record.error}`);
+			else {
+				reports.push(`${name} finished. Its report:\n\n${lastAssistantText(await this.messages(c.record.id)) || "(it wrote no report)"}`);
+				await this.markDone(c.record.id).catch(() => {}); // as when a delegate call returns
+			}
+		}
+		if (wait.cancelled || this.resuming.get(e.record.id) !== wait) return;
+		this.resuming.delete(e.record.id);
+		this.prompt(e, `${RESUME_NOTE}\n\nThe sub-agents you were waiting for were cut off too, so your delegate calls to them returned nothing. They were resumed and have finished; don't delegate that work again.\n\n${reports.join("\n\n---\n\n")}`);
 	}
 
 	async setModel(id: string, model: string): Promise<void> {
@@ -1064,8 +1122,10 @@ export class SessionService {
 		this.save(e);
 	}
 
+	/** Reopens a done session (it becomes idle), or carries on one that was interrupted, with its interrupted sub-agents. */
 	async resume(id: string): Promise<void> {
 		const e = this.entry(id);
+		if (e.record.status === "interrupted") return this.resumeInterrupted(e);
 		await this.ensureWorktree(e);
 		if (e.record.status === "done") {
 			e.record.status = "idle";
@@ -1205,12 +1265,16 @@ export class SessionService {
 	private onHostRestart(): void {
 		this.live.clear();
 		this.questions.clear();
-		for (const e of this.entries.values()) {
-			if (e.record.status === "in_progress" || e.record.status === "starting") {
-				e.record.status = "interrupted";
-				this.save(e);
-			}
+		for (const wait of this.resuming.values()) wait.cancelled = true;
+		this.resuming.clear();
+		const cutOff = new Date().toISOString();
+		// All marked before any is saved: saving wakes whoever waits for a session, who must find its parent cut off too.
+		const cut = [...this.entries.values()].filter((e) => isRunning(e.record.status));
+		for (const e of cut) {
+			e.record.status = "interrupted";
+			e.record.interruptedAt = cutOff;
 		}
+		for (const e of cut) this.save(e);
 	}
 
 	private disposeIdle(): void {

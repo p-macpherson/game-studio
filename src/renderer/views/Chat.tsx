@@ -4,6 +4,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { type ChatMessage, type ContentBlock, type Transcript, useStudio } from "../store";
 import { splitAttachments } from "../../shared/attachments";
+import { RESUME_NOTE } from "../../shared/types";
 import type { SessionAssets } from "../../shared/session-assets";
 import { type Chip, Markdown } from "./Markdown";
 import { AssetStrip, openCard, useChipPreview, useChips } from "./SessionAssets";
@@ -36,10 +37,18 @@ function ToolCall({ block, result, running }: { block: ToolBlock; result?: ChatM
 }
 
 /** The person's message: their words, and the images they pasted with it (a click enlarges one). */
-const UserMessage = memo(function UserMessage({ m }: { m: ChatMessage }) {
+const UserMessage = memo(function UserMessage({ m, brief }: { m: ChatMessage; brief?: boolean }) {
 	const { text: words, paths } = splitAttachments(text(m.content));
 	const images = blocksOf(m).flatMap((b) => (b.type === "image" && typeof b.data === "string" ? [`data:${String(b.mimeType ?? "image/png")};base64,${b.data}`] : []));
 	const viewer = images.map((src, i) => ({ src, label: paths[i] ?? `Image ${i + 1}` }));
+	// The studio's own words on Resume, not the person's: a short note (the full transcript has the whole text).
+	if (brief && words.startsWith(RESUME_NOTE)) {
+		return (
+			<div className="msg-note" title={words} data-testid="resumed-note">
+				▶ Resumed after an interruption{words.length > RESUME_NOTE.length ? ", with its sub-agents' reports" : ""}
+			</div>
+		);
+	}
 	return (
 		<div className="msg user" data-testid="user-message">
 			{images.length > 0 && (
@@ -229,7 +238,7 @@ export function Chat({ transcript, working, onShowTranscript, assets }: { transc
 					return (
 						<div key={i} className="col chat-turn">
 							{strip(turn - 1, "assets")}
-							<UserMessage m={it.m} />
+							<UserMessage m={it.m} brief />
 						</div>
 					);
 				}

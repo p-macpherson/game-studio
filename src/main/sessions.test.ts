@@ -5,7 +5,7 @@ import { splitAttachments } from "../shared/attachments";
 import type { StudioEvent } from "../shared/ipc";
 import type { AgentTypeInfo, NewSessionRequest, Settings } from "../shared/types";
 import type { HostCore } from "../session-host/host-core";
-import { SessionService } from "./sessions";
+import { RESUME_NOTE, SessionService } from "./sessions";
 import { inProcessHost, makeRepo, sh, tempDir, waitFor } from "./test-helpers";
 
 const general: AgentTypeInfo = {
@@ -320,6 +320,54 @@ describe("SessionService", () => {
 			svc.dispose();
 		}
 	}, 30_000);
+
+	it("resumes an interrupted session with the sub-agents cut off with it, and gives it their reports", async () => {
+		const lead1 = await service.create({ agentType: "lead", target: "project", model: "faux/echo", prompt: 'tool delegate {"agentType": "helper", "task": "child note"}' });
+		await settled(lead1.id);
+		const child = service.list().find((s) => s.parentId === lead1.id)!;
+		// An older sub-agent, cut off some other time: not this interruption's, so it is left alone.
+		const stale = await service.create({ agentType: "helper", target: "project", model: "faux/echo", prompt: "an old note", parentId: lead1.id });
+		await settled(stale.id);
+		// As the studio leaves them when it closes mid-work: both cut off at the same moment.
+		const entries = (service as unknown as { entries: Map<string, { record: { status: string; interruptedAt?: string } }> }).entries;
+		for (const id of [lead1.id, child.id]) Object.assign(entries.get(id)!.record, { status: "interrupted", interruptedAt: "2026-11-22T10:00:00.000Z" });
+		Object.assign(entries.get(stale.id)!.record, { status: "interrupted", interruptedAt: "2026-11-01T10:00:00.000Z" });
+
+		await service.resume(lead1.id);
+		expect(service.get(lead1.id).status).toBe("in_progress"); // waiting for its sub-agent
+		await settled(lead1.id);
+		const texts = async (id: string) => ((await service.messages(id)) as { role: string; content: { text?: string }[] | string }[]).filter((m) => m.role === "user").map((m) => (typeof m.content === "string" ? m.content : m.content.map((b) => b.text ?? "").join("")));
+		// The sub-agent was told to carry on, finished, and is done again.
+		expect((await texts(child.id)).at(-1)).toBe(RESUME_NOTE);
+		expect(service.get(child.id).status).toBe("done");
+		// The lead got the same note with the sub-agent's report, once.
+		const told = (await texts(lead1.id)).filter((t) => t.startsWith(RESUME_NOTE));
+		expect(told).toHaveLength(1);
+		expect(told[0]).toContain("Helper (session");
+		expect(told[0]).toContain("Noted: [Game Studio] You were interrupted");
+		expect(service.get(lead1.id).status).toBe("idle");
+		expect(service.get(stale.id).status).toBe("interrupted");
+
+		// Stop while it waits for a resumed sub-agent: it stops waiting, and isn't prompted afterwards.
+		for (const id of [lead1.id, stale.id]) Object.assign(entries.get(id)!.record, { status: "interrupted", interruptedAt: "2026-11-22T11:00:00.000Z" });
+		await service.resume(lead1.id);
+		await service.abort(lead1.id);
+		expect(service.get(lead1.id).status).toBe("idle");
+		await settled(stale.id);
+		await new Promise((r) => setTimeout(r, 200));
+		expect((await texts(lead1.id)).filter((t) => t.startsWith(RESUME_NOTE))).toHaveLength(1);
+	});
+
+	it("keeps a sub-agent interrupted (not done) when the session host dies under it and its parent", async () => {
+		const lead1 = await service.create({ agentType: "lead", target: "project", model: "faux/echo", prompt: `tool delegate ${JSON.stringify({ agentType: "helper", task: 'tool ask_user {"question": "Which way?"}' })}` });
+		await waitFor(() => !!service.list().find((s) => s.parentId === lead1.id)?.pendingQuestion);
+		const child = service.list().find((s) => s.parentId === lead1.id)!;
+		(service as unknown as { onHostRestart(): void }).onHostRestart();
+		await new Promise((r) => setTimeout(r, 200)); // the cut-off delegate call unwinds
+		// (The lead isn't checked: this test's host is still alive, so its delegate call's failure reaches it and it carries on.)
+		expect(service.get(child.id).status).toBe("interrupted");
+		expect(service.get(child.id).interruptedAt).toBeTruthy();
+	});
 
 	it("delegates a task to a sub-agent in its worktree and gets its report; only along the graph", async () => {
 		const lead1 = await service.create({ agentType: "lead", target: "project", model: "faux/echo", prompt: 'tool delegate {"agentType": "helper", "task": "child note"}' });
