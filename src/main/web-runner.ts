@@ -40,6 +40,8 @@ export const runInBrowser: BrowserRun = async ({ dir, args, files, timeoutMs }) 
 	)}).map(([p, b]) => [p, Uint8Array.from(atob(b), (c) => c.charCodeAt(0))]));</script>`;
 	const { url, server } = await serveFolder(dir, (html) => html.replace("<script", () => `${inject}<script`));
 	const win = new BrowserWindow({ width: 1280, height: 720, useContentSize: true, show: false, webPreferences: { offscreen: true, backgroundThrottling: false } });
+	// A check, not a play: the page runs the game with its sound on (a web build has no hidden mode), so mute the window.
+	win.webContents.setAudioMuted(true);
 	const lines: string[] = [];
 	let stopped: string | undefined;
 	win.webContents.on("console-message", (e: unknown, _level?: unknown, legacy?: unknown) => {
