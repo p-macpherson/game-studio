@@ -247,14 +247,14 @@ function nativePlay(root: string, pkg: string, exe: string, work: string, wine?:
 				cpSync(join(root, "tests"), join(testCopy, "tests"), { recursive: true });
 				mkdirSync(join(testCopy, "build"), { recursive: true });
 			}
-			return runGame(join(testCopy, exe), ["--dev", "--mode=hidden", ...args], testCopy, wine, prefix);
+			return runGame(join(testCopy, exe), ["--dev", ...args], testCopy, wine, prefix);
 		}
 		if (!startCopy) {
 			startCopy = join(work, "start", "game");
 			cpSync(pkg, startCopy, { recursive: true });
 			writeFileSync(join(work, "start", "check.jsonl"), START_SCRIPT);
 		}
-		return runGame(join(startCopy, exe), ["--dev", "--mode=hidden", ...args.map((a) => (a === "--script=check.jsonl" ? `--script=${join(work, "start", "check.jsonl")}` : a))], tmpdir(), wine, prefix);
+		return runGame(join(startCopy, exe), ["--dev", ...args.map((a) => (a === "--script=check.jsonl" ? `--script=${join(work, "start", "check.jsonl")}` : a))], tmpdir(), wine, prefix);
 	};
 }
 
@@ -270,7 +270,8 @@ function webPlay(root: string, pkg: string, browser: BrowserRun): Play {
 
 /** The package starts away from the project: no missing files, a release build, the release's version, no warnings. */
 async function checkStarts(play: Play, config: ReleaseConfig, name: string): Promise<ReleaseCheck> {
-	const res = await play(["--fixed-dt", "--script=check.jsonl"], false);
+	// Hidden: it renders, but with its sound off and no real keyboard, mouse or gamepad read (a web build too).
+	const res = await play(["--mode=hidden", "--fixed-dt", "--script=check.jsonl"], false);
 	if (res.code !== 0) return { name, ok: false, detail: `exited with ${res.code}: ${res.output.slice(-800)}` };
 	const replies = res.output
 		.split("\n")
@@ -291,12 +292,22 @@ async function checkStarts(play: Play, config: ReleaseConfig, name: string): Pro
 	return { name, ok: true, detail: `version ${info.game_version}, no warnings` };
 }
 
+/**
+ * The game flags a test script runs with: its first line when that is `// flags: --mode=none --seed=3` (a test that needs
+ * no picture runs without one, many times faster, and in a browser not at the display's pace), else a hidden window.
+ */
+export function testFlags(script: string): string[] {
+	const first = /^\/\/\s*flags:(.*)$/.exec(script.split("\n", 1)[0].trim());
+	const flags = first ? first[1].trim().split(/\s+/).filter((f) => f.startsWith("--")) : [];
+	return flags.length ? flags : ["--mode=hidden"];
+}
+
 /** Each of the game's tests/*.jsonl, run against the packaged release build. */
 async function checkTests(root: string, play: Play): Promise<ReleaseCheck[]> {
 	const tests = existsSync(join(root, "tests")) ? readdirSync(join(root, "tests")).filter((f) => f.endsWith(".jsonl")).sort() : [];
 	const checks: ReleaseCheck[] = [];
 	for (const t of tests) {
-		const res = await play(["--fixed-dt", `--script=tests/${t}`], true);
+		const res = await play([...testFlags(readFileSync(join(root, "tests", t), "utf8")), "--fixed-dt", `--script=tests/${t}`], true);
 		const failed = res.output.split("\n").filter((l) => l.includes('"ok":false'));
 		checks.push({ name: `tests/${t}`, ok: res.code === 0, detail: res.code === 0 ? "passed" : failed.slice(0, 5).join("\n") || res.output.slice(-800) });
 	}

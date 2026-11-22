@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { notRuntime, parseReleaseConfig } from "../shared/release";
 import { createProject } from "./project";
-import { buildRelease, releaseManifest } from "./release";
+import { testFlags, buildRelease, releaseManifest } from "./release";
 import { sh, tempDir } from "./test-helpers";
 
 function project(files: Record<string, string>): string {
@@ -143,4 +143,12 @@ describe.skipIf(!haveEngine)("buildRelease", () => {
 		expect(build.archives).toEqual(["builds/1.2.3/windows/ship-test-1.2.3-windows-x86_64.zip"]);
 		expect(existsSync(join(root, build.dir, "ship-test.exe"))).toBe(true);
 	}, 600_000);
+});
+
+describe("testFlags", () => {
+	it("takes a test's game flags from its first line, else a hidden window", () => {
+		expect(testFlags('// flags: --mode=none --seed=3\n{"cmd": "wait"}\n')).toEqual(["--mode=none", "--seed=3"]);
+		expect(testFlags('// Starts the game.\n{"cmd": "wait"}\n')).toEqual(["--mode=hidden"]);
+		expect(testFlags('{"cmd": "wait"}\n// flags: --mode=none\n')).toEqual(["--mode=hidden"]);
+	});
 });
