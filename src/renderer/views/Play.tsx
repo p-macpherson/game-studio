@@ -247,7 +247,7 @@ function RunPanel() {
 								? "Playing in a separate window. The inspector and console still work."
 								: busy
 									? STATE_LABEL[run!.state]
-									: "Run the game to see it here. Click the picture to play with keyboard and mouse."}
+									: "Run the game to see it here. Click the picture to play with keyboard and mouse; a controller works without clicking."}
 						</div>
 					)}
 					{run?.state === "build_failed" && (
@@ -307,7 +307,9 @@ function Viewport({ frame }: { frame: { src: string; width: number; height: numb
 			onContextMenu={(e) => e.preventDefault()}
 		>
 			<img ref={img} src={frame.src} alt="Game view" draggable={false} />
-			<span className="viewport-hint">{captured ? "Playing: keyboard and mouse go to the game. Click outside to stop." : "Click to play"}</span>
+			<span className="viewport-hint">{captured
+					? "Playing: keyboard, mouse and controller go to the game. Click outside to stop."
+					: "Click to play with keyboard and mouse · a controller always works"}</span>
 		</div>
 	);
 }

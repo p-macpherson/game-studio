@@ -159,6 +159,21 @@ export function effectGroundScene(background: "dark" | "light", post?: Record<st
 	return { environment, entities };
 }
 
+/**
+ * The game's flags for a run from the Play view or a section's live view. Only the plain "Run in studio" run (hidden,
+ * no scene, screen, shader or effect) reads the player's real gamepads (`--read-pads`): a hidden game reads none by
+ * default, so a controller resting on the desk can't disturb previews, tests and agents' runs, and a window reads
+ * them anyway. Engines older than the flag ignore it (flags are a map the engine looks names up in) and read pads in
+ * hidden mode regardless.
+ */
+export function runArgs(mode: RunMode, port: number, options: RunOptions = {}): string[] {
+	const args = [`--mode=${mode}`, `--control=${port}`];
+	if (mode !== "hidden") return args;
+	args.push("--fps=60");
+	if (!options.scene && !options.screen && !options.shader && !options.effect) args.push("--read-pads");
+	return args;
+}
+
 const hooks = (info: ShaderInfo) => ({ vertex: info.hasVertex, surface: info.hasSurface, depth_fade: info.usesDepth, bounds: info.bounds });
 
 export class RunService {
@@ -243,8 +258,7 @@ export class RunService {
 		}
 
 		const port = await freePort();
-		const args = [`--mode=${mode}`, `--control=${port}`];
-		if (mode === "hidden") args.push("--fps=60");
+		const args = runArgs(mode, port, options);
 		let shaderCamera: { position: number[]; target: number[] } | undefined;
 		if (options.shader) {
 			// A temp scene outside the checkout, gone when the run ends.

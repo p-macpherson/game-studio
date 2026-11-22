@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, utimesSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, utimesSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -41,7 +41,8 @@ describe("GenService", () => {
 		const progress = events.flatMap((e) => (e.type === "gen_job" && e.job.id === a.id ? [e.job.progress?.message] : []));
 		expect(progress).toContain("Faking shape");
 
-		await gen.run("image", { prompt: "a chest", out_dir: out, count: 2, seed: 5 });
+		const image = await gen.run("image", { prompt: "a chest", out_dir: out, count: 2, seed: 5 });
+		rmSync(String(image.sheet), { force: true }); // the worker's contact sheet, written to /tmp
 		expect(workerPid()).not.toBe(hunyuanPid); // another family: the hunyuan worker was stopped first
 		expect(gen.status().worker?.family).toBe("image");
 	});

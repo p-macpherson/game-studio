@@ -88,6 +88,8 @@ export class UiArtPipeline {
 			const { width, height } = UI_ART_FRAMING[p.kind];
 			const prompt = uiArtPrompt(p.kind, p.prompt, p.style);
 			const g = await this.step(ctx, "image", `UI art for ${p.name}`, { prompt, raw_prompt: true, out_dir: raw, name: leafName(p.name), count, seed: p.seed, width, height });
+			// The image job also makes a contact sheet; this step shows its own cut-out one, so this one goes now (it was left in /tmp).
+			if (typeof g.sheet === "string") rmSync(g.sheet, { force: true });
 			const c = await this.step(ctx, "ui_cut", `Cutting out ${p.name}`, { images: g.images, out_dir: out, kind: p.kind, mirror: existing?.mirror ?? p.kind !== "icon" });
 			const records = this.candidateRecords(ctx.cwd, p.name);
 			const at = new Date().toISOString();

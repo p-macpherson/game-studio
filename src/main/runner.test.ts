@@ -6,7 +6,7 @@ import type { StudioEvent } from "../shared/ipc";
 import { pairReplies, parseDiagnostics } from "../shared/run";
 import type { AgentTypeInfo } from "../shared/types";
 import { createProject } from "./project";
-import { RunService } from "./runner";
+import { RunService, runArgs } from "./runner";
 import { SessionService } from "./sessions";
 import { inProcessHost, sh, tempDir, waitFor } from "./test-helpers";
 
@@ -35,6 +35,18 @@ describe("pairReplies", () => {
 			[5, false, 'no entity named "X"'],
 		]);
 		expect(notRun).toBe(1);
+	});
+});
+
+describe("runArgs", () => {
+	it("reads real gamepads only in the plain Run in studio run", () => {
+		expect(runArgs("hidden", 7000)).toEqual(["--mode=hidden", "--control=7000", "--fps=60", "--read-pads"]);
+		// A window reads pads anyway.
+		expect(runArgs("window", 7000)).toEqual(["--mode=window", "--control=7000"]);
+		// The sections' live views are previews: a controller on the desk mustn't move them.
+		for (const options of [{ scene: "scenes/main.json" }, { screen: "hud" }, { shader: { name: "water" } }, { effect: { name: "sparks" } }]) {
+			expect(runArgs("hidden", 7000, options)).not.toContain("--read-pads");
+		}
 	});
 });
 
@@ -74,6 +86,9 @@ describe.skipIf(!existsSync(join(engineRepo, "third_party/lib")))("RunService", 
 		expect(run.state).toBe("running");
 		const entities = (await runner.call("entities")) as { name: string }[];
 		expect(entities.map((e) => e.name)).toContain("Cube");
+		// The player's controller works in the studio (engines with the `pads` command say so).
+		const pads = (await runner.call("pads").catch(() => null)) as { read?: boolean } | null;
+		if (pads) expect(pads.read).toBe(true);
 		const frames = () => events.filter((e) => e.type === "run_frame" && e.runId === run.id);
 		await waitFor(() => frames().length > 0);
 		expect(frames()[0]).toMatchObject({ mime: "image/jpeg", width: 1280, height: 720 });
@@ -89,6 +104,11 @@ describe.skipIf(!existsSync(join(engineRepo, "third_party/lib")))("RunService", 
 		await runner.stop();
 		expect(runner.current()?.state).toBe("exited");
 		await expect(runner.call("info")).rejects.toThrow(/isn't running/);
+
+		// A section's live view doesn't.
+		expect((await runner.start(null, "hidden", { scene: "scenes/main.json" })).state).toBe("running");
+		if (pads) expect(((await runner.call("pads")) as { read: boolean }).read).toBe(false);
+		await runner.stop();
 	}, 60_000);
 
 	it("reports a scripted test step by step, with its screenshots", async () => {
