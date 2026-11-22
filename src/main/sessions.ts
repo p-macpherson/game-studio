@@ -621,6 +621,8 @@ export class SessionService {
 		if (e.record.status === "done") e.record.outcome = null;
 		e.record.closedAt = undefined;
 		e.record.status = "in_progress";
+		// A follow-up (feedback after a review, say) puts the work back in progress: the agent asks again when it's done.
+		e.record.reviewRequested = false;
 		e.record.error = undefined;
 		this.save(e);
 		this.touch(e.record.id);

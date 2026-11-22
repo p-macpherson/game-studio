@@ -54,6 +54,16 @@ describe("SessionService", () => {
 
 	const settled = (id: string) => waitFor(() => service.get(id).status === "idle");
 
+	it("is no longer ready for review once the user sends a follow-up", async () => {
+		const s = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: `tool request_review ${JSON.stringify({ summary: "Added the cave" })}` });
+		await settled(s.id);
+		expect(service.get(s.id).reviewRequested).toBe(true);
+		await service.send(s.id, "Make the cave smaller");
+		expect(service.get(s.id).reviewRequested).toBe(false);
+		await settled(s.id);
+		expect(service.get(s.id).reviewRequested).toBe(false); // until the agent asks again
+	});
+
 	it("shows a question's images when they exist in the session's checkout", async () => {
 		mkdirSync(join(project, "shots"), { recursive: true });
 		writeFileSync(join(project, "shots/map.png"), "png");
