@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Installs and updates the stable Game Studio in ~/.local/share/game-studio/app (GAME_STUDIO_HOME moves it), cloned
-# from GitHub: only pushed work reaches it. A new version is cloned, installed, built and tested in app-next; only then
-# does it replace app (the old one is kept as app-prev). The development checkout in ~/Projects/game-studio is never
-# touched. The studio's Settings → Updates runs --prepare, then --apply-after on Restart.
+# from GitHub: only pushed work reaches it. A new version is cloned, installed and built in app-next, then started once
+# off-screen (with throwaway settings) to check it opens; only then does it replace app (the old one is kept as
+# app-prev). Work reaches GitHub's main only after its tests pass, so the updater doesn't run them again unless asked
+# (--full). The development checkout in ~/Projects/game-studio is never touched. The studio's Settings → Updates runs
+# --prepare, then --apply-after on Restart.
 #
-#   game-studio-update                         prepare the latest origin/main and switch to it (studio closed)
-#   game-studio-update <ref>                   the same for a commit, tag or branch
-#   game-studio-update --prepare [ref]         only build and test it into app-next (the studio may be running)
+#   game-studio-update [--full]                prepare the latest origin/main and switch to it (studio closed)
+#   game-studio-update [--full] <ref>          the same for a commit, tag or branch
+#   game-studio-update --prepare [--full] [ref]  only prepare it into app-next (the studio may be running)
+#   --full                                     also run the full test suite (about a minute) before switching
 #   game-studio-update --apply-after <pid> [--relaunch]
 #                                              wait for that studio process to exit, switch to app-next, reopen
 #   game-studio-update --rollback              go back to the previous version
@@ -20,6 +23,29 @@ REPO="${GAME_STUDIO_UPDATE_REPO:-https://github.com/p-macpherson/game-studio.git
 ENGINE="${GAME_STUDIO_TEST_ENGINE:-$HOME/Projects/headless-game-engine}"
 
 running() { pgrep -f "$APP/node_modules/electron/dist/electron" >/dev/null; }
+
+FULL=0
+args=()
+for a in "$@"; do [[ "$a" == "--full" ]] && FULL=1 || args+=("$a"); done
+set -- "${args[@]}"
+
+# Starts the prepared version once, hidden, with throwaway settings, and waits for its first screen.
+startup_check() {
+	if ! grep -q GAME_STUDIO_STARTUP_CHECK "$NEXT/out/main/index.js"; then
+		echo ">> This version predates the startup check: skipping it"
+		return
+	fi
+	echo ">> Checking it starts"
+	local data; data="$(mktemp -d)"
+	local out
+	out="$(cd "$NEXT" && GAME_STUDIO_STARTUP_CHECK=1 GAME_STUDIO_USER_DATA="$data" timeout 90 node_modules/electron/dist/electron . 2>&1 | tr -d '\r')" || true
+	rm -rf "$data"
+	if ! grep -q "^STARTUP OK" <<<"$out"; then
+		echo "!! The new version didn't start: keeping the current version." >&2
+		grep "STARTUP FAILED" <<<"$out" >&2 || tail -5 <<<"$out" >&2
+		exit 1
+	fi
+}
 
 prepare() { # ref
 	rm -rf "$NEXT"
@@ -37,10 +63,13 @@ prepare() { # ref
 	node node_modules/electron/install.js
 	echo ">> Building"
 	npm run -s build >/dev/null
-	echo ">> Testing (about a minute)"
-	if ! GAME_STUDIO_TEST_ENGINE="$ENGINE" npm test -s >"$BASE/update-tests.log" 2>&1; then
-		echo "!! Tests failed: keeping the current version. See $BASE/update-tests.log" >&2
-		exit 1
+	startup_check
+	if [[ $FULL == 1 ]]; then
+		echo ">> Testing (about a minute)"
+		if ! GAME_STUDIO_TEST_ENGINE="$ENGINE" npm test -s >"$BASE/update-tests.log" 2>&1; then
+			echo "!! Tests failed: keeping the current version. See $BASE/update-tests.log" >&2
+			exit 1
+		fi
 	fi
 	git -C "$NEXT" rev-parse HEAD >"$NEXT/.prepared"
 	echo ">> Ready: $(git -C "$NEXT" log --oneline -1)"

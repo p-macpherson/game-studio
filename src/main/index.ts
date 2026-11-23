@@ -496,8 +496,38 @@ function setMenu(): void {
 	);
 }
 
+/**
+ * GAME_STUDIO_STARTUP_CHECK=1 (the updater's check of a new version, with a throwaway userData): open the window hidden,
+ * wait for the page to draw its first screen, print "STARTUP OK" and exit, or "STARTUP FAILED: …" with exit code 1.
+ */
+const STARTUP_CHECK = process.env.GAME_STUDIO_STARTUP_CHECK === "1";
+
+function startupCheck(w: BrowserWindow): void {
+	const fail = (why: string) => {
+		console.log(`STARTUP FAILED: ${why}`);
+		app.exit(1);
+	};
+	const timer = setTimeout(() => fail("the window didn't finish loading within 60 s"), 60_000);
+	// An uncaught exception in the page fails it; other console errors (a blocked resource, say) don't.
+	w.webContents.on("console-message", (e) => {
+		if (e.level === "error" && /^Uncaught\b/.test(e.message)) fail(`renderer error: ${e.message}`);
+	});
+	w.webContents.on("did-fail-load", (_e, _code, desc) => fail(`the page didn't load: ${desc}`));
+	w.webContents.on("render-process-gone", (_e, d) => fail(`the renderer died: ${d.reason}`));
+	w.webContents.on("did-finish-load", async () => {
+		// Give React a moment to draw (and any startup error a moment to surface).
+		await new Promise((r) => setTimeout(r, 2500));
+		const drawn = await w.webContents.executeJavaScript('document.getElementById("root")?.childElementCount ?? 0').catch(() => 0);
+		clearTimeout(timer);
+		if (!drawn) return fail("the page loaded but drew nothing");
+		console.log("STARTUP OK");
+		app.exit(0);
+	});
+}
+
 function createWindow(): void {
 	win = new BrowserWindow({
+		show: !STARTUP_CHECK,
 		width: 1440,
 		height: 900,
 		title: project ? `${project.name} — Game Studio` : "Game Studio",
@@ -508,6 +538,7 @@ function createWindow(): void {
 		void shell.openExternal(url);
 		return { action: "deny" };
 	});
+	if (STARTUP_CHECK) startupCheck(win);
 	if (process.env.ELECTRON_RENDERER_URL) void win.loadURL(process.env.ELECTRON_RENDERER_URL);
 	else void win.loadFile(join(import.meta.dirname, "../renderer/index.html"));
 }
@@ -515,6 +546,7 @@ function createWindow(): void {
 app.on("browser-window-created", (_e, w) => w.on("page-title-updated", (ev) => ev.preventDefault()));
 void main().catch((err) => {
 	console.error(err);
+	if (STARTUP_CHECK) console.log(`STARTUP FAILED: ${err instanceof Error ? err.message : String(err)}`);
 	app.exit(1);
 });
 

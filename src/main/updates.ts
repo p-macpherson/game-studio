@@ -1,6 +1,6 @@
 // Updates for the stable install (~/.local/share/game-studio/app, made by install/install.sh): which pushed commits
 // are newer than this copy, preparing the next version in the background (install/game-studio-update --prepare:
-// clone, install, build, test into app-next) and restarting into it (--apply-after: the script waits for this
+// clone, install, build and a startup check into app-next) and restarting into it (--apply-after: the script waits for this
 // process to exit, swaps the copies and reopens the studio). A development checkout has no updates.
 import { execFile, spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -60,7 +60,7 @@ export class UpdateService {
 		return this.status();
 	}
 
-	/** Builds and tests the newest version beside this one; the studio keeps running meanwhile. */
+	/** Builds the newest version beside this one and checks it starts; the studio keeps running meanwhile. */
 	async prepare(): Promise<UpdateStatus> {
 		if (!this.base) throw new Error("This studio runs from a development checkout: it has no updates");
 		if (this.state.phase === "preparing") return this.status();
@@ -84,7 +84,7 @@ export class UpdateService {
 			this.state.prepared = readFileSync(prepared, "utf8").trim().slice(0, 7);
 		} else {
 			this.state.phase = ok ? "idle" : "failed";
-			if (!ok) this.state.error = "The update didn't build or its tests failed; this version stays. The log shows why.";
+			if (!ok) this.state.error = "The update didn't build or didn't start; this version stays. The log shows why.";
 		}
 		this.changed();
 		return this.status();

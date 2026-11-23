@@ -50,7 +50,7 @@ export function UpdatesCard() {
 					{update.phase === "preparing" && (
 						<>
 							<div className="row">
-								<span className="spinner" /> <span className="grow">Preparing the update: building and testing it while you work…</span>
+								<span className="spinner" /> <span className="grow">Preparing the update: building it and checking it starts, while you work…</span>
 							</div>
 							<pre className="console update-log">{update.log.slice(-6).join("\n")}</pre>
 						</>
