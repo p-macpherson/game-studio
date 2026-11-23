@@ -501,7 +501,7 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 					))}
 			</div>
 			<div className={`tab-body ${tab === "chat" || tab === "transcript" ? "fill" : ""}`}>
-				{tab === "chat" && transcript && <Chat transcript={transcript} working={running} onShowTranscript={() => setTab("transcript")} assets={assets} />}
+				{tab === "chat" && transcript && <Chat transcript={transcript} working={running} onShowTranscript={() => setTab("transcript")} assets={assets} sessionId={s.id} />}
 				{tab === "transcript" && transcript && <FullTranscript transcript={transcript} assets={assets} />}
 				{tab === "subagents" && <SubAgents root={s} sessions={sessions} typeName={(id) => findAgentType(agentTypes, id)?.name ?? id} onOpen={selectSession} />}
 				{tab === "raw" && (

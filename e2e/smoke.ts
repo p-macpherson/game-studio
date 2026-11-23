@@ -1148,6 +1148,7 @@ try {
 	await page.getByTestId("composer").fill('tool ask_user {"question": "Which colour should the crate be?", "options": ["Red", "Blue with a white stripe"]}');
 	await page.getByTestId("composer").press("Enter");
 	await page.getByTestId("question").getByText("Which colour should the crate be?").waitFor({ timeout: 30_000 });
+	if (await page.getByTestId("chat-question").filter({ hasText: "Which colour should the crate be?" }).count()) throw new Error("a question still waiting is in its card, not yet in the conversation");
 	await page.getByTestId("question-option").nth(1).click();
 	if ((await page.getByTestId("question-answer").inputValue()) !== "Blue with a white stripe") throw new Error("picking a suggestion should fill the answer box");
 	await page.locator(".question-option.picked", { hasText: "Blue with a white stripe" }).waitFor();
@@ -1157,6 +1158,9 @@ try {
 	await page.getByTestId("question-send").click();
 	await page.getByTestId("chat").getByText(/^Result:[\s\S]*Blue with a thin white stripe/).waitFor({ timeout: 30_000 });
 	await page.getByTestId("question").waitFor({ state: "detached" });
+	// Answered: the conversation keeps the question with what was answered under it.
+	await page.getByTestId("chat-question").filter({ hasText: "Which colour should the crate be?" }).getByTestId("chat-answer").getByText("Blue with a thin white stripe", { exact: true }).waitFor();
+	await step("67a-question-recorded", page);
 	await parentRow.getByTestId("subagents-hidden").click(); // shown again: leaving the page forgot it
 	await page.locator("[data-testid=session-item][data-depth='1']", { hasText: "Sub-agent note" }).click();
 	await page.getByTestId("session-family").getByText("↑ Sub-agent of").waitFor();
@@ -1372,6 +1376,11 @@ try {
 	await page.getByTestId("question-option").filter({ hasText: "Yes" }).click();
 	await page.getByTestId("question-send").click();
 	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
+	// The question stays in the conversation with its picture and the answer.
+	const recorded = page.getByTestId("chat-question").filter({ hasText: "Is the cave layout right?" });
+	await recorded.getByTestId("chat-answer").getByText("Yes", { exact: true }).waitFor();
+	if (!(await recorded.locator("img").first().evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0))) throw new Error("the recorded question should keep its picture");
+	await step("64e-question-recorded-with-image", page);
 	await nav.getByRole("button", { name: "Settings" }).click();
 
 	// Appearance: a theme and fonts apply at once (the page's variables), survive a reload, and Simple Dark comes back.
@@ -1581,7 +1590,7 @@ try {
 	await page.getByTestId("session-resume-interrupted").waitFor({ timeout: 30_000 });
 	// Its cut-off question isn't shown as still waiting for an answer.
 	await page.getByTestId("working-now").waitFor({ state: "detached", timeout: 10_000 });
-	await page.getByTestId("work-line").first().waitFor();
+	await page.getByTestId("chat-question").getByText("Not answered").waitFor();
 	await step("80-session-interrupted", page);
 	await page.getByTestId("session-resume-interrupted").click();
 	await page.getByTestId("resumed-note").waitFor({ timeout: 30_000 });

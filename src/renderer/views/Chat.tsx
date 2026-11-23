@@ -8,6 +8,7 @@ import { RESUME_NOTE } from "../../shared/types";
 import { CHECKS_FAILED_NOTE } from "../../shared/review";
 import { RETRY_NOTE, describeModelError, retryLine } from "../../shared/model-errors";
 import type { SessionAssets } from "../../shared/session-assets";
+import { studioFile } from "../api";
 import { type Chip, Markdown } from "./Markdown";
 import { AssetStrip, openCard, useChipPreview, useChips } from "./SessionAssets";
 
@@ -212,7 +213,17 @@ function Following({ version, own, testId, children }: { version: unknown; own: 
 
 const userCount = (messages: ChatMessage[]) => messages.reduce((n, m) => n + (m.role === "user" ? 1 : 0), 0);
 
-type Item = { kind: "retried"; count: number; error: string } | { kind: "user"; m: ChatMessage } | { kind: "reply"; m: ChatMessage } | { kind: "work"; steps: number; failed: ChatMessage[] } | { kind: "compacted" };
+/** A question the agent asked the person (ask_user), with what they answered once they have. */
+interface Asked {
+	kind: "question";
+	question: string;
+	images: string[];
+	/** The answer given; null while it waits, or when the agent was stopped before one came. */
+	answer: string | null;
+	waiting: boolean;
+}
+
+type Item = Asked | { kind: "retried"; count: number; error: string } | { kind: "user"; m: ChatMessage } | { kind: "reply"; m: ChatMessage } | { kind: "work"; steps: number; failed: ChatMessage[] } | { kind: "compacted" };
 
 /** The conversation as turns: what was said, with each stretch of the agent's work (messages that call tools) as one item. */
 function conversation(messages: ChatMessage[], retryingNow = false): { items: Item[]; open: { steps: number; said: string } | null } {
@@ -229,6 +240,9 @@ function conversation(messages: ChatMessage[], retryingNow = false): { items: It
 		}
 	}
 	if (retryingNow) for (const f of failed) retried.add(f);
+	// What each tool call came back with (a question's answer is its ask_user call's result).
+	const results = new Map<string, ChatMessage>();
+	for (const m of messages) if (m.role === "toolResult" && m.toolCallId) results.set(m.toolCallId, m);
 	let work: { steps: number; failed: ChatMessage[]; said: string } | null = null;
 	const flush = () => {
 		if (work) items.push({ kind: "work", steps: work.steps, failed: work.failed });
@@ -252,8 +266,21 @@ function conversation(messages: ChatMessage[], retryingNow = false): { items: It
 				items.push({ kind: "reply", m });
 				continue;
 			}
-			work ??= { steps: 0, failed: [], said: "" };
-			work.steps += calls;
+			// A question is part of the conversation, not of the work: it is shown, with its answer.
+			const asked = toolCalls(m).filter((c) => c.name === "ask_user" && typeof c.arguments?.question === "string");
+			const other = calls - asked.length;
+			if (other || !asked.length) {
+				work ??= { steps: 0, failed: [], said: "" };
+				work.steps += other;
+			}
+			for (const c of asked) {
+				flush();
+				const result = results.get(c.id);
+				const answer = result && !result.isError ? /^User answered: ([\s\S]*)$/.exec(text(result.content))?.[1] : undefined;
+				const images = Array.isArray(c.arguments.images) ? c.arguments.images.filter((p): p is string => typeof p === "string") : [];
+				items.push({ kind: "question", question: c.arguments.question as string, images, answer: answer ?? null, waiting: !result });
+			}
+			if (!work) continue;
 			if (text(m.content).trim()) work.said = text(m.content).trim();
 			if (m.stopReason === "error" || m.stopReason === "aborted") work.failed.push(m);
 		} else if (m.role === "compactionSummary") {
@@ -274,7 +301,7 @@ function conversation(messages: ChatMessage[], retryingNow = false): { items: It
  * The chat: the person's messages and the agent's replies. `working`: the agent is running, so its current work
  * shows in a panel at the end (what it last said, the tools running now); once done, that work is one folded line.
  */
-export function Chat({ transcript, working, onShowTranscript, assets }: { transcript: Transcript; working: boolean; onShowTranscript: () => void; assets?: SessionAssets }) {
+export function Chat({ transcript, working, onShowTranscript, assets, sessionId }: { transcript: Transcript; working: boolean; onShowTranscript: () => void; assets?: SessionAssets; sessionId?: string }) {
 	const links = useLinks(assets);
 	const hover = useChipPreview();
 	// Turn n is what follows the person's nth message; its cards go at its end (before their next message).
@@ -309,6 +336,34 @@ export function Chat({ transcript, working, onShowTranscript, assets }: { transc
 					);
 				}
 				if (it.kind === "reply") return <Reply key={i} m={it.m} links={links} />;
+				if (it.kind === "question") {
+					// Still waiting: the question is in the card below, with its suggestions. It joins the conversation once
+					// answered (or when the agent stopped without an answer).
+					if (it.waiting && working) return null;
+					const shots = sessionId ? it.images.map((p) => ({ src: studioFile(sessionId, p), label: p })) : [];
+					return (
+						<div key={i} className="col chat-question" data-testid="chat-question">
+							<div className="msg assistant asked">
+								<span className="asked-label">The agent asked</span>
+								<Markdown text={it.question} onLink={links.open} chips={links.chips} />
+								{shots.length > 0 && (
+									<div className="msg-images asked-images">
+										{shots.map((s, j) => (
+											<img key={s.label} src={s.src} alt="" title={s.label} onClick={() => useStudio.getState().showImages(shots, j)} onError={(e) => (e.currentTarget.style.display = "none")} />
+										))}
+									</div>
+								)}
+							</div>
+							{it.answer !== null ? (
+								<div className="msg user" data-testid="chat-answer">
+									{it.answer}
+								</div>
+							) : (
+								<div className="muted small asked-pending">Not answered</div>
+							)}
+						</div>
+					);
+				}
 				if (it.kind === "retried") {
 					return (
 						<div key={i} className="msg-note" title={it.error} data-testid="retried-tries">
