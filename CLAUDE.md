@@ -15,7 +15,8 @@ npm run build        # build into out/
 npm run typecheck    # tsc
 npm test             # vitest: git/worktree/session lifecycle and project creation, against temp repos
 npm run e2e          # build, then drive the app with Playwright through project creation and a full session
-                     # lifecycle on the faux model, on a hidden display (xvfb-run: no windows, no stolen focus);
+                     # lifecycle on the faux model, on a hidden display (xvfb-run: no windows, no stolen focus) and
+                     # silent (GAME_STUDIO_MUTE=1: the window's audio muted, games started with --no-audio);
                      # ~3 minutes; screenshots in out/e2e/
 npm run e2e:show     # the same in real windows on the desktop: only when Pat asks to watch it
 npm run test:gpu     # the real generation models end to end on the GPU (a few minutes; needs gen/setup.sh done)

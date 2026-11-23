@@ -982,7 +982,9 @@ export class RunService {
 
 	/** Starts the checkout's game binary in its turn. */
 	private launch(co: CheckoutInfo, args: string[]): Promise<ChildProcess> {
-		return this.inTurn(co.cwd, async () => this.track(await spawnGame(join(co.cwd, "build/game"), args, { cwd: co.cwd, env: { ...process.env, NO_COLOR: "1" } })));
+		// An automated run (GAME_STUDIO_MUTE, as the e2e sets it) is silent, even a game in its own window.
+		const all = process.env.GAME_STUDIO_MUTE === "1" ? [...args, "--no-audio"] : args;
+		return this.inTurn(co.cwd, async () => this.track(await spawnGame(join(co.cwd, "build/game"), all, { cwd: co.cwd, env: { ...process.env, NO_COLOR: "1" } })));
 	}
 
 	private exec(co: CheckoutInfo, args: string[], onOutput?: (text: string) => void, timeoutMs?: number): Promise<ExecResult> {

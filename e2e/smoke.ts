@@ -68,6 +68,8 @@ const app = await electron.launch({
 			Object.entries(process.env).filter(([name]) => !/_API_KEY$|_AUTH_TOKEN$|^AWS_|^GOOGLE_APPLICATION_CREDENTIALS$|^ELECTRON_RENDERER_URL$/.test(name)),
 		),
 		GAME_STUDIO_USER_DATA: userData,
+		// No sound on Pat's speakers: the window's audio is muted and games start with --no-audio.
+		GAME_STUDIO_MUTE: "1",
 		GAME_STUDIO_FAUX: "1",
 		GAME_STUDIO_GEN_FAKE: "1",
 		GAME_STUDIO_BUTLER: fakeButler,

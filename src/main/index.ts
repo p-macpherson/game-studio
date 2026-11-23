@@ -43,6 +43,14 @@ import { openTerminal } from "./terminal";
 
 // A separate user-data dir lets a second studio instance (tests, studio-engineer sessions) run alongside.
 if (process.env.GAME_STUDIO_USER_DATA) app.setPath("userData", process.env.GAME_STUDIO_USER_DATA);
+// Automated runs (the e2e, the updater's startup check) make no sound: the window's audio (music, sound previews) is
+// muted, and every game the studio starts gets --no-audio (runArgs).
+const MUTED = process.env.GAME_STUDIO_MUTE === "1" || process.env.GAME_STUDIO_STARTUP_CHECK === "1";
+if (MUTED) {
+	app.commandLine.appendSwitch("mute-audio");
+	// And each page's own mute (the switch alone left Chromium's audio stream open): checkable with isAudioMuted().
+	app.on("web-contents-created", (_e, contents) => contents.setAudioMuted(true));
+}
 
 registerStudioFileScheme();
 
