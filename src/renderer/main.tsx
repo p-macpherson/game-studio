@@ -37,6 +37,50 @@ const NAV_GROUPS: { id: string; label: string; views: View[] }[] = [
 ];
 const GROUPED = new Set(NAV_GROUPS.flatMap((g) => g.views));
 
+/**
+ * Back and forward through the places visited (nav-history.ts): these two buttons, Alt+Left / Alt+Right, and a
+ * mouse's thumb buttons. Over a running game's view the thumb buttons are the game's.
+ */
+function NavButtons() {
+	const { canGoBack, canGoForward, goBack, goForward } = useStudio(useShallow((s) => ({ canGoBack: s.canGoBack, canGoForward: s.canGoForward, goBack: s.goBack, goForward: s.goForward })));
+	useEffect(() => {
+		const inGame = (e: Event) => !!document.pointerLockElement || !!(e.target as Element | null)?.closest?.(".viewport-cell");
+		const key = (e: KeyboardEvent) => {
+			if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+			e.preventDefault();
+			if (e.key === "ArrowLeft") goBack();
+			else goForward();
+		};
+		// Button 3 is "back" and 4 "forward" on a mouse with thumb buttons. The press is swallowed so nothing else acts
+		// on it; the release does the navigating.
+		const thumb = (e: MouseEvent) => {
+			if ((e.button !== 3 && e.button !== 4) || inGame(e)) return;
+			e.preventDefault();
+			if (e.type !== "mouseup") return;
+			if (e.button === 3) goBack();
+			else goForward();
+		};
+		window.addEventListener("keydown", key);
+		window.addEventListener("mousedown", thumb);
+		window.addEventListener("mouseup", thumb);
+		return () => {
+			window.removeEventListener("keydown", key);
+			window.removeEventListener("mousedown", thumb);
+			window.removeEventListener("mouseup", thumb);
+		};
+	}, [goBack, goForward]);
+	return (
+		<div className="nav-history" data-testid="nav-history">
+			<button className="ghost icon" disabled={!canGoBack} onClick={goBack} title="Back (Alt+Left, or the mouse's back button)" aria-label="Back" data-testid="nav-back">
+				‹
+			</button>
+			<button className="ghost icon" disabled={!canGoForward} onClick={goForward} title="Forward (Alt+Right, or the mouse's forward button)" aria-label="Forward" data-testid="nav-forward">
+				›
+			</button>
+		</div>
+	);
+}
+
 /** Shown while the installed studio has an update (Settings → General → Updates). */
 function UpdateNavItem() {
 	const { update, openSettings } = useStudio(useShallow((s) => ({ update: s.update, openSettings: s.openSettings })));
@@ -149,7 +193,10 @@ function App() {
 	return (
 		<div className={`shell ${collapsed ? "collapsed" : ""}`}>
 			<nav className="sidebar">
-				{!collapsed && <ProjectMenu />}
+				<div className="sidebar-top">
+					{!collapsed && <ProjectMenu />}
+					<NavButtons />
+				</div>
 				{NAV_GROUPS.map((g) => {
 					const views = [...g.views, ...(g.id === "game" ? modules.map((x): View => `module:${x.id}`).filter((v) => !GROUPED.has(v)) : [])];
 					const items = views.map(navItem).filter((x) => x !== null);

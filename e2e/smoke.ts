@@ -939,6 +939,30 @@ try {
 	if (!(await page.locator(".session-detail").isVisible())) throw new Error("open_in_studio moved the user out of the session");
 	await page.locator(".asset-chip", { hasText: "Game Brief" }).first().waitFor();
 	await step("28a-session-assets", page);
+	// Back and forward: a card takes the person to the asset's section; Back returns to the session, Forward to the
+	// section again; the mouse's thumb buttons and Alt+Left do the same.
+	await chimeCard.last().locator(".asset-card-open").click();
+	await page.getByTestId("asset-item").filter({ hasText: "e2e-chime" }).first().waitFor();
+	await page.waitForTimeout(400);
+	await page.getByTestId("nav-back").click();
+	await page.getByTestId("chat").waitFor();
+	await chimeCard.last().waitFor();
+	await step("28b-back-to-session", page);
+	await page.getByTestId("nav-forward").click();
+	await page.getByTestId("asset-item").filter({ hasText: "e2e-chime" }).first().waitFor();
+	await page.getByTestId("chat").waitFor({ state: "detached" });
+	// (Playwright can't press a mouse's thumbButton buttons, so the page is sent the events they make: button 3 and 4.)
+	const thumbButton = (button: number) =>
+		page.evaluate((button) => {
+			for (const type of ["mousedown", "mouseup"]) document.body.dispatchEvent(new MouseEvent(type, { button, bubbles: true, cancelable: true }));
+		}, button);
+	await thumbButton(3);
+	await page.getByTestId("chat").waitFor();
+	await thumbButton(4);
+	await page.getByTestId("chat").waitFor({ state: "detached" });
+	await page.keyboard.press("Alt+ArrowLeft");
+	await page.getByTestId("chat").waitFor();
+	if (!(await page.getByTestId("nav-forward").isEnabled())) throw new Error("after going back there should be a place to go forward to");
 	await briefCard.getByRole("button").first().click();
 	await page.getByTestId("asset-item").filter({ hasText: "Game Brief" }).first().waitFor();
 	await nav.getByRole("button", { name: "Sound Effects" }).click();

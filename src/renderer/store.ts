@@ -7,6 +7,7 @@ import type { HistoryStep } from "../shared/history";
 import type { SessionAssets } from "../shared/session-assets";
 import { call } from "./api";
 import { type SessionEvent, applyEvent, withSnapshot } from "./transcript";
+import { NavHistory, type Place, placeKey, placeOf } from "./nav-history";
 
 export type View = "sessions" | "worktrees" | "source-control" | "settings" | "play" | "release" | `module:${string}`;
 
@@ -141,6 +142,11 @@ interface State {
 	refreshWorktrees(): Promise<void>;
 	selectWorktree(id: string | null): void;
 	setView(view: View): void;
+	/** Whether there is a place to go back or forward to (see nav-history.ts), and going there. */
+	canGoBack: boolean;
+	canGoForward: boolean;
+	goBack(): void;
+	goForward(): void;
 	selectSession(id: string | null): void;
 	loadTranscript(id: string): Promise<void>;
 	showError(err: unknown): void;
@@ -315,6 +321,10 @@ export const useStudio = create<State>((set, get) => ({
 		set({ models: await call("models.available") });
 	},
 	setView: (view) => set({ view }),
+	canGoBack: false,
+	canGoForward: false,
+	goBack: () => navigate(-1),
+	goForward: () => navigate(1),
 	selectSession(id) {
 		set({ selectedSession: id, view: "sessions" });
 		if (id) void get().loadTranscript(id);
@@ -432,4 +442,70 @@ export const useStudio = create<State>((set, get) => ({
 		}
 	},
 }));
+
+// ── Back and forward ──────────────────────────────────────────────────────────────────────────────────────────────
+
+const visited = new NavHistory();
+/** Set while a place from the history is being restored, so restoring it isn't recorded as a new visit. */
+let restoring = false;
+let settle: ReturnType<typeof setTimeout> | undefined;
+let lastKey = "";
+let lastProject: string | undefined;
+
+const place = (s: State): Place => placeOf(s, (view, path) => !!s.modules.find((m) => view === `module:${m.id}` && moduleOwns(m, path)));
+
+/** A place still exists while its session, and the worktrees it needs, do. */
+function exists(p: Place): boolean {
+	const s = useStudio.getState();
+	const open = (id: string | null) => !id || s.worktrees.some((w) => w.id === id && isOpenWorktree(w));
+	if (p.session && !s.sessions.some((x) => x.id === p.session)) return false;
+	return open(p.worktree) && open(p.review) && open(p.changes);
+}
+
+const publish = () => useStudio.setState({ canGoBack: visited.peek(-1, exists) !== null, canGoForward: visited.peek(1, exists) !== null });
+
+function navigate(step: -1 | 1): void {
+	// A move still being noted belongs in the history before stepping through it.
+	if (settle) {
+		clearTimeout(settle);
+		settle = undefined;
+		visited.visit(place(useStudio.getState()));
+	}
+	const to = visited.go(step, exists);
+	if (!to) return;
+	restoring = true;
+	const s = useStudio.getState();
+	if (to.worktree !== s.selected) s.selectWorktree(to.worktree);
+	useStudio.setState({
+		view: to.view as View,
+		...(to.view === "sessions" ? { selectedSession: to.session } : {}),
+		...(to.asset ? { focus: { path: to.asset } } : {}),
+		...(to.view === "worktrees" ? { reviewOf: to.review, changesOf: to.changes, changesFile: to.changesFile } : {}),
+		...(to.settingsTab ? { settingsTab: to.settingsTab as SettingsTab } : {}),
+	});
+	if (to.session) void useStudio.getState().loadTranscript(to.session);
+	lastKey = placeKey(place(useStudio.getState()));
+	restoring = false;
+	publish();
+}
+
+// Every change of place is a visit. One click can change the place in several steps (the worktree, then the page,
+// then the section opening an asset), so the place is read once things have settled.
+useStudio.subscribe((s) => {
+	if (s.project?.path !== lastProject) {
+		lastProject = s.project?.path;
+		visited.reset();
+		lastKey = "";
+	}
+	if (restoring) return;
+	const key = placeKey(place(s));
+	if (key === lastKey) return;
+	lastKey = key;
+	clearTimeout(settle);
+	settle = setTimeout(() => {
+		settle = undefined;
+		visited.visit(place(useStudio.getState()));
+		publish();
+	}, 150);
+});
 

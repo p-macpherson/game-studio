@@ -151,6 +151,37 @@ a {
 .sidebar .project {
 	position: relative;
 }
+/* The project's name with Back and Forward beside it */
+.sidebar-top {
+	display: flex;
+	align-items: flex-start;
+	gap: 4px;
+}
+.sidebar-top .project {
+	flex: 1;
+	min-width: 0;
+}
+.nav-history {
+	display: flex;
+	gap: 0;
+	padding-top: 8px;
+}
+.nav-history button {
+	width: 20px;
+	height: 24px;
+	padding: 0;
+	font-size: 16px;
+	line-height: 1;
+	border-radius: 6px;
+}
+.nav-history button:disabled {
+	opacity: 0.3;
+}
+.shell.collapsed .nav-history {
+	flex-direction: column;
+	align-items: center;
+	padding: 0 0 4px;
+}
 .sidebar .project-name {
 	font-weight: 600;
 	font-size: 14px;
