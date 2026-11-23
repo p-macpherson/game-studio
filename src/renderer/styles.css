@@ -986,9 +986,45 @@ a {
 	flex-direction: column;
 	gap: 8px;
 }
+.composer {
+	position: relative;
+}
 .composer textarea {
 	resize: none;
 	min-height: 60px;
+}
+/* The divider above the message box: drag it to give the box more (or less) of the window. */
+.composer-grip {
+	position: absolute;
+	top: -4px;
+	left: 0;
+	right: 0;
+	height: 8px;
+	cursor: ns-resize;
+	touch-action: none;
+	z-index: 2;
+}
+.composer-grip::after {
+	content: "";
+	position: absolute;
+	top: 3px;
+	left: 50%;
+	width: 36px;
+	height: 3px;
+	margin-left: -18px;
+	border-radius: 2px;
+	background: var(--border);
+	transition: background 0.1s, width 0.1s, margin-left 0.1s;
+}
+.composer-grip:hover::after,
+.composer-grip:active::after,
+.composer-grip:focus-visible::after {
+	background: var(--accent);
+	width: 64px;
+	margin-left: -32px;
+}
+.composer-grip:focus-visible {
+	outline: none;
 }
 .question {
 	background: color-mix(in srgb, var(--accent) 7%, var(--panel));

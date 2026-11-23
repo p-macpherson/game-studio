@@ -1070,6 +1070,20 @@ try {
 	const pastedIn = join(root, "worktrees", pastedFiles[0].slice(0, pastedFiles[0].indexOf("/.studio/")));
 	if (execSync("git status --porcelain --untracked-files=all", { cwd: pastedIn }).toString().includes("attachments")) throw new Error("the pasted image shows up in git");
 	await step("64b-sent-image", page);
+	// Dragging the divider above the message box up gives it more room; double-clicking puts it back.
+	const boxHeight = () => page.getByTestId("composer").evaluate((el) => el.getBoundingClientRect().height);
+	const grip = (await page.getByTestId("composer-grip").boundingBox())!;
+	const boxBefore = await boxHeight();
+	await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(grip.x + grip.width / 2, grip.y - 200, { steps: 5 });
+	await page.mouse.up();
+	if (Math.abs((await boxHeight()) - boxBefore - 204) > 6) throw new Error(`dragging the divider 204 px up should grow the message box by that, not from ${boxBefore} to ${await boxHeight()}`);
+	await page.getByTestId("composer").fill("line one\nline two\nline three\nline four\nline five\nline six");
+	await step("64c-composer-taller", page);
+	await page.getByTestId("composer").fill("");
+	await page.getByTestId("composer-grip").dblclick();
+	if ((await boxHeight()) !== boxBefore) throw new Error("double-clicking the divider should put the message box back");
 	// All worktrees: every session, in a section per worktree.
 	await page.getByTestId("sessions-all").click();
 	await page.getByTestId("session-section").nth(1).waitFor();

@@ -12,6 +12,52 @@ import { StatusBadge, TargetBadge } from "./Sessions";
 import { useShallow } from "zustand/react/shallow";
 
 type Tab = "chat" | "transcript" | "subagents" | "raw";
+
+const COMPOSER_MIN = 60;
+const COMPOSER_KEY = "composer-height";
+/** How tall the message box may get: most of the window, leaving the conversation a strip. */
+const composerMax = () => Math.max(COMPOSER_MIN, Math.round(window.innerHeight * 0.7));
+
+/**
+ * The message box's height, set by dragging the divider above it (remembered on this machine, the same for every
+ * session). `grip` is that divider: drag it up for room to write, double-click it to go back to the usual size.
+ */
+function useComposerHeight() {
+	const [height, setHeight] = useState(() => Math.min(composerMax(), Math.max(COMPOSER_MIN, Number(localStorage.getItem(COMPOSER_KEY)) || COMPOSER_MIN)));
+	const drag = useRef<{ y: number; height: number } | null>(null);
+	const set = (h: number) => {
+		const next = Math.min(composerMax(), Math.max(COMPOSER_MIN, Math.round(h)));
+		setHeight(next);
+		localStorage.setItem(COMPOSER_KEY, String(next));
+	};
+	const grip = (
+		<div
+			className="composer-grip"
+			role="separator"
+			aria-orientation="horizontal"
+			aria-label="Resize the message box"
+			title="Drag to resize the message box · double-click for the usual size"
+			tabIndex={0}
+			onPointerDown={(e) => {
+				e.preventDefault();
+				e.currentTarget.setPointerCapture(e.pointerId);
+				drag.current = { y: e.clientY, height };
+			}}
+			onPointerMove={(e) => drag.current && set(drag.current.height + (drag.current.y - e.clientY))}
+			onPointerUp={() => (drag.current = null)}
+			onPointerCancel={() => (drag.current = null)}
+			onDoubleClick={() => set(COMPOSER_MIN)}
+			onKeyDown={(e) => {
+				if (e.key === "ArrowUp") set(height + 40);
+				else if (e.key === "ArrowDown") set(height - 40);
+				else return;
+				e.preventDefault();
+			}}
+			data-testid="composer-grip"
+		/>
+	);
+	return { height, grip };
+}
 const TAB_LABEL: Record<Tab, string> = { chat: "Chat", transcript: "Full transcript", subagents: "Sub-agents", raw: "Raw (Pi)" };
 
 /** How a sub-agent stands, in a word, and the row's colour for it. */
@@ -265,6 +311,7 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 	};
 
 	const pasted = usePastedImages(s.id);
+	const composer = useComposerHeight();
 	const send = (mode?: PromptMode) => {
 		const text = draft.trim();
 		if (!text && !pasted.images.length) return;
@@ -445,9 +492,11 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 			)}
 			{(tab === "chat" || tab === "transcript") && !s.pendingQuestion && (
 				<div className="composer">
+					{composer.grip}
 					{pasted.tray}
 					<textarea
 						data-testid="composer"
+						style={{ height: composer.height }}
 						title={PASTE_HINT}
 						{...pasted.handlers}
 						placeholder={
