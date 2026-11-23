@@ -221,6 +221,11 @@ async function main(): Promise<void> {
 		return runner.preview(checkout, `assets/models/${name}/${leafName(name)}.glb`, manifest.height ?? 1);
 	}
 	const repo = (target: Target) => sessions.repoFor(target);
+	/** Leaves the open project for another (or none): its working sessions are interrupted first, to be resumed later. */
+	const switchProject = async (info: ProjectInfo | null) => {
+		if (project && info?.path !== project.path) await sessions.leaveProject();
+		return setProject(info);
+	};
 	const setProject = (info: ProjectInfo | null) => {
 		void runner.stop();
 		project = info;
@@ -260,7 +265,7 @@ async function main(): Promise<void> {
 		"project.current": async () => project,
 		"project.open": async (path) => {
 			const dir = path ?? (await pickFolder("Open game project"));
-			return dir ? setProject(readProject(projectPath(dir))) : null;
+			return dir ? switchProject(readProject(projectPath(dir))) : null;
 		},
 		"project.recent": async () =>
 			settings.get().recentProjects.map((path) => {
@@ -276,13 +281,13 @@ async function main(): Promise<void> {
 		},
 		"project.create": async (path, name) => {
 			const info = await createProject({ path: projectPath(path), name, templateDir: join(appRoot, "templates/game"), engineRepo: settings.get().engineRepo });
-			setProject(info);
+			await switchProject(info);
 			return info;
 		},
 		"project.fork": async (path, name, open) => {
 			if (!project) throw new Error("Open the project to fork first");
 			const info = await forkProject({ source: project.path, path: projectPath(path), name, engineRepo: settings.get().engineRepo });
-			if (open) setProject(info);
+			if (open) await switchProject(info);
 			else {
 				// On the recent list, without becoming the project the studio reopens.
 				settings.rememberProject(info.path);
@@ -291,7 +296,7 @@ async function main(): Promise<void> {
 			return info;
 		},
 		"project.close": async () => {
-			setProject(null);
+			await switchProject(null);
 		},
 		"dialog.pickFolder": (title) => pickFolder(title),
 

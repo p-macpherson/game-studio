@@ -110,6 +110,8 @@ export class SessionService {
 	private readonly delegations = new Map<string, string>();
 	/** Sessions being resumed that still wait for their resumed sub-agents (Stop ends the wait). */
 	private readonly resuming = new Map<string, { cancelled: boolean }>();
+	/** Sessions being interrupted because the studio is leaving their project (see leaveProject). */
+	private readonly leaving = new Set<string>();
 	/** Called when a session stops running (settles, fails or ends). */
 	private readonly settleWaiters = new Map<string, (() => void)[]>();
 	/** Repos whose `.studio/.gitignore` has been checked this run. */
@@ -712,6 +714,36 @@ export class SessionService {
 		this.prompt(e, RETRY_NOTE);
 	}
 
+	/**
+	 * Before the studio leaves the open project (another is opened, or it's closed): the game's sessions that are
+	 * working are interrupted, exactly as when the studio closes mid-work, so that coming back offers Resume for them
+	 * (and their sub-agents). Without this their agents would run on unheard: nothing they asked the studio for would
+	 * be answered, and nothing they did recorded. Engine and studio sessions belong to no project and carry on.
+	 */
+	async leaveProject(): Promise<void> {
+		const ours = [...this.entries.values()].filter((e) => e.record.target === "project");
+		const running = ours.filter((e) => isRunning(e.record.status));
+		const cutOff = new Date().toISOString();
+		// From here their agents' events change nothing: stopping an agent reports it as settled, which isn't how it stands.
+		for (const e of ours) this.leaving.add(e.record.id);
+		try {
+			// All marked before any is saved: saving wakes whoever waits for a session, who must find its parent cut off too.
+			for (const e of running) {
+				e.record.status = "interrupted";
+				e.record.interruptedAt = cutOff;
+				const wait = this.resuming.get(e.record.id);
+				if (wait) wait.cancelled = true;
+				this.resuming.delete(e.record.id);
+				this.questions.delete(e.record.id);
+			}
+			for (const e of running) this.save(e);
+			for (const e of running) if (this.live.has(e.record.id)) await this.deps.host.call("abort", e.record.id).catch(() => {});
+			for (const e of ours) this.close(e.record.id);
+		} finally {
+			for (const e of ours) this.leaving.delete(e.record.id);
+		}
+	}
+
 	/** Stops a session's agent, and its running sub-agents first. */
 	async abort(id: string): Promise<void> {
 		// One being resumed that still waits for its sub-agents has no agent running yet: it just stops waiting.
@@ -1223,7 +1255,7 @@ export class SessionService {
 			return;
 		}
 		const e = this.entries.get(event.id);
-		if (!e) return;
+		if (!e || this.leaving.has(event.id)) return;
 		this.touch(event.id);
 		const r = e.record;
 		switch (event.type) {

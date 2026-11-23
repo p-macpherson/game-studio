@@ -126,6 +126,34 @@ describe("SessionService", () => {
 		expect(said).toContain("Noted: [Game Studio] Your last request to the model failed");
 	}, 40_000);
 
+	it("interrupts the game's working sessions when the studio leaves the project, so they can be resumed on return", async () => {
+		// A lead whose sub-agent is waiting for an answer (both in progress), and a session that has finished its turn.
+		const lead1 = await service.create({ agentType: "lead", target: "project", model: "faux/echo", prompt: `tool delegate ${JSON.stringify({ agentType: "helper", task: 'tool ask_user {"question": "Which way?"}' })}` });
+		await waitFor(() => !!service.list().find((s) => s.parentId === lead1.id)?.pendingQuestion);
+		const child = service.list().find((s) => s.parentId === lead1.id)!;
+		const idle = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: "a note" });
+		await settled(idle.id);
+
+		await service.leaveProject();
+		await new Promise((r) => setTimeout(r, 300)); // anything the stopped agents still report changes nothing
+
+		// Cut off together, like a studio closed mid-work: not done, not idle, and no longer held open.
+		expect(service.get(lead1.id)).toMatchObject({ status: "interrupted", live: false });
+		expect(service.get(child.id)).toMatchObject({ status: "interrupted", live: false });
+		expect(service.get(child.id).interruptedAt).toBe(service.get(lead1.id).interruptedAt);
+		expect(service.get(child.id).pendingQuestion).toBeUndefined();
+		expect(service.get(idle.id)).toMatchObject({ status: "idle", live: false });
+		// What's on disk says the same, which is what the studio reads when the project is opened again.
+		expect(JSON.parse(readFileSync(join(project, ".studio/sessions", lead1.id, "session.json"), "utf8")).status).toBe("interrupted");
+
+		// Back in the project: Resume carries the lead on, its sub-agent first.
+		service.load();
+		await service.resume(lead1.id);
+		await waitFor(() => !!service.get(child.id).pendingQuestion || service.get(child.id).status !== "in_progress", 20_000);
+		expect(service.get(lead1.id).status).toBe("in_progress");
+		await service.abort(lead1.id);
+	}, 40_000);
+
 	it("shows a question's images when they exist in the session's checkout", async () => {
 		mkdirSync(join(project, "shots"), { recursive: true });
 		writeFileSync(join(project, "shots/map.png"), "png");

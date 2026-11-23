@@ -6,7 +6,7 @@ import { execSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { _electron as electron, type Page } from "playwright";
+import { _electron as electron, type Dialog, type Page } from "playwright";
 import { defaultOrbit, project } from "../src/modules/scenes/orbit.ts";
 
 const shots = resolve(process.argv[2] ?? "out/e2e");
@@ -80,6 +80,7 @@ const app = await electron.launch({
 	},
 });
 /** Selects "main" in the sidebar's worktree selector, so the next session or edit gets a worktree of its own. */
+let nextDialog: ((d: Dialog) => void) | null = null;
 const selectMain = async (page: Page) => {
 	await page.getByTestId("worktree-current").click();
 	await page.getByTestId("worktree-menu").getByRole("button", { name: /^main/ }).click();
@@ -93,7 +94,13 @@ const step = async (name: string, page: Page) => {
 let passed = false;
 try {
 	const page = await app.firstWindow();
-	page.on("dialog", (d) => void d.accept());
+	// Dialogs (confirm) are agreed to, unless a step has said what to do with the next one.
+	page.on("dialog", (d) => {
+		const mine = nextDialog;
+		nextDialog = null;
+		if (mine) mine(d);
+		else void d.accept();
+	});
 	page.on("pageerror", (err) => console.error("renderer error:", err.stack));
 	page.on("console", (m) => m.type() === "error" && console.error("renderer console:", m.text()));
 	await page.setViewportSize({ width: 1440, height: 900 });
@@ -1594,6 +1601,34 @@ try {
 	await page.getByTestId("project-menu").getByTestId("project-row").filter({ hasText: "E2E Fork" }).waitFor();
 	await step("91-fork-in-menu", page);
 	await page.keyboard.press("Escape");
+	// Switching projects while a session is in progress: a warning first; the session is interrupted, and can be
+	// resumed after coming back.
+	const waiting = (await page.evaluate(() => window.studio.call("sessions.create", { agentType: "gameplay-engineer", target: "project", model: "faux/echo", prompt: 'tool ask_user {"question": "Left or right?"}' }))) as { id: string };
+	await until("the session to ask its question", async () => !!(await page.evaluate(async (id) => ((await window.studio.call("sessions.list")) as { id: string; pendingQuestion?: unknown }[]).find((s) => s.id === id)?.pendingQuestion, waiting.id)));
+	await page.waitForTimeout(600); // the page's own list of sessions
+	let warned = "";
+	nextDialog = (d) => {
+		warned = d.message();
+		void d.dismiss();
+	};
+	await page.getByTestId("project-current").click();
+	await page.getByTestId("project-menu").getByTestId("project-row").filter({ hasText: "E2E Fork" }).locator(".project-row-open").click();
+	await until("the warning", async () => warned !== "");
+	if (!/1 session is still in progress in “E2E Game”/.test(warned) || !warned.includes("Opening another project interrupts it") || !warned.includes("You can resume it")) throw new Error(`the switch warning should say the session will be interrupted, not: ${warned}`);
+	// Declined: still here, and the session still waits.
+	await page.locator(".project-name", { hasText: "E2E Game" }).waitFor();
+	if ((await sessionOf(waiting.id)).status !== "in_progress") throw new Error("declining the warning should leave the session as it was");
+	await page.getByTestId("project-current").click();
+	await page.getByTestId("project-menu").getByTestId("project-row").filter({ hasText: "E2E Fork" }).locator(".project-row-open").click();
+	await page.locator(".project-name", { hasText: "E2E Fork" }).waitFor({ timeout: 30_000 });
+	await step("95-switched-project", page);
+	// Back again (nothing is in progress in the fork, so no question): the session is Interrupted, with Resume.
+	await page.getByTestId("project-current").click();
+	await page.getByTestId("project-menu").getByTestId("project-row").filter({ hasText: "E2E Game" }).locator(".project-row-open").click();
+	await page.locator(".project-name", { hasText: "E2E Game" }).waitFor({ timeout: 30_000 });
+	await until("the session to be interrupted", async () => (await sessionOf(waiting.id))?.status === "interrupted");
+	await page.evaluate((id) => window.studio.call("sessions.resume", id), waiting.id);
+	await until("the resumed session to settle", async () => (await sessionOf(waiting.id)).status === "idle");
 	console.log(`passed; screenshots in ${shots}`);
 	passed = true;
 } catch (err) {

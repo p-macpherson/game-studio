@@ -24,6 +24,7 @@ function NewProjectDialog({ onClose }: { onClose(): void }) {
 		}
 	};
 	const create = async () => {
+		if (!confirmLeaveProject("Opening the new project")) return;
 		setBusy(true);
 		await run(() => call("project.create", path, name.trim()));
 		setBusy(false);
@@ -70,12 +71,7 @@ function ForkProjectDialog({ project, onClose }: { project: { path: string; name
 	const [open, setOpen] = useState(true);
 	const [busy, setBusy] = useState(false);
 	const [unsaved, setUnsaved] = useState(0);
-	const { worktrees, working } = useStudio(
-		useShallow((s) => ({
-			worktrees: s.worktrees.filter((w) => w.target === "project" && w.status === "active").length,
-			working: s.sessions.filter((x) => x.target === "project" && (x.status === "in_progress" || x.status === "starting")).length,
-		})),
-	);
+	const worktrees = useStudio((s) => s.worktrees.filter((w) => w.target === "project" && w.status === "active").length);
 	useEffect(() => {
 		call("git.status", "project").then((s) => setUnsaved(s.files.filter((f) => !f.path.startsWith(".studio/")).length), () => {});
 	}, []);
@@ -84,7 +80,7 @@ function ForkProjectDialog({ project, onClose }: { project: { path: string; name
 		if (dir) setFolder(dir);
 	};
 	const fork = async () => {
-		if (open && working && !window.confirm(`${working} session${working > 1 ? "s are" : " is"} still working in “${project.name}”. Opening the fork leaves this project. Fork and open it anyway?`)) return;
+		if (open && !confirmLeaveProject("Opening the fork")) return;
 		setBusy(true);
 		try {
 			const made = await call("project.fork", path, name.trim(), open);
@@ -160,11 +156,31 @@ function useRecent(active: boolean): [RecentProject[] | null, () => void] {
 	return [recent, () => setVersion((n) => n + 1)];
 }
 
-/** Opens another project; with agents at work in this one, only after the person agrees. */
-function switchTo(path?: string): void {
+/**
+ * Leaving the open project (opening or making another, closing it) interrupts its sessions that are in progress:
+ * asks first, saying so. True when there are none, or the person agrees.
+ */
+export function confirmLeaveProject(what: string): boolean {
 	const s = useStudio.getState();
-	const working = s.sessions.filter((x) => x.target === "project" && (x.status === "in_progress" || x.status === "starting")).length;
-	if (s.project && working && !window.confirm(`${working} session${working > 1 ? "s are" : " is"} still working in “${s.project.name}”.\n\nIt's safer to let ${working > 1 ? "them" : "it"} finish, or stop ${working > 1 ? "them" : "it"}, before opening another project. Switch anyway?`)) return;
+	if (!s.project) return true;
+	const running = s.sessions.filter((x) => x.target === "project" && (x.status === "in_progress" || x.status === "starting"));
+	if (!running.length) return true;
+	const own = running.filter((x) => !x.parentId);
+	const named = (own.length ? own : running).slice(0, 6).map((x) => `• ${x.title}`);
+	const n = running.length;
+	return window.confirm(
+		[
+			`${n} session${n > 1 ? "s are" : " is"} still in progress in “${s.project.name}”:`,
+			named.join("\n") + (n > named.length ? `\n• and ${n - named.length} more` : ""),
+			`\n${what} interrupts ${n > 1 ? "them" : "it"}: whatever ${n > 1 ? "they are" : "it is"} doing right now is cut off. You can resume ${n > 1 ? "them" : "it"} when you open this project again.`,
+			`\n${what} anyway?`,
+		].join("\n"),
+	);
+}
+
+/** Opens another project (a folder picker when no path is given). */
+function switchTo(path?: string): void {
+	if (!confirmLeaveProject("Opening another project")) return;
 	void run(() => call("project.open", path));
 }
 
@@ -302,7 +318,7 @@ export function ProjectMenu() {
 							</button>
 						)}
 						{project && (
-							<button className="ghost nav-item" onClick={() => act(() => void run(() => call("project.close")))} data-testid="project-close">
+							<button className="ghost nav-item" onClick={() => act(() => confirmLeaveProject("Closing the project") && void run(() => call("project.close")))} data-testid="project-close">
 								<span className="project-action-glyph" aria-hidden>
 									✕
 								</span>
