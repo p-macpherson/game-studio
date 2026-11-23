@@ -231,6 +231,33 @@ describe.skipIf(!existsSync(join(engineRepo, "third_party/lib")))("RunService", 
 		rmSync(join(project, "scenarios"), { recursive: true });
 	}, 90_000);
 
+	it("cancels a build with Stop, and lets a build in flight start the game another way without starting over", async () => {
+		const states = () => events.flatMap((e) => (e.type === "run_changed" ? [`${e.run.id}:${e.run.state}:${e.run.mode}`] : []));
+		const building = (from: number) => waitFor(() => states().slice(from).some((s) => s.includes(":building:")));
+		// Stop while it builds: the build ends, and no game starts.
+		let from = states().length;
+		const cancelled = runner.start(null, "hidden");
+		await building(from);
+		const started = Date.now();
+		await runner.stop();
+		const info = await cancelled;
+		expect(info).toMatchObject({ state: "exited", exitCode: null });
+		expect(Date.now() - started).toBeLessThan(3000);
+		expect(events.flatMap((e) => (e.type === "run_output" ? [e.text] : [])).join("")).toContain("Build cancelled.");
+		await expect(runner.call("info")).rejects.toThrow("isn't running");
+
+		// A build only, then "run it" while it builds: the same run, one build, and the game starts.
+		from = states().length;
+		const onlyBuild = runner.build(null);
+		await building(from);
+		const run = await runner.start(null, "hidden");
+		expect(run.state).toBe("running");
+		expect((await onlyBuild).id).toBe(run.id);
+		expect(new Set(states().slice(from).map((s) => s.split(":")[0])).size).toBe(1);
+		expect(await runner.call("info")).toBeTruthy();
+		await runner.stop();
+	}, 90_000);
+
 	it("reports compiler errors on a failed build", async () => {
 		writeFileSync(join(project, "game/broken.odin"), "package game\n\nbroken :: proc() {\n\tx := undefined_thing\n}\n");
 		try {

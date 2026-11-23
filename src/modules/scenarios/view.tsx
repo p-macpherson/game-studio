@@ -1,4 +1,5 @@
 // The Scenarios section: each scenario with what it's for, its parameters, what starting it comes to, and Play.
+import { useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { ModuleInfo } from "../../shared/modules";
 import { useStudio } from "../../renderer/store";
@@ -6,10 +7,18 @@ import { AssetBrowser, type AssetContentProps } from "../../renderer/views/Asset
 import { ScenarioForm, ScenarioLaunchPreview, useScenarioValues } from "../../renderer/views/Scenarios";
 import { parseScenario } from "../../shared/scenario";
 
+const IN_WINDOW_KEY = "scenario-play-in-window";
+
 function ScenarioDetail({ asset, text, checkout }: AssetContentProps) {
 	const { openPlay, startRun, setPlayScenario } = useStudio(useShallow((s) => ({ openPlay: s.openPlay, startRun: s.startRun, setPlayScenario: s.setPlayScenario })));
 	const { scenario, problems } = parseScenario(text);
 	const [values, setValue, reset] = useScenarioValues(scenario, asset.path);
+	// Where scenarios play, chosen once for all of them (kept on this machine).
+	const [inWindow, setInWindowState] = useState(() => localStorage.getItem(IN_WINDOW_KEY) === "1");
+	const setInWindow = (on: boolean) => {
+		setInWindowState(on);
+		localStorage.setItem(IN_WINDOW_KEY, on ? "1" : "0");
+	};
 	const play = (mode: "hidden" | "window") => {
 		setPlayScenario(asset.path);
 		openPlay({ checkout: checkout ?? null, tab: "run" });
@@ -39,13 +48,19 @@ function ScenarioDetail({ asset, text, checkout }: AssetContentProps) {
 							</button>
 						</div>
 					)}
-					<div className="row">
-						<button className="primary" onClick={() => play("hidden")} title="Build, start the game as this scenario says, and show it in Play & Test" data-testid="scenario-play">
+					<div className="row" style={{ gap: 14 }}>
+						<button
+							className="primary"
+							onClick={() => play(inWindow ? "window" : "hidden")}
+							title={inWindow ? "Build, then start the game as this scenario says in its own window" : "Build, start the game as this scenario says, and show it in Play & Test"}
+							data-testid="scenario-play"
+						>
 							▶ Play this scenario
 						</button>
-						<button onClick={() => play("window")} title="The same, in the game's own window">
-							⧉ In a window
-						</button>
+						<label className="row" style={{ gap: 6 }} title="Where a scenario plays: in the game's own window, or inside the studio (Play & Test). Remembered for every scenario.">
+							<input type="checkbox" checked={inWindow} onChange={(e) => setInWindow(e.target.checked)} data-testid="scenario-in-window" />
+							Play in a window
+						</label>
 					</div>
 					{scenario.notes && (
 						<div className="col" style={{ gap: 4 }}>

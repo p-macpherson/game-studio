@@ -1420,6 +1420,14 @@ try {
 	await page.locator("[data-testid=scenario-param][data-param=environment] select").selectOption("desert");
 	await page.getByTestId("scenario-launch").getByText('"name":"Marker_desert"').waitFor();
 	await page.getByTestId("scenario-launch").getByText("--biome=desert --seed=1").waitFor();
+	// Where scenarios play is one choice for all of them, remembered: ticked here, still ticked after leaving and coming back.
+	if (await page.getByTestId("scenario-in-window").isChecked()) throw new Error("scenarios should play in the studio until told otherwise");
+	await page.getByTestId("scenario-in-window").check();
+	await nav.getByRole("button", { name: "Sessions" }).click();
+	await nav.getByRole("button", { name: "Scenarios" }).click();
+	await page.getByText("Cube sandbox").first().click();
+	if (!(await page.getByTestId("scenario-in-window").isChecked())) throw new Error("the choice of where scenarios play should be remembered");
+	await page.getByTestId("scenario-in-window").uncheck(); // the run below is watched in the studio
 	await step("86-scenario", page);
 	await page.getByTestId("scenario-play").click();
 	await page.getByTestId("run-state").getByText("Running").waitFor({ timeout: 90_000 });

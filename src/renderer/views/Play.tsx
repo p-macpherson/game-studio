@@ -188,7 +188,9 @@ function RunPanel() {
 	const player = players?.some((p) => p.index === focus) ? focus : 0;
 	const { label: fixLabel, fix } = useFix();
 	const running = run?.state === "running";
-	const busy = run?.state === "building" || run?.state === "starting";
+	const building = run?.state === "building";
+	const starting = run?.state === "starting";
+	const busy = building || starting;
 	const [info, setInfo] = useState<{ fps: number; frame: number; paused: boolean } | null>(null);
 
 	useEffect(() => {
@@ -211,17 +213,17 @@ function RunPanel() {
 		<div className="run-panel">
 			<ScenarioPicker />
 			<div className="run-controls row">
-				<button className="primary" disabled={busy} onClick={() => startRun("hidden")} title="Build, then run hidden and stream it here">
+				<button className="primary" disabled={starting} onClick={() => startRun("hidden")} title={building ? "Run it here once this build finishes (the build carries on)" : "Build, then run hidden and stream it here"} data-testid="run-in-studio">
 					▶ Run in studio
 				</button>
-				<button disabled={busy} onClick={() => startRun("window")} title="Build, then run in its own window">
+				<button disabled={starting} onClick={() => startRun("window")} title={building ? "Play it in its own window once this build finishes (the build carries on)" : "Build, then run in its own window"} data-testid="play-in-window">
 					⧉ Play in window
 				</button>
 				<button disabled={busy} onClick={() => startRun("build")}>
 					⚒ Build
 				</button>
-				<button disabled={!running && !busy} onClick={() => call("run.stop").catch(showError)}>
-					■ Stop
+				<button disabled={!running && !busy} onClick={() => call("run.stop").catch(showError)} title={building ? "Stop the build: nothing starts" : "Stop the game"} data-testid="run-stop">
+					{building ? "■ Cancel build" : "■ Stop"}
 				</button>
 				<label className="row run-players" title="Multiplayer: start this many copies of the game. The first hosts, the others join it on this machine.">
 					<span className="muted">Players</span>

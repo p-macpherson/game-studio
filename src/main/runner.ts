@@ -77,6 +77,15 @@ export async function spawnGame(file: string, args: string[], options: SpawnOpti
 
 interface ActiveRun {
 	info: RunInfo;
+	/** How the game starts once it's built (null: a build only). Can change while it builds. */
+	mode: RunMode | null;
+	/** The options it was started with, to tell "the same run asked for again" from another. */
+	optionsKey: string;
+	/** The build in flight (Stop cancels it), and that Stop was pressed. */
+	build?: ChildProcess;
+	cancelled?: boolean;
+	/** Settles when the run has started, failed to build, or been cancelled. */
+	done?: Promise<RunInfo>;
 	proc?: ChildProcess;
 	client?: EngineClient;
 	/** Removes what the run needed outside the checkout (the Shaders view's temp scene). */
@@ -192,6 +201,16 @@ export function loadScenario(cwd: string, path: string, values?: Record<string, 
 	return { title: scenario.title, launch: resolveScenario(scenario, values) };
 }
 
+/** Kills a process started in its own group, with everything it started (build.sh and the compiler under it). */
+function killTree(proc: ChildProcess): void {
+	try {
+		if (proc.pid) process.kill(-proc.pid, "SIGKILL");
+		else proc.kill("SIGKILL");
+	} catch {
+		proc.kill("SIGKILL");
+	}
+}
+
 const hooks = (info: ShaderInfo) => ({ vertex: info.hasVertex, surface: info.hasSurface, depth_fade: info.usesDepth, bounds: info.bounds });
 
 export class RunService {
@@ -241,10 +260,22 @@ export class RunService {
 
 	private async begin(sessionId: CheckoutId, mode: RunMode | null, options: RunOptions = {}): Promise<RunInfo> {
 		const co = this.checkout(sessionId);
+		// Already building this very thing (Run in studio pressed, Play in window meant): the build carries on, and the
+		// game starts the way just asked for instead of the build starting over.
+		const building = this.run;
+		const optionsKey = JSON.stringify(options);
+		if (mode && building?.done && building.info.state === "building" && !building.cancelled && building.info.sessionId === sessionId && building.optionsKey === optionsKey) {
+			building.mode = mode;
+			building.info.mode = mode;
+			this.changed(building);
+			return building.done;
+		}
 		// A scenario that can't be read stops here, before anything is built or stopped.
 		const scenario = options.scenario ? loadScenario(co.cwd, options.scenario.path, options.scenario.values) : null;
 		await this.stop();
 		const run: ActiveRun = {
+			mode,
+			optionsKey,
 			info: {
 				id: `run-${Date.now().toString(36)}`,
 				sessionId,
@@ -262,8 +293,24 @@ export class RunService {
 		};
 		this.run = run;
 		this.changed(run);
+		run.done = this.proceed(run, co, options, scenario);
+		return run.done;
+	}
 
-		const built = await this.exec(co, ["build"], (text) => this.output(run, text));
+	/** The rest of a run once it's the current one: build, then (unless it was only a build, or cancelled) start the game. */
+	private async proceed(run: ActiveRun, co: CheckoutInfo, options: RunOptions, scenario: ReturnType<typeof loadScenario> | null): Promise<RunInfo> {
+		const sessionId = run.info.sessionId;
+		const built = await this.exec(co, ["build"], (text) => this.output(run, text), undefined, (proc) => (run.build = proc));
+		run.build = undefined;
+		if (run.cancelled) {
+			this.output(run, "Build cancelled.\n");
+			run.info.state = "exited";
+			run.info.exitCode = null;
+			this.changed(run);
+			return run.info;
+		}
+		// What to start was settled while it built (see begin).
+		const mode = run.mode;
 		if (this.run !== run) return run.info;
 		run.info.diagnostics = parseDiagnostics(built.stdout + built.stderr, co.cwd);
 		if (built.code !== 0) {
@@ -393,6 +440,13 @@ export class RunService {
 	/** Asks the game to quit, then kills it if it hasn't exited after two seconds. */
 	async stop(): Promise<void> {
 		const run = this.run;
+		// Still building: the build is stopped, and nothing starts.
+		if (run?.build && run.info.state === "building") {
+			run.cancelled = true;
+			killTree(run.build);
+			await run.done?.catch(() => {});
+			return;
+		}
 		const proc = run?.proc;
 		if (!proc || proc.exitCode !== null || proc.signalCode !== null) return;
 		const exited = new Promise((r) => proc.once("exit", r));
@@ -1007,14 +1061,16 @@ export class RunService {
 		return this.inTurn(co.cwd, async () => this.track(await spawnGame(join(co.cwd, "build/game"), all, { cwd: co.cwd, env: { ...process.env, NO_COLOR: "1" } })));
 	}
 
-	private exec(co: CheckoutInfo, args: string[], onOutput?: (text: string) => void, timeoutMs?: number): Promise<ExecResult> {
-		return this.inTurn(co.cwd, () => this.execNow(co, args, onOutput, timeoutMs));
+	private exec(co: CheckoutInfo, args: string[], onOutput?: (text: string) => void, timeoutMs?: number, onSpawn?: (proc: ChildProcess) => void): Promise<ExecResult> {
+		return this.inTurn(co.cwd, () => this.execNow(co, args, onOutput, timeoutMs, onSpawn));
 	}
 
-	private execNow(co: CheckoutInfo, args: string[], onOutput?: (text: string) => void, timeoutMs = BUILD_TIMEOUT_MS): Promise<ExecResult> {
+	private execNow(co: CheckoutInfo, args: string[], onOutput?: (text: string) => void, timeoutMs = BUILD_TIMEOUT_MS, onSpawn?: (proc: ChildProcess) => void): Promise<ExecResult> {
 		return new Promise((resolve) => {
 			const env = { ...process.env, NO_COLOR: "1", ...(co.engineDir ? { ENGINE_DIR: co.engineDir } : {}) };
-			const proc = this.track(spawn(join(co.cwd, "build.sh"), args, { cwd: co.cwd, env }));
+			// A build that can be cancelled runs in a process group of its own, so the compiler goes with the script.
+			const proc = this.track(spawn(join(co.cwd, "build.sh"), args, { cwd: co.cwd, env, detached: !!onSpawn }));
+			onSpawn?.(proc);
 			let timedOut = false;
 			let stdout = "";
 			let stderr = "";
