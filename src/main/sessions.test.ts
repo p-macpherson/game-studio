@@ -6,6 +6,7 @@ import type { StudioEvent } from "../shared/ipc";
 import type { AgentTypeInfo, NewSessionRequest, Settings } from "../shared/types";
 import type { HostCore } from "../session-host/host-core";
 import { RESUME_NOTE, SessionService } from "./sessions";
+import { RETRY_NOTE } from "../shared/model-errors";
 import { inProcessHost, makeRepo, sh, tempDir, waitFor } from "./test-helpers";
 
 const general: AgentTypeInfo = {
@@ -104,6 +105,26 @@ describe("SessionService", () => {
 		expect(await service.bounceReview(s.id, "and again")).toBe(false);
 		expect(service.get(s.id).reviewRequested).toBe(true);
 	});
+
+	it("tries a failed request again by itself when the provider is overloaded, and offers Retry when it gives up", async () => {
+		const overloaded = '{"type":"error","error":{"details":null,"type":"overloaded_error","message":"Overloaded"}}';
+		const s = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: `fail 1 ${overloaded}` });
+		await waitFor(() => service.get(s.id).status === "idle", 20_000);
+		// The second try got through: no error is left on the session.
+		expect(service.get(s.id).error).toBeUndefined();
+		expect(JSON.stringify((await service.messages(s.id)).at(-1))).toContain("Got through after 1 failed try");
+
+		// An error that trying again by itself won't fix stops the session; Retry has the agent carry on.
+		const t = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: "fail 1 The request was malformed" });
+		await settled(t.id);
+		expect(service.get(t.id).error).toBe("The request was malformed");
+		await service.retry(t.id);
+		await settled(t.id);
+		expect(service.get(t.id).error).toBeUndefined();
+		const said = JSON.stringify(await service.messages(t.id));
+		expect(said).toContain(RETRY_NOTE.slice(0, 60));
+		expect(said).toContain("Noted: [Game Studio] Your last request to the model failed");
+	}, 40_000);
 
 	it("shows a question's images when they exist in the session's checkout", async () => {
 		mkdirSync(join(project, "shots"), { recursive: true });

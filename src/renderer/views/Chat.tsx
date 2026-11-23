@@ -6,6 +6,7 @@ import { type ChatMessage, type ContentBlock, type Transcript, useStudio } from 
 import { splitAttachments } from "../../shared/attachments";
 import { RESUME_NOTE } from "../../shared/types";
 import { CHECKS_FAILED_NOTE } from "../../shared/review";
+import { RETRY_NOTE, describeModelError, retryLine } from "../../shared/model-errors";
 import type { SessionAssets } from "../../shared/session-assets";
 import { type Chip, Markdown } from "./Markdown";
 import { AssetStrip, openCard, useChipPreview, useChips } from "./SessionAssets";
@@ -47,6 +48,13 @@ const UserMessage = memo(function UserMessage({ m, brief }: { m: ChatMessage; br
 		return (
 			<div className="msg-note" title={words} data-testid="resumed-note">
 				▶ Resumed after an interruption{words.length > RESUME_NOTE.length ? ", with its sub-agents' reports" : ""}
+			</div>
+		);
+	}
+	if (brief && words.startsWith(RETRY_NOTE)) {
+		return (
+			<div className="msg-note" title={words} data-testid="retried-note">
+				↻ Tried again after an error
 			</div>
 		);
 	}
@@ -102,8 +110,38 @@ const Assistant = memo(function Assistant({ m, results, running, links }: { m: C
 	);
 });
 
+/** An error from the model's provider, in words: what happened and what to do (the raw text is the tooltip). */
+export function ModelErrorText({ raw }: { raw: string }) {
+	const e = describeModelError(raw);
+	return (
+		<span title={raw} data-testid="model-error">
+			<b>{e.title}.</b> {e.detail}
+		</span>
+	);
+}
+
+/** Counts down to the session's next try of a failed request. */
+function Retrying({ retrying }: { retrying: NonNullable<Transcript["retrying"]> }) {
+	const [now, setNow] = useState(Date.now());
+	useEffect(() => {
+		const t = setInterval(() => setNow(Date.now()), 500);
+		return () => clearInterval(t);
+	}, []);
+	return (
+		<div className="working-said" title={retrying.error} data-testid="retrying">
+			{describeModelError(retrying.error).title}. {retryLine(retrying, now)}
+		</div>
+	);
+}
+
 function Ending({ m }: { m: ChatMessage }) {
-	if (m.stopReason === "error") return <div className="msg error">{m.errorMessage ?? "The model returned an error"}</div>;
+	if (m.stopReason === "error") {
+		return (
+			<div className="msg error">
+				<ModelErrorText raw={m.errorMessage ?? "The model returned an error"} />
+			</div>
+		);
+	}
 	if (m.stopReason === "aborted") return <div className="muted">(stopped)</div>;
 	return null;
 }
@@ -174,11 +212,23 @@ function Following({ version, own, testId, children }: { version: unknown; own: 
 
 const userCount = (messages: ChatMessage[]) => messages.reduce((n, m) => n + (m.role === "user" ? 1 : 0), 0);
 
-type Item = { kind: "user"; m: ChatMessage } | { kind: "reply"; m: ChatMessage } | { kind: "work"; steps: number; failed: ChatMessage[] } | { kind: "compacted" };
+type Item = { kind: "retried"; count: number; error: string } | { kind: "user"; m: ChatMessage } | { kind: "reply"; m: ChatMessage } | { kind: "work"; steps: number; failed: ChatMessage[] } | { kind: "compacted" };
 
 /** The conversation as turns: what was said, with each stretch of the agent's work (messages that call tools) as one item. */
-function conversation(messages: ChatMessage[]): { items: Item[]; open: { steps: number; said: string } | null } {
+function conversation(messages: ChatMessage[], retryingNow = false): { items: Item[]; open: { steps: number; said: string } | null } {
 	const items: Item[] = [];
+	// A request that failed and was tried again (another attempt follows it in the same turn, or is being waited for
+	// now) isn't an error to read: the tries fold into one quiet line.
+	const retried = new Set<ChatMessage>();
+	let failed: ChatMessage[] = [];
+	for (const m of messages) {
+		if (m.role === "user") failed = [];
+		else if (m.role === "assistant") {
+			for (const f of failed) retried.add(f);
+			failed = m.stopReason === "error" ? [m] : [];
+		}
+	}
+	if (retryingNow) for (const f of failed) retried.add(f);
 	let work: { steps: number; failed: ChatMessage[]; said: string } | null = null;
 	const flush = () => {
 		if (work) items.push({ kind: "work", steps: work.steps, failed: work.failed });
@@ -188,6 +238,13 @@ function conversation(messages: ChatMessage[]): { items: Item[]; open: { steps: 
 		if (m.role === "user") {
 			flush();
 			items.push({ kind: "user", m });
+		} else if (m.role === "assistant" && retried.has(m)) {
+			const last = items.at(-1);
+			if (last?.kind === "retried" && !work) last.count++;
+			else {
+				flush();
+				items.push({ kind: "retried", count: 1, error: m.errorMessage ?? "" });
+			}
 		} else if (m.role === "assistant") {
 			const calls = toolCalls(m).length;
 			if (!calls) {
@@ -223,7 +280,7 @@ export function Chat({ transcript, working, onShowTranscript, assets }: { transc
 	// Turn n is what follows the person's nth message; its cards go at its end (before their next message).
 	let turn = 0;
 	const strip = (n: number, key: React.Key) => <AssetStrip key={key} cards={assets?.turns[n]} />;
-	const { items, open } = useMemo(() => conversation(transcript.messages), [transcript.messages]);
+	const { items, open } = useMemo(() => conversation(transcript.messages, !!transcript.retrying), [transcript.messages, transcript.retrying]);
 	const streaming = transcript.streaming;
 	const streamingCalls = streaming ? toolCalls(streaming) : [];
 	// A streaming message with no tool call yet is (so far) a reply being written; with one, it's work.
@@ -252,6 +309,13 @@ export function Chat({ transcript, working, onShowTranscript, assets }: { transc
 					);
 				}
 				if (it.kind === "reply") return <Reply key={i} m={it.m} links={links} />;
+				if (it.kind === "retried") {
+					return (
+						<div key={i} className="msg-note" title={it.error} data-testid="retried-tries">
+							↻ Tried again {it.count === 1 ? "once" : `${it.count} times`}: {describeModelError(it.error).title.replace(/^The /, "the ")}
+						</div>
+					);
+				}
 				if (it.kind === "compacted") return <div key={i} className="chat-divider">Earlier conversation summarised to free up context</div>;
 				return (
 					<div key={i} className="col" style={{ gap: 4 }}>
@@ -271,13 +335,14 @@ export function Chat({ transcript, working, onShowTranscript, assets }: { transc
 				<div className="working-now" data-testid="working-now">
 					<div className="row">
 						<span className="dot working-dot" />
-						<b>{transcript.compacting ? "Summarising the conversation…" : running.some(([, name]) => name === "ask_user") ? "Waiting for your answer (below)" : thinking ? "Thinking…" : "Working…"}</b>
+						<b>{transcript.retrying ? "Waiting to try again…" : transcript.compacting ? "Summarising the conversation…" : running.some(([, name]) => name === "ask_user") ? "Waiting for your answer (below)" : thinking ? "Thinking…" : "Working…"}</b>
 						{steps > 0 && (
 							<button className="link muted small" onClick={onShowTranscript}>
 								{steps} step{steps === 1 ? "" : "s"} so far
 							</button>
 						)}
 					</div>
+					{transcript.retrying && <Retrying retrying={transcript.retrying} />}
 					{said && <div className="working-said">{said.length > 400 ? `…${said.slice(-400)}` : said}</div>}
 					{running.map(([id, name]) => {
 						const call = [...streamingCalls, ...transcript.messages.slice(-4).flatMap(toolCalls)].find((c) => c.id === id);

@@ -1,6 +1,7 @@
 // A scripted "faux/echo" model for tests: for each user message it appends the text to faux-notes.md (or,
 // for "write <path>: <content>", writes that file), commits it with bash, then replies "Noted: <text>".
 // "tool <name> <json args>" calls any tool instead and replies "Result: <tool output>".
+// "fail <n> <error text>" fails n times with that error, then replies "Got through after n failed tries".
 // No credentials or network needed.
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall, type FauxResponseFactory } from "@earendil-works/pi-ai";
 
@@ -19,9 +20,22 @@ function lastUserText(messages: readonly { role: string; content: unknown }[]): 
 const contentText = (content: unknown) =>
 	typeof content === "string" ? content : Array.isArray(content) ? content.map((c: { text?: string }) => c.text ?? "").join("") : "";
 
+/** How many times each "fail" message has failed so far. */
+const failures = new Map<string, number>();
+
 const respond: FauxResponseFactory = (context) => {
 	const messages = context.messages as unknown as { role: string; content: unknown }[];
 	const text = lastUserText(messages);
+	// "fail <n> <error text>": the provider fails n times with that error, then answers (to test retries and errors).
+	const fail = /^fail (\d+) ([\s\S]*)$/.exec(text);
+	if (fail) {
+		const so = failures.get(text) ?? 0;
+		if (so < Number(fail[1])) {
+			failures.set(text, so + 1);
+			return fauxAssistantMessage("", { stopReason: "error", errorMessage: fail[2] });
+		}
+		return fauxAssistantMessage(fauxText(`Got through after ${so} failed ${so === 1 ? "try" : "tries"}`));
+	}
 	// "tool <name> <json args>" calls that tool and replies with its result (to drive studio tools in tests).
 	const tool = /^tool (\S+) ([\s\S]*)$/.exec(text);
 	const last = messages.at(-1);

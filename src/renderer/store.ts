@@ -62,6 +62,8 @@ export interface Transcript {
 	runningTools: Record<string, string>;
 	/** The conversation is being summarised to free up context. */
 	compacting?: boolean;
+	/** A request to the model failed and the session is waiting to try it again by itself (transcript.ts). */
+	retrying?: { attempt: number; maxAttempts: number; delayMs: number; startedAt: number; error: string };
 }
 
 interface State {

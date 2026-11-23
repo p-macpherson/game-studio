@@ -5,7 +5,7 @@ import type { ContextUsage, SessionSummary } from "../../shared/types";
 import { findAgentType } from "../../shared/agents";
 import { call, relativeTime, studioFile } from "../api";
 import { useStudio } from "../store";
-import { Chat, FullTranscript } from "./Chat";
+import { Chat, FullTranscript, ModelErrorText } from "./Chat";
 import { Markdown } from "./Markdown";
 import { loadDraft, saveDraft } from "../drafts";
 import { sendHint, sendsMessage, sessionEnterToSend, setSessionEnterToSend } from "../enter-to-send";
@@ -464,7 +464,18 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 						))}
 					</select>
 				</div>
-				{s.error && <div className="msg error">{s.error}</div>}
+				{s.error && !running && (
+					<div className="row msg error session-error" data-testid="session-error">
+						<span className="grow">
+							<ModelErrorText raw={s.error} />
+						</span>
+						{!running && s.status !== "done" && (
+							<button className="small" disabled={busy} onClick={() => act(() => call("sessions.retry", s.id))} title="Have the agent carry on from where it left off" data-testid="session-retry">
+								↻ Try again
+							</button>
+						)}
+					</div>
+				)}
 				{parent && (
 					<div className="row session-family" data-testid="session-family">
 						{parent && (

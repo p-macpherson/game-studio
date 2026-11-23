@@ -1514,6 +1514,35 @@ try {
 		return s.status === "idle" && !s.reviewRequested;
 	});
 
+	// A provider that is overloaded: the session waits and tries again by itself, saying so; nothing is left to do.
+	await nav.getByRole("button", { name: "Sessions" }).click();
+	await page.getByRole("button", { name: "+ New session" }).click();
+	await page.getByTestId("new-session-prompt").fill('fail 2 {"type":"error","error":{"details":null,"type":"overloaded_error","message":"Overloaded"},"request_id":"req_e2e"}');
+	await page.getByRole("button", { name: "Start session" }).click();
+	await page.getByTestId("retrying").getByText(/The model's servers are overloaded\. Trying again.*\(attempt \d of 12\)/).waitFor({ timeout: 30_000 });
+	await step("92-retrying", page);
+	if (await page.getByTestId("session-error").count()) throw new Error("a session that is trying again by itself shouldn't show an error to act on");
+	await page.getByTestId("chat").getByText("Got through after 2 failed tries").waitFor({ timeout: 60_000 });
+	await page.getByTestId("retried-tries").getByText("Tried again 2 times: the model's servers are overloaded").waitFor();
+	if (await page.getByTestId("chat").getByTestId("model-error").count()) throw new Error("tries that were made again shouldn't stay in the chat as errors");
+	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
+	await page.getByTestId("session-error").waitFor({ state: "detached" });
+	await step("93-retried", page);
+	// An error that waiting won't fix: said in words, with a button to try again.
+	await page.getByRole("button", { name: "+ New session" }).click();
+	await page.getByTestId("new-session-prompt").fill("fail 1 fetch failed");
+	await page.getByRole("button", { name: "Start session" }).click();
+	await page.getByTestId("chat").getByText("Got through after 1 failed try").waitFor({ timeout: 60_000 });
+	await page.getByRole("button", { name: "+ New session" }).click();
+	await page.getByTestId("new-session-prompt").fill('fail 1 {"type":"error","error":{"type":"invalid_request_error","message":"The request was malformed"}}');
+	await page.getByRole("button", { name: "Start session" }).click();
+	await page.getByTestId("session-error").getByText("The session stopped with an error. The request was malformed").waitFor({ timeout: 30_000 });
+	await step("94-session-error", page);
+	await page.getByTestId("session-retry").click();
+	await page.getByTestId("retried-note").waitFor({ timeout: 30_000 });
+	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
+	await page.getByTestId("session-error").waitFor({ state: "detached" });
+
 	// While an agent works the studio holds the computer's sleep off, and lets go once every session has stopped.
 	const sleeper = (await page.evaluate(() => window.studio.call("sessions.create", { agentType: "gameplay-engineer", target: "project", model: "faux/echo", prompt: 'tool bash {"command": "sleep 3"}' }))) as { id: string };
 	for (let i = 0; !(await page.evaluate(() => window.studio.call("studio.awake"))); i++) {

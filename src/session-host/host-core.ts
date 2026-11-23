@@ -17,6 +17,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { HostApi, HostEvent, HostInfo, PromptMode, SessionOpenSpec } from "../shared/host";
 import type { ContextUsage, ModelInfo, ProviderInfo } from "../shared/types";
+import { MODEL_RETRY } from "../shared/model-errors";
 import { createFaux } from "./faux";
 import { studioTools } from "./studio-tools";
 
@@ -190,7 +191,9 @@ export class HostCore implements HostApi {
 		// Every session gets Pi's `codemode` tool: scripts that call the other tools (e.g. in parallel), with only
 		// their output reaching the model. The SDK doesn't load the CLI's built-in extensions, so add it here and
 		// activate it beside the default read/bash/edit/write.
-		const settingsManager = SettingsManager.inMemory({ defaultTools: ["+codemode"] });
+		// A busy or unreachable provider is waited out (2 s, 4 s, ... then every minute: about eight minutes in all)
+		// before the session gives up; Pi's own default stops after about a quarter of a minute.
+		const settingsManager = SettingsManager.inMemory({ defaultTools: ["+codemode"], retry: MODEL_RETRY });
 		const loader = new DefaultResourceLoader({
 			cwd: spec.cwd,
 			agentDir: this.opts.agentDir,

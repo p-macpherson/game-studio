@@ -507,6 +507,7 @@ async function main(): Promise<void> {
 		},
 		"sessions.markDone": (id) => sessions.markDone(id),
 		"sessions.resume": (id) => sessions.resume(id),
+		"sessions.retry": (id) => sessions.retry(id),
 		"sessions.archived": async () => sessions.listArchived(),
 		"sessions.restore": (id) => sessions.restore(id),
 		"sessions.openTerminal": async (id) => {

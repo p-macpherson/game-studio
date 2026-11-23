@@ -199,6 +199,8 @@ export interface StudioApi {
 	"sessions.discard"(id: string): Promise<void>;
 	"sessions.markDone"(id: string): Promise<void>;
 	"sessions.resume"(id: string): Promise<void>;
+	/** After a request to the model failed: have the agent carry on from where it left off. */
+	"sessions.retry"(id: string): Promise<void>;
 	/** Sessions closed over a week ago, kept in each repo's gitignored `.studio/archive/` (read when asked for). */
 	"sessions.archived"(): Promise<SessionSummary[]>;
 	/** Brings an archived session back, with its worktree's record and the other sessions archived with it. */

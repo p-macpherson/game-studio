@@ -12,6 +12,7 @@ import type { DelegateTarget, HostEvent, PromptMode, StudioRequestMethod } from 
 import type { StudioEvent } from "../shared/ipc";
 import { RESUME_NOTE } from "../shared/types";
 import { SCENARIO_DIR } from "../shared/scenario";
+import { RETRY_NOTE } from "../shared/model-errors";
 import type { AgentTypeInfo, ContextUsage, GitCommit, NewSessionRequest, PendingQuestion, SessionRecord, SessionSummary, Settings, Target, WorktreeRecord, WorktreeSummary } from "../shared/types";
 import { findAgentType } from "../shared/agents";
 import * as g from "./git";
@@ -703,6 +704,14 @@ export class SessionService {
 		this.prompt(e, this.attach(e, text, images), mode, images);
 	}
 
+	/** Tries again after a request to the model failed: the agent is told to carry on from where it left off. */
+	async retry(id: string): Promise<void> {
+		const e = this.entry(id);
+		this.assertNotRunning(e);
+		await this.ensureOpen(e);
+		this.prompt(e, RETRY_NOTE);
+	}
+
 	/** Stops a session's agent, and its running sub-agents first. */
 	async abort(id: string): Promise<void> {
 		// One being resumed that still waits for its sub-agents has no agent running yet: it just stops waiting.
@@ -1262,6 +1271,10 @@ export class SessionService {
 					const m = ev.message as { role?: string; stopReason?: string; errorMessage?: string } | undefined;
 					if (m?.role === "assistant" && m.stopReason === "error") {
 						r.error = m.errorMessage ?? "The model returned an error";
+						this.save(e);
+					} else if (m?.role === "assistant" && r.error) {
+						// A later attempt got through (the session tries a failed request again by itself): no error to show.
+						r.error = undefined;
 						this.save(e);
 					}
 				}

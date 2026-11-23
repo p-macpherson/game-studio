@@ -1043,6 +1043,10 @@ a {
 	resize: none;
 	min-height: 60px;
 }
+.session-error {
+	align-items: flex-start;
+	gap: 12px;
+}
 .composer-hint {
 	font-size: 12px;
 	gap: 12px;

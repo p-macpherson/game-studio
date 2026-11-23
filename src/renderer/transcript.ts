@@ -13,6 +13,8 @@ export interface TranscriptState<M extends Message = Message> {
 	streaming?: M;
 	runningTools: Record<string, string>;
 	compacting?: boolean;
+	/** A request to the model failed and the session is waiting to try it again by itself. */
+	retrying?: { attempt: number; maxAttempts: number; delayMs: number; startedAt: number; error: string };
 }
 
 export interface SessionEvent {
@@ -48,7 +50,11 @@ export function applyEvent<M extends Message, T extends TranscriptState<M>>(t: T
 			return { ...t, runningTools: rest };
 		}
 		case "agent_settled":
-			return { ...t, runningTools: {}, streaming: undefined };
+			return { ...t, runningTools: {}, streaming: undefined, retrying: undefined };
+		case "auto_retry_start":
+			return { ...t, retrying: { attempt: Number(ev.attempt) || 1, maxAttempts: Number(ev.maxAttempts) || 1, delayMs: Number(ev.delayMs) || 0, startedAt: Date.now(), error: String(ev.errorMessage ?? "") } };
+		case "auto_retry_end":
+			return { ...t, retrying: undefined };
 		case "compaction_start":
 			return { ...t, compacting: true };
 		case "compaction_end":
