@@ -100,6 +100,7 @@ export type StudioRequestMethod =
 	| "edit_song"
 	| "edit_scene"
 	| "preview_scene"
+	| "capture_clip"
 	| "generate_sound"
 	| "render_sound"
 	| "generate_voice"

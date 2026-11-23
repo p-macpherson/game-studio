@@ -626,6 +626,19 @@ export class SessionService {
 		return `${type.name} (session “${done.title}”) finished${done.reviewRequested ? " and asked for review" : ""}. Its report:\n\n${report || "(it wrote no report)"}`;
 	}
 
+	/** A one-off question to an agent: starts the session, waits for it to finish, returns its last words, marks it done. */
+	async ask(req: NewSessionRequest, started?: (session: SessionSummary) => void): Promise<string> {
+		const s = await this.create(req);
+		started?.(s);
+		await this.whenSettled(s.id);
+		const done = this.get(s.id);
+		if (done.status === "interrupted") throw new Error(`“${done.title}” was interrupted`);
+		if (done.error) throw new Error(done.error);
+		const reply = lastAssistantText(await this.messages(s.id));
+		await this.markDone(s.id).catch(() => {});
+		return reply;
+	}
+
 	private async ensureOpen(e: Entry): Promise<void> {
 		if (this.live.has(e.record.id)) return;
 		await this.ensureWorktree(e);
@@ -668,8 +681,23 @@ export class SessionService {
 		void this.deps.host.call("prompt", e.record.id, text, mode, images).catch((err: Error) => this.fail(e, err.message));
 	}
 
+	/**
+	 * Sends a review request back to its agent by the studio itself (its work failed the checks), at most once until a
+	 * person writes to the session again, so an agent that can't fix it reaches the person instead of looping.
+	 * Returns whether it was sent.
+	 */
+	async bounceReview(id: string, text: string): Promise<boolean> {
+		const e = this.entry(id);
+		if (!e.record.reviewRequested || e.record.status === "done" || (e.record.reviewBounces ?? 0) >= 1) return false;
+		await this.ensureOpen(e);
+		e.record.reviewBounces = (e.record.reviewBounces ?? 0) + 1;
+		this.prompt(e, text);
+		return true;
+	}
+
 	async send(id: string, text: string, mode?: PromptMode, images?: PastedImage[]): Promise<void> {
 		const e = this.entry(id);
+		e.record.reviewBounces = undefined; // a person's message: the studio may send the next failure back again
 		await this.ensureOpen(e);
 		this.prompt(e, this.attach(e, text, images), mode, images);
 	}
@@ -1264,7 +1292,7 @@ export class SessionService {
 					const startHere = (event.params.startHere ?? "").replace(/^\.?\//, "");
 					r.reviewStartHere = startHere.endsWith(".jsonl") && !startHere.includes("..") && existsSync(join(this.worktreePath(e), startHere)) ? startHere : undefined;
 					queueMicrotask(() => this.deps.reviewRequested?.(this.summary(e)));
-					r.reviewImages = list(event.params.images).map((p) => p.replace(/^\.?\//, "")).filter((p) => /\.(png|jpe?g|webp)$/i.test(p) && existsSync(join(this.worktreePath(e), p)));
+					r.reviewImages = list(event.params.images).map((p) => p.replace(/^\.?\//, "")).filter((p) => /\.(png|jpe?g|webp|webm)$/i.test(p) && existsSync(join(this.worktreePath(e), p)));
 					r.reviewRequestedAt = new Date().toISOString();
 				}
 				this.save(e);

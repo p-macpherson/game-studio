@@ -1,8 +1,8 @@
 // Builds, runs and tests the game through the project's `build.sh`, from the main checkout or a session's
 // worktree. A run is driven over the engine's control protocol: frames are streamed into the studio (hidden
 // mode), and the inspector, input and console are plain control commands.
-import { type ChildProcess, spawn, type SpawnOptions } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { type ChildProcess, execFile, spawn, type SpawnOptions } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
 import type { StudioEvent } from "../shared/ipc";
@@ -799,6 +799,48 @@ export class RunService {
 		const co = this.checkout(sessionId);
 		const r = await this.exec(co, ["build"]);
 		return { ok: r.code === 0, diagnostics: parseDiagnostics(r.stdout + r.stderr, co.cwd), output: (r.stdout + r.stderr).slice(-8000) };
+	}
+
+	/**
+	 * Films the game for a review: runs it headlessly, plays an optional control script to reach the moment, then
+	 * takes a screenshot every few frames and joins them into build/review/<name>.webm (ffmpeg). Game time, not wall
+	 * time: the clip plays at the speed the game would.
+	 */
+	async captureClip(sessionId: CheckoutId, p: { name?: string; script?: string; seconds?: number; fps?: number }): Promise<{ clip: string; frames: number; seconds: number; first: string; last: string; problems: string[] }> {
+		const co = this.checkout(sessionId);
+		const name = String(p.name ?? "").trim().replace(/[^\w-]+/g, "-").replace(/^-+|-+$/g, "");
+		if (!name) throw new Error("Give the clip a name (letters, digits, dashes)");
+		const clamp = (v: unknown, lo: number, hi: number, fallback: number) => (typeof v === "number" && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback);
+		const fps = Math.round(clamp(p.fps, 5, 30, 15));
+		const seconds = clamp(p.seconds, 1, 12, 4);
+		const every = Math.max(1, Math.round(60 / fps));
+		const count = Math.round(seconds * fps);
+		const dir = `build/review/${name}`;
+		rmSync(join(co.cwd, dir), { recursive: true, force: true });
+		mkdirSync(join(co.cwd, dir), { recursive: true });
+		// The lead-in (without a quit, which would end the game before the filming), then the frames.
+		const lead = p.script ? scriptCommands(readFileSync(safeJoin(co.cwd, p.script), "utf8")).map((c) => c.command).filter((c) => !/"cmd"\s*:\s*"(quit|exit)"/.test(c)) : [];
+		const frame = (i: number) => `${dir}/f-${String(i + 1).padStart(4, "0")}.png`;
+		const lines = [...lead];
+		for (let i = 0; i < count; i++) lines.push(JSON.stringify({ cmd: "wait", frames: every }), JSON.stringify({ cmd: "screenshot", path: frame(i) }));
+		const script = `${dir}/capture.jsonl`;
+		writeFileSync(join(co.cwd, script), `${lines.join("\n")}\n`);
+		const r = await this.exec(co, ["test", script], undefined, TEST_TIMEOUT_MS);
+		if (!/^>> built /m.test(r.stdout)) throw new Error(`The game doesn't build, so it can't be filmed:\n${(r.stdout + r.stderr).trim().split("\n").slice(-12).join("\n")}`);
+		let frames = 0;
+		while (frames < count && existsSync(join(co.cwd, frame(frames)))) frames++;
+		const { steps } = pairReplies(lines.join("\n"), r.stdout);
+		const problems = steps.filter((s) => !s.ok).slice(0, 8).map((s) => `${s.command}: ${s.error ?? "failed"}`);
+		if (!frames) throw new Error(`No frames were filmed${problems.length ? `:\n${problems.join("\n")}` : " (the game stopped before the first one)"}`);
+		const clip = `build/review/${name}.webm`;
+		await new Promise<void>((resolve, reject) =>
+			execFile(
+				"ffmpeg",
+				["-y", "-loglevel", "error", "-framerate", String(fps), "-i", join(co.cwd, dir, "f-%04d.png"), "-frames:v", String(frames), "-vf", "scale='min(960,iw)':-2", "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "36", "-pix_fmt", "yuv420p", "-an", join(co.cwd, clip)],
+				(err, _out, stderr) => (err ? reject(new Error(`ffmpeg couldn't join the frames: ${String(stderr || err.message).trim().split("\n").slice(-3).join(" ")}`)) : resolve()),
+			),
+		);
+		return { clip, frames, seconds: frames / fps, first: frame(0), last: frame(frames - 1), problems };
 	}
 
 	/** Runs one control script headlessly via `build.sh test`. Tests run one at a time. */

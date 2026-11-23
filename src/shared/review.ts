@@ -74,6 +74,75 @@ export function checksLine(c: ReviewChecks): { ok: boolean | null; text: string 
 	return { ok: true, text: `Builds · ${c.tests.length === 1 ? "its test passes" : `all ${c.tests.length} tests pass`}` };
 }
 
+/** The agent type that compares new art with the Art Style doc. Its sessions aren't the work under review. */
+export const STYLE_REVIEWER = "style-reviewer";
+
+export interface StyleNote {
+	verdict: "fits" | "drifts" | "unsure";
+	reason: string;
+}
+
+/** A model's opinion of how a worktree's new art sits with the game's art direction: a hint, never a gate. */
+export interface StyleCheck {
+	worktreeId: string;
+	state: "running" | "done" | "failed";
+	commit: string;
+	startedAt: string;
+	/** The Style Reviewer's session (its reasoning can be read there). */
+	sessionId?: string;
+	/** By asset path. */
+	notes: Record<string, StyleNote>;
+	error?: string;
+}
+
+/** What the style check looks at: changed assets that have a picture and still exist. */
+export function styleSubjects(items: ReviewItem[]): { path: string; name: string; section: string; image: string }[] {
+	return items.flatMap((i) => (i.change !== "deleted" && i.preview?.kind === "image" ? [{ path: i.path, name: i.name, section: i.module.name, image: i.preview.path }] : []));
+}
+
+export function styleBrief(subjects: ReturnType<typeof styleSubjects>): string {
+	return [
+		"Style check. This worktree made or changed the art listed below. Look at each picture (read the image file) and judge how it sits with the game's Art Style doc, given to you above, and that doc's reference images (read those too, when it lists any).",
+		"",
+		...subjects.map((s) => `- ${s.path} (${s.section}: ${s.name}), picture: ${s.image}`),
+		"",
+		"Judge only: change no files, make no commits, and don't call request_review. If the Art Style doc isn't established, judge against its \"For now\" guidance and say \"unsure\" where that isn't enough to tell.",
+		"",
+		"End your reply with exactly one line per asset, in this form and nothing after them:",
+		"<asset path> | fits | <one sentence: why>",
+		"<asset path> | drifts | <one sentence: what is off, concretely: palette, proportions, level of detail, line, mood>",
+		"<asset path> | unsure | <one sentence: what you couldn't tell>",
+	].join("\n");
+}
+
+/** Reads the verdict lines out of the Style Reviewer's reply (lines about anything else are ignored). */
+export function parseStyleReply(reply: string, paths: string[]): Record<string, StyleNote> {
+	const known = new Set(paths);
+	const notes: Record<string, StyleNote> = {};
+	for (const line of reply.split("\n")) {
+		const m = /^[\s>*-]*`?([^|`]+?)`?\s*\|\s*\**(fits|drifts|unsure)\**\s*\|\s*(.+?)\s*$/i.exec(line);
+		if (!m || !known.has(m[1].trim())) continue;
+		notes[m[1].trim()] = { verdict: m[2].toLowerCase() as StyleNote["verdict"], reason: m[3] };
+	}
+	return notes;
+}
+
+/** How the studio's message to an agent whose work failed its checks begins (the chat shows it as a short note). */
+export const CHECKS_FAILED_NOTE = "[Game Studio] Your work isn't ready for review yet: the studio checked the worktree when you asked, and";
+
+/** What the agent is told when its review request fails the studio's checks; null when they passed or still run. */
+export function checksMessage(c: ReviewChecks): string | null {
+	if (c.state !== "done") return null;
+	const failed = c.tests.filter((t) => !t.ok);
+	const ok = (!c.build || c.build.ok) && !failed.length;
+	if (ok) return null;
+	const what =
+		c.build && !c.build.ok
+			? `it doesn't build.\n\n${c.build.errors.join("\n")}`
+			: `${failed.length} of its ${c.tests.length} test${c.tests.length === 1 ? "" : "s"} fail${failed.length === 1 ? "s" : ""}.\n\n${failed.map((t) => `- ${t.script}: ${t.problem ?? "failed"}`).join("\n")}`;
+	return `${CHECKS_FAILED_NOTE} ${what}\n\nFix it (if a test is wrong, not the game, fix the test and say why), commit, and call request_review again. The user hasn't been asked to look yet. If it fails again it goes to them as it is.`;
+}
+
 export interface Verdict {
 	verdict: "fine" | "redo";
 	note?: string;

@@ -188,6 +188,27 @@ export function studioTools(ctx: StudioToolContext) {
 			},
 		}),
 		defineTool({
+			name: "capture_clip",
+			label: "Film the game for review",
+			description:
+				"Film a few seconds of the game for the user's review: the game runs headlessly, an optional control script (one JSON command per line, like a test) " +
+				"brings it to the moment, then it is filmed into build/review/<name>.webm. Use it when a change is about motion or timing (an animation, a jump, an " +
+				"effect, a door opening), which a still can't show; pass the clip's path in request_review's `images`. To film input, put the commands that hold or " +
+				"press it at the end of the script. The result gives the clip and its first and last frames (PNG): read those to check you filmed the right thing.",
+			parameters: Type.Object({
+				name: Type.String({ description: "A short name for the clip, e.g. 'door-opens'" }),
+				script: Type.Optional(Type.String({ description: "Repo-relative control script that sets the moment up, e.g. tests/review/door.jsonl" })),
+				seconds: Type.Optional(Type.Number({ description: "Length in game time, 1 to 12 (default 4)" })),
+				fps: Type.Optional(Type.Number({ description: "Frames a second, 5 to 30 (default 15)" })),
+			}),
+			async execute(_id, params, signal, onUpdate) {
+				const r = (await ctx.request("capture_clip", params, signal, progressTo(onUpdate))) as { clip: string; frames: number; seconds: number; first: string; last: string; problems: string[] };
+				return ok(
+					[`Filmed ${r.seconds.toFixed(1)} s (${r.frames} frames) into ${r.clip}. First frame: ${r.first}; last: ${r.last}.`, r.problems.length ? `Commands that failed:\n${r.problems.join("\n")}` : ""].filter(Boolean).join("\n"),
+				);
+			},
+		}),
+		defineTool({
 			name: "preview_scene",
 			label: "Preview scene in engine",
 			description:
@@ -590,7 +611,7 @@ export function studioTools(ctx: StudioToolContext) {
 			parameters: Type.Object({
 				summary: Type.String(),
 				look_at: Type.Optional(Type.Array(Type.String(), { description: "What to check or try, one line each" })),
-				images: Type.Optional(Type.Array(Type.String(), { description: "Paths relative to the repo root, e.g. build/review/after-cave.png" })),
+				images: Type.Optional(Type.Array(Type.String(), { description: "Paths relative to the repo root: pictures (e.g. build/review/after-cave.png) and clips from capture_clip (.webm)" })),
 				start_here: Type.Optional(Type.String({ description: "A committed control script (.jsonl) that brings the game to the moment to look at" })),
 			}),
 			async execute(_id, { summary, look_at, images, start_here }) {
@@ -630,7 +651,7 @@ export function studioTools(ctx: StudioToolContext) {
 		}),
 	];
 	// Every session talks to the studio; the rest (generation, renders, previews) only where its type allows.
-	const always = new Set(["set_session_title", "request_review", "open_in_studio", "ask_user", "delegate"]);
+	const always = new Set(["set_session_title", "request_review", "open_in_studio", "ask_user", "delegate", "capture_clip"]);
 	const allowed = ctx.studioTools ? tools.filter((t) => always.has(t.name) || ctx.studioTools!.includes(t.name)) : tools;
 	// Studio tools read what the agent's other tools write (render_sound reads sound.json): a turn that writes a file
 	// and renders it must not run the two at once, so any of these makes Pi run that turn's calls one by one.

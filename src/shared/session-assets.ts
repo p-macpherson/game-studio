@@ -51,7 +51,7 @@ export interface Touch {
 }
 
 /** Tools that only look: nothing they name was touched. */
-const LOOKS = /^(read|grep|find|ls|bash|ask_user|delegate|set_session_title|request_review|run_tests?|build_game|build_release)$|^(preview|list|get|read|search|inspect|measure|check|describe|look|view|play|run)_/;
+const LOOKS = /^(read|grep|find|ls|bash|ask_user|delegate|set_session_title|request_review|run_tests?|build_game|build_release)$|^(preview|capture|list|get|read|search|inspect|measure|check|describe|look|view|play|run)_/;
 const IMAGE = /\.(png|jpe?g|webp)$/i;
 
 /** Which sections a studio tool works in, from its name (generate_sound_takes → sounds). */

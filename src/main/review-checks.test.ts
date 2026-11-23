@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checksLine } from "../shared/review";
+import { CHECKS_FAILED_NOTE, checksLine, checksMessage } from "../shared/review";
 import type { TestReport } from "../shared/run";
 import { ReviewCheckService } from "./review-checks";
 
@@ -22,6 +22,8 @@ describe("ReviewCheckService", () => {
 		expect(r).toMatchObject({ state: "done", commit: "aaa", build: { ok: true } });
 		expect(r.tests[1]).toMatchObject({ ok: false, problem: "Line 3 (expect): gold was 0" });
 		expect(checksLine(r)).toEqual({ ok: false, text: "Builds · 1 of 2 tests fails" });
+		expect(checksMessage(r)).toContain(`${CHECKS_FAILED_NOTE} 1 of its 2 tests fails.\n\n- tests/b.jsonl: Line 3 (expect): gold was 0`);
+		expect(checksMessage({ ...r, tests: [r.tests[0]] })).toBeNull(); // all passing: nothing to send back
 		await svc.request("w"); // same commit: nothing runs
 		expect(ran).toHaveLength(3);
 		head = "bbb";
@@ -44,5 +46,6 @@ describe("ReviewCheckService", () => {
 		await svc.request("w");
 		expect(svc.get("w")).toMatchObject({ state: "done", build: { ok: false, errors: ["game/main.odin:4: Undeclared name: nope"] }, tests: [] });
 		expect(checksLine(svc.get("w")!).text).toBe("Doesn't build");
+		expect(checksMessage(svc.get("w")!)).toContain("it doesn't build.\n\ngame/main.odin:4: Undeclared name: nope");
 	});
 });

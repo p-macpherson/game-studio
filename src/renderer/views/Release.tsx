@@ -175,6 +175,8 @@ export function Release() {
 		publishing.current = true;
 		try {
 			await call("release.publish", worktree, b.version, b.target);
+			// The last progress line can arrive after this reply (they travel separately): the log ends the same either way.
+			setPublishLog((l) => (l.at(-1) === "Uploaded" ? l : [...l, "Uploaded"]));
 		} catch (err) {
 			showError(err);
 		} finally {

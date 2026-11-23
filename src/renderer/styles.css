@@ -4086,6 +4086,18 @@ button.question-image img {
 .review-checks.failed {
 	border-left-color: var(--red);
 }
+.review-checks.hint {
+	border-left-color: var(--yellow);
+}
+.review-style.style-drifts b {
+	color: var(--yellow);
+}
+.review-style.style-fits b {
+	color: var(--green);
+}
+.review-style .link {
+	margin-left: 6px;
+}
 .review-check-output {
 	margin: 0;
 	font: 12px/1.5 var(--mono);
@@ -4100,6 +4112,11 @@ button.question-image img {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 8px;
+}
+.review-evidence video {
+	height: 200px;
+	border-radius: 6px;
+	background: var(--sunken);
 }
 .review-evidence img {
 	height: 120px;

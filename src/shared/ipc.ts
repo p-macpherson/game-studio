@@ -2,7 +2,7 @@
 import type { HostInfo, PromptMode, StudioRequestMethod } from "./host";
 import type { AssetLinks } from "./asset-links";
 import type { SessionAssets } from "./session-assets";
-import type { ReviewChecks, WorktreeReview } from "./review";
+import type { ReviewChecks, StyleCheck, WorktreeReview } from "./review";
 import type { PastedImage } from "./attachments";
 import type { ReleaseBuild, ReleaseInfo, ReleaseManifest, ReleaseTarget } from "./release";
 import type { HistoryStep } from "./history";
@@ -177,6 +177,9 @@ export interface StudioApi {
 	/** The studio's own checks of a game worktree (build, tests): the latest result, and running them again. */
 	"worktrees.checks"(id: string): Promise<ReviewChecks | null>;
 	"worktrees.runChecks"(id: string): Promise<void>;
+	/** The style check of a worktree's new art (a Style Reviewer session's opinion): the latest, and starting one. */
+	"worktrees.style"(id: string): Promise<StyleCheck | null>;
+	"worktrees.checkStyle"(id: string): Promise<void>;
 	/** The files a session changed against its base (for warnings like "merging also brings …"). */
 	"sessions.changedFiles"(id: string): Promise<{ path: string; change: "added" | "modified" | "deleted" }[]>;
 	"sessions.raw"(id: string): Promise<string>;

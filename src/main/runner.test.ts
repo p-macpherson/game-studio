@@ -192,6 +192,16 @@ describe.skipIf(!existsSync(join(engineRepo, "third_party/lib")))("RunService", 
 		rmSync(join(project, "tests/broken.jsonl"));
 	}, 60_000);
 
+	it("films the game after a lead-in script into a short clip for a review", async () => {
+		writeFileSync(join(project, "tests/lead.jsonl"), '{"cmd": "wait", "frames": 5}\n{"cmd": "quit"}\n');
+		const r = await runner.captureClip(null, { name: "cube spin!", script: "tests/lead.jsonl", seconds: 1, fps: 10 });
+		rmSync(join(project, "tests/lead.jsonl"));
+		expect(r).toMatchObject({ clip: "build/review/cube-spin.webm", frames: 10, seconds: 1, first: "build/review/cube-spin/f-0001.png", last: "build/review/cube-spin/f-0010.png", problems: [] });
+		// A real WebM (EBML header), not an empty file.
+		expect(readFileSync(join(project, r.clip)).subarray(0, 4).toString("hex")).toBe("1a45dfa3");
+		await expect(runner.captureClip(null, { name: "  " })).rejects.toThrow("Give the clip a name");
+	}, 90_000);
+
 	it("reports compiler errors on a failed build", async () => {
 		writeFileSync(join(project, "game/broken.odin"), "package game\n\nbroken :: proc() {\n\tx := undefined_thing\n}\n");
 		try {

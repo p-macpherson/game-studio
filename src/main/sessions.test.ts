@@ -88,6 +88,23 @@ describe("SessionService", () => {
 		await expect(service.send(s.id, "x", undefined, [{ data: png, mimeType: "image/gif" }])).rejects.toThrow("paste a PNG, JPEG or WebP image");
 	});
 
+	it("sends a failed review request back to its agent once, then leaves it for the person", async () => {
+		const s = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: `tool request_review ${JSON.stringify({ summary: "Added the cave" })}` });
+		await settled(s.id);
+		expect(await service.bounceReview(s.id, "[Game Studio] it doesn't build")).toBe(true);
+		await settled(s.id);
+		expect(service.get(s.id).reviewRequested).toBe(false); // back in progress until it asks again
+		expect(JSON.stringify(await service.messages(s.id))).toContain("[Game Studio] it doesn't build");
+		// It asks again, still broken: this time it stays with the person.
+		await service.send(s.id, `tool request_review ${JSON.stringify({ summary: "Fixed" })}`);
+		await settled(s.id);
+		expect(await service.bounceReview(s.id, "again")).toBe(true); // the person wrote to it in between: one more allowed
+		await settled(s.id);
+		(service as unknown as { entries: Map<string, { record: { reviewRequested: boolean } }> }).entries.get(s.id)!.record.reviewRequested = true;
+		expect(await service.bounceReview(s.id, "and again")).toBe(false);
+		expect(service.get(s.id).reviewRequested).toBe(true);
+	});
+
 	it("shows a question's images when they exist in the session's checkout", async () => {
 		mkdirSync(join(project, "shots"), { recursive: true });
 		writeFileSync(join(project, "shots/map.png"), "png");

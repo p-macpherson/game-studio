@@ -2,15 +2,22 @@
 // the assets they belong to, each with a file that stands for it now and in main, the session that made it, and
 // the sessions asking for review.
 import type { ModuleInfo } from "../shared/modules";
-import { type WorktreeReview, groupChanges } from "../shared/review";
+import { STYLE_REVIEWER, type WorktreeReview, groupChanges } from "../shared/review";
 import { type AssetService, MODULES } from "./assets";
 import { gatherSessionAssets, previewOf } from "./session-assets";
 import type { SessionService } from "./sessions";
+import { type StudioRequestHandlers, handler } from "./studio-requests";
+
+/** Agents' tools for a review's evidence: `capture_clip` films the game (see RunService.captureClip). */
+export function reviewRequests(capture: (sessionId: string, params: { name?: string; script?: string; seconds?: number; fps?: number }) => Promise<unknown>): StudioRequestHandlers {
+	return { capture_clip: handler((ctx, p: { name?: string; script?: string; seconds?: number; fps?: number }) => capture(ctx.sessionId, p)) };
+}
 
 export async function gatherReview(worktreeId: string, sessions: SessionService, assets: AssetService, checkoutRoot: (checkout: string | null) => string): Promise<WorktreeReview> {
 	const w = sessions.listWorktrees().find((x) => x.id === worktreeId);
 	if (!w) throw new Error(`Unknown worktree ${worktreeId}`);
-	const inIt = sessions.list().filter((s) => s.worktreeId === worktreeId);
+	// The Style Reviewer's sessions judge the work; they aren't it.
+	const inIt = sessions.list().filter((s) => s.worktreeId === worktreeId && s.agentType !== STYLE_REVIEWER);
 	const requests = inIt
 		.filter((s) => s.reviewRequested && s.status !== "done")
 		.map((s) => ({ sessionId: s.id, title: s.title, agentType: s.agentType, summary: s.reviewSummary ?? "", at: s.reviewRequestedAt, lookAt: s.reviewLookAt ?? [], images: s.reviewImages ?? [], ...(s.reviewStartHere ? { startHere: s.reviewStartHere } : {}) }))

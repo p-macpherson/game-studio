@@ -67,6 +67,8 @@ export interface SessionRecord {
 	reviewImages?: string[];
 	/** With that request: a control script in its checkout that brings the game to the moment to look at. */
 	reviewStartHere?: string;
+	/** Times the studio sent its review request back by itself (failed checks) since a person last wrote to it. */
+	reviewBounces?: number;
 	/** Pi's JSONL transcript, relative to the session folder. Pi picks the name on first save. */
 	piSessionFile?: string;
 	/** Last error from the agent run, cleared on the next prompt. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AssetSummary, ModuleInfo } from "./modules";
-import { groupChanges, reviewMessages } from "./review";
+import { groupChanges, parseStyleReply, reviewMessages, styleBrief, styleSubjects } from "./review";
 
 const mod = (id: string, roots: string[], extensions: string[]): ModuleInfo => ({ id, name: id, icon: "x", roots, extensions }) as unknown as ModuleInfo;
 const modules = [mod("game-code", ["game"], [".odin"]), mod("3d-models", ["assets/models"], ["/model.json"]), mod("scenes", ["assets/scenes"], [".json"])];
@@ -31,6 +31,26 @@ describe("review", () => {
 			["assets/scenes/main.json", "deleted", 1],
 		]);
 		expect(items[1].name).toBe("rock");
+	});
+
+	it("briefs the style check on the pictures and reads its verdict lines, however they're dressed", () => {
+		const { items } = groupChanges(modules, listed, [
+			{ path: "assets/models/barrel/model.json", change: "added" },
+			{ path: "assets/models/cave/rock/rock.glb", change: "modified" },
+			{ path: "assets/scenes/main.json", change: "deleted" },
+		]);
+		items[0].preview = { kind: "image", path: "assets/models/barrel/thumbnail.png" };
+		items[2].preview = { kind: "image", path: "x.png" }; // removed: nothing to judge
+		const subjects = styleSubjects(items);
+		expect(subjects.map((s) => s.path)).toEqual(["assets/models/barrel/model.json"]);
+		expect(styleBrief(subjects)).toContain("- assets/models/barrel/model.json (3d-models: barrel), picture: assets/models/barrel/thumbnail.png");
+		const paths = ["assets/models/barrel/model.json", "assets/models/cave/rock/model.json"];
+		const reply = ["The barrel is far too glossy.", "", "- `assets/models/barrel/model.json` | **drifts** | Glossy metal bands against a matte, hand-painted style.", "assets/models/cave/rock/model.json | Fits | Same chunky silhouette as the references.", "assets/models/unknown/model.json | fits | not asked about"].join("\n");
+		expect(parseStyleReply(reply, paths)).toEqual({
+			"assets/models/barrel/model.json": { verdict: "drifts", reason: "Glossy metal bands against a matte, hand-painted style." },
+			"assets/models/cave/rock/model.json": { verdict: "fits", reason: "Same chunky silhouette as the references." },
+		});
+		expect(parseStyleReply("Noted.", paths)).toEqual({});
 	});
 
 	it("writes one message per session with the notes, and nothing when all is fine", () => {

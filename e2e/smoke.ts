@@ -1332,7 +1332,12 @@ try {
 	await page.evaluate(([id, text]) => window.studio.call("sessions.send", id, text), [reviewed.id, proof]);
 	await page.waitForTimeout(500);
 	await until("the proof picture", async () => (await sessionOf(reviewed.id)).status === "idle");
-	const ask = `tool request_review ${JSON.stringify({ summary: "Wrote the review notes: a first pass.", look_at: ["Open the doc: it should say what we review"], images: ["build/review/after.png", "build/review/missing.png"], start_here: "tests/smoke.jsonl" })}`;
+	// It films a second of the game as proof, too.
+	await page.evaluate(([id, text]) => window.studio.call("sessions.send", id, text), [reviewed.id, `tool capture_clip ${JSON.stringify({ name: "cube", seconds: 1, fps: 10 })}`]);
+	await page.waitForTimeout(500);
+	await until("the clip", async () => (await sessionOf(reviewed.id)).status === "idle");
+	if (!JSON.stringify(await page.evaluate((id) => window.studio.call("sessions.messages", id), reviewed.id)).includes("into build/review/cube.webm")) throw new Error("capture_clip didn't report a clip");
+	const ask = `tool request_review ${JSON.stringify({ summary: "Wrote the review notes: a first pass.", look_at: ["Open the doc: it should say what we review"], images: ["build/review/after.png", "build/review/missing.png", "build/review/cube.webm"], start_here: "tests/smoke.jsonl" })}`;
 	await page.evaluate(([id, text]) => window.studio.call("sessions.send", id, text), [reviewed.id, ask]);
 	await until("the review request", async () => {
 		const s = await sessionOf(reviewed.id);
@@ -1351,6 +1356,7 @@ try {
 	const proofs = page.getByTestId("review-evidence").locator("img");
 	if ((await proofs.count()) !== 1) throw new Error("the review should show the one picture that exists");
 	await until("the proof to load", () => proofs.first().evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0));
+	await until("the clip to load", () => page.getByTestId("review-clip").evaluate((v: HTMLVideoElement) => v.readyState >= 1 && v.videoWidth > 0 && v.duration > 0.5));
 	await page.getByTestId("review-checks").getByText("✓ Builds · its test passes").waitFor();
 	// Play from here: the game starts in Play & Test and the agent's script runs into it; then the person plays on.
 	await page.getByTestId("review-play-from").click();
@@ -1382,6 +1388,18 @@ try {
 	await page.waitForTimeout(800);
 	await step("85-review-pictures", page);
 	await page.getByTestId("review-back").click();
+
+	// Work that doesn't build never reaches the queue: the studio's checks send it back to its agent, once.
+	const broken = (await page.evaluate(() =>
+		window.studio.call("sessions.create", { agentType: "gameplay-engineer", target: "project", model: "faux/echo", prompt: "write game/broken.odin: package game\n\nbroken :: proc() {\n\tx := nope\n}\n" }),
+	)) as { id: string };
+	await until("the broken session to settle", async () => (await sessionOf(broken.id)).status === "idle");
+	await page.evaluate((id) => window.studio.call("sessions.send", id, 'tool request_review {"summary": "Added broken.odin"}'), broken.id);
+	await until("the studio to send it back", async () => JSON.stringify(await page.evaluate((id) => window.studio.call("sessions.messages", id), broken.id)).includes("it doesn't build."), );
+	await until("the sent-back session to settle", async () => {
+		const s = await sessionOf(broken.id);
+		return s.status === "idle" && !s.reviewRequested;
+	});
 
 	// A session cut off mid-work (the session host dies while its agent waits for an answer) can be resumed.
 	await nav.getByRole("button", { name: "Sessions" }).click();

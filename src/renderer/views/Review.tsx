@@ -3,12 +3,13 @@
 // the sessions that made those things. Code and other files are read as a diff (WorktreeChanges), a click away.
 import { useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { type ReviewChecks, type ReviewItem, type ReviewPreview, type Verdict, type WorktreeReview, checksLine, reviewMessages } from "../../shared/review";
+import { type ReviewChecks, type ReviewItem, type StyleCheck, type StyleNote, styleSubjects, type ReviewPreview, type Verdict, type WorktreeReview, checksLine, reviewMessages } from "../../shared/review";
 import { findAgentType } from "../../shared/agents";
 import { call, onEvent, studioFile } from "../api";
 import { useStudio } from "../store";
 
 const CHANGE = { added: "New", modified: "Changed", deleted: "Removed" } as const;
+const stills = (paths: string[]) => paths.filter((p) => !p.endsWith(".webm"));
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 const key = (worktreeId: string) => `review:${worktreeId}`;
@@ -45,7 +46,7 @@ function Side({ label, preview, checkout, version, icon, absent, other }: { labe
 	);
 }
 
-function Card({ item, worktreeId, version, verdict, maker, onVerdict }: { item: ReviewItem; worktreeId: string; version?: string; verdict?: Verdict; maker?: string; onVerdict(v: Verdict | undefined): void }) {
+function Card({ item, worktreeId, version, verdict, maker, style, onVerdict }: { item: ReviewItem; worktreeId: string; version?: string; verdict?: Verdict; maker?: string; style?: StyleNote; onVerdict(v: Verdict | undefined): void }) {
 	const before = item.before?.kind === "image" ? { src: studioFile("main", item.before.path), label: `In main: ${item.before.path}` } : undefined;
 	return (
 		<div className={`review-card ${verdict ? `verdict-${verdict.verdict}` : ""}`} data-testid="review-card" data-path={item.path}>
@@ -76,6 +77,16 @@ function Card({ item, worktreeId, version, verdict, maker, onVerdict }: { item: 
 				{plural(item.files.length, "file")}
 				{maker ? ` · by “${maker}”` : ""}
 			</span>
+			{style && (
+				<div className={`small review-style style-${style.verdict}`} data-testid="review-style-note">
+					<b>{style.verdict === "fits" ? "✓" : style.verdict === "drifts" ? "⚠" : "?"} Style Reviewer: {STYLE[style.verdict]}.</b> {style.reason}
+					{style.verdict === "drifts" && !verdict && (
+						<button className="link small" onClick={() => onVerdict({ verdict: "redo", note: `Doesn't fit the art style: ${style.reason}` })}>
+							Use as my note
+						</button>
+					)}
+				</div>
+			)}
 			<div className="row review-verdict">
 				<button className={`small ${verdict?.verdict === "fine" ? "picked" : ""}`} onClick={() => onVerdict(verdict?.verdict === "fine" ? undefined : { verdict: "fine" })} data-testid="review-fine">
 					✓ Fine
@@ -106,6 +117,56 @@ export function useChecks(worktreeId: string, enabled: boolean): ReviewChecks | 
 		};
 	}, [worktreeId, enabled]);
 	return checks;
+}
+
+const STYLE = { fits: "fits the art style", drifts: "may not fit the art style", unsure: "style: couldn't tell" } as const;
+
+function useStyle(worktreeId: string, enabled: boolean): StyleCheck | null {
+	const [style, setStyle] = useState<StyleCheck | null>(null);
+	useEffect(() => {
+		if (!enabled) return;
+		let live = true;
+		const load = () => call("worktrees.style", worktreeId).then((c) => live && setStyle(c), () => {});
+		load();
+		const off = onEvent((e) => e.type === "review_checks" && e.worktreeId === worktreeId && load());
+		return () => {
+			live = false;
+			off();
+		};
+	}, [worktreeId, enabled]);
+	return style;
+}
+
+/** The style check: a model's opinion of the new art against the Art Style doc. Costs a model call, so it's asked for. */
+function Style({ worktreeId, style, subjects }: { worktreeId: string; style: StyleCheck | null; subjects: number }) {
+	const notes = Object.values(style?.notes ?? {});
+	const n = (v: StyleNote["verdict"]) => notes.filter((x) => x.verdict === v).length;
+	const drifts = n("drifts");
+	return (
+		<div className={`review-checks ${style?.state === "done" ? (drifts ? "hint" : "passed") : style?.state === "failed" ? "failed" : ""}`} data-testid="review-style">
+			<div className="row">
+				<b>
+					{!style
+						? `Style check: have the Style Reviewer look at the ${plural(subjects, "picture")} beside the Art Style doc`
+						: style.state === "running"
+							? "⏳ The Style Reviewer is looking…"
+							: style.state === "failed"
+								? "✗ The style check didn't finish"
+								: `Style (a hint): ${[n("fits") && `${n("fits")} fit`, drifts && `${drifts} may not`, n("unsure") && `${n("unsure")} unclear`].filter(Boolean).join(" · ")}`}
+				</b>
+				<span className="grow" />
+				{style?.sessionId && (
+					<button className="link small" onClick={() => useStudio.getState().selectSession(style.sessionId!)}>
+						Its reasoning ›
+					</button>
+				)}
+				<button className="small" disabled={style?.state === "running"} onClick={() => call("worktrees.checkStyle", worktreeId).catch(useStudio.getState().showError)} title="Starts a Style Reviewer session in this worktree (a model call). Its opinion is a hint on each card, never a gate." data-testid="review-check-style">
+					{style ? "Check again" : "Check the style"}
+				</button>
+			</div>
+			{style?.error && <div className="small">{style.error}</div>}
+		</div>
+	);
 }
 
 function Checks({ worktreeId, checks }: { worktreeId: string; checks: ReviewChecks | null }) {
@@ -191,6 +252,8 @@ export function Review({ worktreeId }: { worktreeId: string }) {
 	const title = (id: string | undefined) => sessions.find((s) => s.id === id)?.title;
 	const game = worktree?.target === "project";
 	const checks = useChecks(worktreeId, game);
+	const style = useStyle(worktreeId, game);
+	const pictures = styleSubjects(items).length;
 	const send = async () => {
 		setSending(true);
 		try {
@@ -252,6 +315,7 @@ export function Review({ worktreeId }: { worktreeId: string }) {
 			{error && <div className="msg error" style={{ margin: 16 }}>Could not load the review: {error}</div>}
 			<div className="review-body">
 				{game && review && items.length + review.code.length > 0 && <Checks worktreeId={worktreeId} checks={checks} />}
+				{game && pictures > 0 && <Style worktreeId={worktreeId} style={style} subjects={pictures} />}
 				{review?.requests.map((r) => (
 					<div key={r.sessionId} className="review-request" data-testid="review-request">
 						<div className="row">
@@ -278,9 +342,13 @@ export function Review({ worktreeId }: { worktreeId: string }) {
 						)}
 						{r.images.length > 0 && (
 							<div className="review-evidence" data-testid="review-evidence">
-								{r.images.map((p, i) => (
-									<img key={p} src={studioFile(worktreeId, p, r.at)} alt="" title={p} loading="lazy" onClick={() => useStudio.getState().showImages(r.images.map((x) => ({ src: studioFile(worktreeId, x, r.at), label: x })), i)} />
-								))}
+								{r.images.map((p) =>
+									p.endsWith(".webm") ? (
+										<video key={p} src={studioFile(worktreeId, p, r.at)} title={p} controls loop muted playsInline preload="metadata" data-testid="review-clip" />
+									) : (
+										<img key={p} src={studioFile(worktreeId, p, r.at)} alt="" title={p} loading="lazy" onClick={() => useStudio.getState().showImages(stills(r.images).map((x) => ({ src: studioFile(worktreeId, x, r.at), label: x })), stills(r.images).indexOf(p))} />
+									),
+								)}
 							</div>
 						)}
 					</div>
@@ -292,7 +360,7 @@ export function Review({ worktreeId }: { worktreeId: string }) {
 						</h3>
 						<div className="review-cards">
 							{g.items.map((i) => (
-								<Card key={i.path} item={i} worktreeId={worktreeId} version={worktree?.updatedAt} verdict={verdicts[i.path]} maker={title(i.sessionId)} onVerdict={(v) => setVerdict(i.path, v)} />
+								<Card key={i.path} item={i} worktreeId={worktreeId} version={worktree?.updatedAt} verdict={verdicts[i.path]} maker={title(i.sessionId)} style={style?.notes[i.path]} onVerdict={(v) => setVerdict(i.path, v)} />
 							))}
 						</div>
 					</div>

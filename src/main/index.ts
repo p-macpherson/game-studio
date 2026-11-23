@@ -27,8 +27,10 @@ import { ReleaseService, releaseRequests } from "./release-service";
 import { UpdateService } from "./updates";
 import { openInStudioRequests } from "./open-in-studio";
 import { gatherSessionAssets } from "./session-assets";
-import { gatherReview } from "./review";
+import { gatherReview, reviewRequests } from "./review";
 import { ReviewCheckService } from "./review-checks";
+import { StyleCheckService } from "./style-check";
+import { STYLE_REVIEWER, checksMessage } from "../shared/review";
 import { runInBrowser, serveFolder } from "./web-runner";
 import { shaderRequests } from "./shaders";
 import { UiArtPipeline, uiRequests } from "./ui";
@@ -113,6 +115,7 @@ async function main(): Promise<void> {
 		effectRequests(particles, (sessionId, p) => runner.previewEffect(sessionId, p)),
 		assetRequests(moduleInfos),
 		designDocRequests(),
+		reviewRequests((sessionId, p) => runner.captureClip(sessionId, p)),
 		releaseRequests(() => release, () => project?.name ?? "Game"),
 		openInStudioRequests(moduleInfos, (id, path) => sessions.adoptLinkedAsset(id, path)),
 	);
@@ -127,7 +130,17 @@ async function main(): Promise<void> {
 		studioRequest: requests.studioRequest,
 		cancelStudioRequest: requests.cancelStudioRequest,
 		// Only the game has a build and tests the studio knows how to run.
-		reviewRequested: (s) => s.target === "project" && s.worktree === "active" && void checks.request(s.worktreeId).catch((err) => console.error("review checks failed:", err)),
+		reviewRequested: (s) => {
+			if (s.target !== "project" || s.worktree !== "active") return;
+			void checks
+				.request(s.worktreeId)
+				.then(async () => {
+					// Work that doesn't build or pass its tests goes back to its agent before it reaches the person (once).
+					const failed = checksMessage(checks.get(s.worktreeId) ?? { worktreeId: s.worktreeId, state: "running", commit: "", startedAt: "", tests: [] });
+					if (failed && (await sessions.bounceReview(s.id, failed))) emit({ type: "review_checks", worktreeId: s.worktreeId });
+				})
+				.catch((err) => console.error("review checks failed:", err));
+		},
 	});
 
 	const runner = new RunService({ projectPath: () => project?.path ?? null, sessions, emit });
@@ -168,6 +181,12 @@ async function main(): Promise<void> {
 			(await sessions.create({ agentType: "gameplay-engineer", target: "project", prompt, title, ...(checkout ? { worktreeId: checkout } : { worktreeLabel: title }) } as NewSessionRequest)).id,
 	});
 	const assets = new AssetService(checkoutRoot, sessions);
+	const style = new StyleCheckService({
+		head: async (id) => (await g.revParse(sessions.checkoutPath(id), "HEAD")).trim(),
+		items: async (id) => (await gatherReview(id, sessions, assets, checkoutRoot)).items,
+		ask: (id, brief, started) => sessions.ask({ agentType: STYLE_REVIEWER, target: "project", model: "", worktreeId: id, prompt: brief, title: "Style check" }, (s) => started(s.id)),
+		changed: (worktreeId) => emit({ type: "review_checks", worktreeId }),
+	});
 	/** A generation job queued or running for a worktree (a section's step, or one of its sessions' tools). */
 	const generating = (w: { id: string; sessionIds: string[] }) =>
 		gen.list().some((j) => (j.status === "queued" || j.status === "running") && !!j.sessionId && (j.sessionId === w.id || w.sessionIds.includes(j.sessionId)));
@@ -419,6 +438,8 @@ async function main(): Promise<void> {
 		},
 		"worktrees.changedFiles": (id) => sessions.worktreeChangedFiles(id),
 		"worktrees.review": (id) => gatherReview(id, sessions, assets, checkoutRoot),
+		"worktrees.style": async (id) => style.get(id),
+		"worktrees.checkStyle": (id) => style.start(id),
 		"worktrees.checks": async (id) => checks.get(id),
 		"worktrees.runChecks": async (id) => void checks.request(id, true).catch((err) => console.error("review checks failed:", err)),
 		"sessions.raw": async (id) => sessions.raw(id),

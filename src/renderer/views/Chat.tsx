@@ -5,6 +5,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "rea
 import { type ChatMessage, type ContentBlock, type Transcript, useStudio } from "../store";
 import { splitAttachments } from "../../shared/attachments";
 import { RESUME_NOTE } from "../../shared/types";
+import { CHECKS_FAILED_NOTE } from "../../shared/review";
 import type { SessionAssets } from "../../shared/session-assets";
 import { type Chip, Markdown } from "./Markdown";
 import { AssetStrip, openCard, useChipPreview, useChips } from "./SessionAssets";
@@ -46,6 +47,14 @@ const UserMessage = memo(function UserMessage({ m, brief }: { m: ChatMessage; br
 		return (
 			<div className="msg-note" title={words} data-testid="resumed-note">
 				▶ Resumed after an interruption{words.length > RESUME_NOTE.length ? ", with its sub-agents' reports" : ""}
+			</div>
+		);
+	}
+	if (brief && words.startsWith(CHECKS_FAILED_NOTE)) {
+		const what = words.slice(CHECKS_FAILED_NOTE.length).trim().split("\n")[0];
+		return (
+			<div className="msg-note" title={words} data-testid="checks-note">
+				↩ Sent back by the studio before reaching you: {what}
 			</div>
 		);
 	}
