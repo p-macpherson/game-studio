@@ -154,7 +154,7 @@ function SubAgents({ root, sessions, typeName, onOpen }: { root: SessionSummary;
 							{c.error ? ` · ${c.error}` : ""}
 						</span>
 					</span>
-					{c.reviewRequested && <span className="badge review">Ready for review</span>}
+					{c.reviewRequested && <span className="badge badge-green">Ready for review</span>}
 				</button>
 				{kids(c.id).map((k) => row(k, depth + 1))}
 			</div>
@@ -326,7 +326,7 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 					<TargetBadge target={s.target} />
 					<span className="badge">{typeName}</span>
 					{s.reviewRequested && (
-						<button className="chip badge review" onClick={() => useStudio.getState().openReview(s.worktreeId)} title="Review what its worktree changed: look, listen, and send your notes back" data-testid="session-review">
+						<button className="chip badge badge-green" onClick={() => useStudio.getState().openReview(s.worktreeId)} title="Review what its worktree changed: look, listen, and send your notes back" data-testid="session-review">
 							Ready for review ›
 						</button>
 					)}

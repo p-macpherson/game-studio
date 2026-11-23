@@ -324,7 +324,7 @@ export function Review({ worktreeId }: { worktreeId: string }) {
 				{review?.requests.map((r) => (
 					<div key={r.sessionId} className="review-request" data-testid="review-request">
 						<div className="row">
-							<span className="badge review">Ready for review</span>
+							<span className="badge badge-green">Ready for review</span>
 							<b className="grow ellipsis">
 								{findAgentType(agentTypes, r.agentType)?.name ?? r.agentType}: {r.title}
 							</b>

@@ -18,7 +18,7 @@ function QueueChecks({ worktreeId }: { worktreeId: string }) {
 	if (!checks) return null;
 	const line = checksLine(checks);
 	return (
-		<span className={`badge ${line.ok === false ? "check-failed" : line.ok ? "review" : ""}`} data-testid="review-queue-checks">
+		<span className={`badge ${line.ok === false ? "check-failed" : line.ok ? "badge-green" : ""}`} data-testid="review-queue-checks">
 			{line.ok === false ? "✗" : line.ok ? "✓" : "⏳"} {line.text}
 		</span>
 	);
@@ -260,7 +260,7 @@ function WorktreeList() {
 							</span>
 						)}
 						{unloaded && <span className="badge">unloaded</span>}
-						{asking(w).length > 0 && <span className="badge review">Ready for review</span>}
+						{asking(w).length > 0 && <span className="badge badge-green">Ready for review</span>}
 					</div>
 					<div className="row muted small worktree-row-facts">
 						{f && <span title="Files it changed against main">{plural(f.changes, "change")}</span>}

@@ -445,7 +445,8 @@ a {
 .status-done .dot {
 	background: var(--green);
 }
-.badge.review {
+/* Not ".review": that's the Review page's own layout, and a badge with it stretched to fill its row. */
+.badge.badge-green {
 	color: var(--green);
 }
 .badge.target-engine {

@@ -210,8 +210,8 @@ export function Sessions() {
 								{revealed.has(s.id) ? `hide ${hidden}` : `${hidden} hidden`}
 							</button>
 						)}
-						{s.reviewRequested && <span className="badge review">Ready for review</span>}
-						{s.pendingQuestion && <span className="badge review">Question</span>}
+						{s.reviewRequested && <span className="badge badge-green">Ready for review</span>}
+						{s.pendingQuestion && <span className="badge badge-green">Question</span>}
 					</div>
 				</div>
 				{open && kids.map((k) => node(k, depth + 1))}
