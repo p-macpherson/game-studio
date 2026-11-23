@@ -1084,6 +1084,28 @@ try {
 	await page.getByTestId("composer").fill("");
 	await page.getByTestId("composer-grip").dblclick();
 	if ((await boxHeight()) !== boxBefore) throw new Error("double-clicking the divider should put the message box back");
+	// Enter to send, off for this session: Enter is a new line, and Ctrl+Shift+Enter sends.
+	await page.getByTestId("enter-to-send").uncheck();
+	await page.getByTestId("send-hint").getByText("Enter for a new line · Ctrl+Enter to send").waitFor();
+	await page.getByTestId("composer").click();
+	await page.keyboard.type("first line");
+	await page.keyboard.press("Enter");
+	await page.keyboard.type("second line");
+	if ((await page.getByTestId("composer").inputValue()) !== "first line\nsecond line") throw new Error(`with Enter to send off, Enter should start a new line, not leave “${await page.getByTestId("composer").inputValue()}”`);
+	await step("64d-enter-to-send-off", page);
+	await page.keyboard.press("Control+Shift+Enter");
+	await page.getByTestId("user-message").filter({ hasText: "second line" }).waitFor();
+	if ((await page.getByTestId("composer").inputValue()) !== "") throw new Error("Ctrl+Shift+Enter should send the message");
+	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
+	// Back on: Enter sends, and Shift+Enter is a new line.
+	await page.getByTestId("enter-to-send").check();
+	await page.getByTestId("composer").click();
+	await page.keyboard.type("sent with enter");
+	await page.keyboard.press("Shift+Enter");
+	await page.keyboard.type("on two lines");
+	await page.keyboard.press("Enter");
+	await page.getByTestId("user-message").filter({ hasText: "on two lines" }).waitFor();
+	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
 	// All worktrees: every session, in a section per worktree.
 	await page.getByTestId("sessions-all").click();
 	await page.getByTestId("session-section").nth(1).waitFor();

@@ -8,10 +8,37 @@ import { useStudio } from "../store";
 import { Chat, FullTranscript } from "./Chat";
 import { Markdown } from "./Markdown";
 import { loadDraft, saveDraft } from "../drafts";
+import { sendHint, sendsMessage, sessionEnterToSend, setSessionEnterToSend } from "../enter-to-send";
 import { StatusBadge, TargetBadge } from "./Sessions";
 import { useShallow } from "zustand/react/shallow";
 
 type Tab = "chat" | "transcript" | "subagents" | "raw";
+
+/**
+ * Whether Enter sends in this session's message boxes: its own choice (made with the toggle under the box, kept on
+ * this machine), else the default from Settings → General. `toggle` is that checkbox.
+ */
+function useEnterToSend(sessionId: string) {
+	const fallback = useStudio((s) => s.settings?.enterToSend ?? true);
+	const [own, setOwn] = useState(() => sessionEnterToSend(sessionId));
+	useEffect(() => setOwn(sessionEnterToSend(sessionId)), [sessionId]);
+	const on = own ?? fallback;
+	const toggle = (
+		<label className="row enter-to-send" title="On: Enter sends, Shift+Enter starts a new line. Off: Enter starts a new line. Ctrl+Enter (and Ctrl+Shift+Enter) always sends. Remembered for this session; the default for new ones is in Settings → General.">
+			<input
+				type="checkbox"
+				checked={on}
+				onChange={(e) => {
+					setSessionEnterToSend(sessionId, e.target.checked);
+					setOwn(e.target.checked);
+				}}
+				data-testid="enter-to-send"
+			/>
+			Enter to send
+		</label>
+	);
+	return { on, toggle };
+}
 
 const COMPOSER_MIN = 60;
 const COMPOSER_KEY = "composer-height";
@@ -82,6 +109,7 @@ function QuestionCard({ sessionId, question, busy, onAnswer }: { sessionId: stri
 		saveDraft(draftKey, text);
 	};
 	const box = useRef<HTMLTextAreaElement>(null);
+	const enter = useEnterToSend(sessionId);
 	const options = question.options ?? [];
 	const send = () => {
 		const text = answer.trim();
@@ -142,7 +170,7 @@ function QuestionCard({ sessionId, question, busy, onAnswer }: { sessionId: stri
 					value={answer}
 					onChange={(e) => setAnswer(e.target.value)}
 					onKeyDown={(e) => {
-						if (e.key === "Enter" && !e.shiftKey) {
+						if (sendsMessage({ key: e.key, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, isComposing: e.nativeEvent.isComposing }, enter.on)) {
 							e.preventDefault();
 							send();
 						}
@@ -150,9 +178,12 @@ function QuestionCard({ sessionId, question, busy, onAnswer }: { sessionId: stri
 					data-testid="question-answer"
 				/>
 				<div className="row">
-					<span className="muted grow" style={{ fontSize: 12 }}>
-						{options.length > 0 && answer.trim() && !options.some((o) => o.trim() === answer.trim()) ? "Your own wording · " : ""}
-						Enter to send · Shift+Enter for a new line
+					<span className="row muted grow composer-hint">
+						{enter.toggle}
+						<span>
+							{options.length > 0 && answer.trim() && !options.some((o) => o.trim() === answer.trim()) ? "Your own wording · " : ""}
+							{sendHint(enter.on)}
+						</span>
 					</span>
 					{answer && (
 						<button className="ghost" onClick={() => setAnswer("")}>
@@ -312,6 +343,7 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 
 	const pasted = usePastedImages(s.id);
 	const composer = useComposerHeight();
+	const enter = useEnterToSend(s.id);
 	const send = (mode?: PromptMode) => {
 		const text = draft.trim();
 		if (!text && !pasted.images.length) return;
@@ -505,15 +537,16 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 						value={draft}
 						onChange={(e) => setDraft(e.target.value)}
 						onKeyDown={(e) => {
-							if (e.key === "Enter" && !e.shiftKey) {
+							if (sendsMessage({ key: e.key, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, isComposing: e.nativeEvent.isComposing }, enter.on)) {
 								e.preventDefault();
 								send();
 							}
 						}}
 					/>
 					<div className="row">
-						<span className="muted grow" style={{ fontSize: 12 }}>
-							Enter to send · Shift+Enter for a new line · paste or drop images
+						<span className="row muted grow composer-hint">
+							{enter.toggle}
+							<span data-testid="send-hint">{sendHint(enter.on)} · paste or drop images</span>
 						</span>
 						{running && (
 							<button disabled={!draft.trim() && !pasted.images.length} onClick={() => send("steer")} title="Deliver after the current tool call">

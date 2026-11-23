@@ -93,6 +93,29 @@ function GeneralSettings() {
 					</button>
 				</div>
 			</div>
+			<div className="card">
+				<h3>Sessions</h3>
+				<label className="row" style={{ gap: 8 }}>
+					<input
+						type="checkbox"
+						checked={settings?.enterToSend ?? true}
+						onChange={async (e) => {
+							try {
+								await call("settings.update", { enterToSend: e.target.checked });
+								await refresh();
+							} catch (err) {
+								showError(err);
+							}
+						}}
+						data-testid="settings-enter-to-send"
+					/>
+					Enter sends a message
+				</label>
+				<small className="muted">
+					The default for new sessions: on, Enter sends and Shift+Enter starts a new line; off, Enter starts a new line. Ctrl+Enter (and Ctrl+Shift+Enter) always sends. Each session
+					has its own toggle under its message box, and keeps the choice made there.
+				</small>
+			</div>
 			<UpdatesCard />
 			<AssetGeneration />
 			<div className="card">

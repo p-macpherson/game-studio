@@ -993,6 +993,17 @@ a {
 	resize: none;
 	min-height: 60px;
 }
+.composer-hint {
+	font-size: 12px;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+.enter-to-send {
+	gap: 5px;
+	cursor: pointer;
+	color: var(--text);
+	white-space: nowrap;
+}
 /* The divider above the message box: drag it to give the box more (or less) of the window. */
 .composer-grip {
 	position: absolute;

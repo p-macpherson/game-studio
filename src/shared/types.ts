@@ -136,6 +136,8 @@ export interface Settings {
 	lastProject?: string;
 	/** Settings → Agents: per agent type (by id), the models chosen here in place of what its AGENT.md says. */
 	agentModels?: Record<string, AgentModelSettings>;
+	/** Settings → General: whether Enter sends a message in a session that hasn't chosen for itself (absent: yes). */
+	enterToSend?: boolean;
 }
 
 export interface AgentModelSettings {
