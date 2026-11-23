@@ -5,6 +5,7 @@ import { type KeyboardEvent, type MouseEvent, type WheelEvent, useEffect, useRef
 import { type CheckoutId, type CheckoutInfo, type Diagnostic, MAX_RUN_PLAYERS, type RunInfo, type TestReport } from "../../shared/run";
 import { call } from "../api";
 import { testKey, useStudio } from "../store";
+import { ScenarioPicker } from "./Scenarios";
 import { useShallow } from "zustand/react/shallow";
 
 const STATE_LABEL: Record<RunInfo["state"], string> = {
@@ -208,6 +209,7 @@ function RunPanel() {
 
 	return (
 		<div className="run-panel">
+			<ScenarioPicker />
 			<div className="run-controls row">
 				<button className="primary" disabled={busy} onClick={() => startRun("hidden")} title="Build, then run hidden and stream it here">
 					▶ Run in studio

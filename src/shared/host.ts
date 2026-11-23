@@ -101,6 +101,7 @@ export type StudioRequestMethod =
 	| "edit_scene"
 	| "preview_scene"
 	| "capture_clip"
+	| "check_scenario"
 	| "generate_sound"
 	| "render_sound"
 	| "generate_voice"

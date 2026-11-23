@@ -1317,6 +1317,45 @@ try {
 	await page.getByRole("button", { name: "Appearance", exact: true }).click();
 	await page.locator("[data-testid=theme-card][data-theme-id=simple-dark]").click();
 	await page.getByTestId("font-option").filter({ hasText: "System" }).first().click();
+	// Play scenarios: a scenario file shows in its section with its parameters; playing it starts the game that way.
+	await selectMain(page);
+	mkdirSync(join(projectPath, "scenarios"), { recursive: true });
+	writeFileSync(
+		join(projectPath, "scenarios/sandbox.json"),
+		JSON.stringify({
+			title: "Cube sandbox",
+			description: "The starter scene with a marker dropped in, for trying things beside the cube.",
+			notes: "Walk to the marker. It should sit above the ground at the height you set.",
+			flags: { biome: "{environment}", seed: "{seed}" },
+			setup: [{ cmd: "spawn", name: "Marker_{environment}", position: [0, "{height}", 0] }],
+			params: [
+				{ id: "environment", label: "Environment", type: "choice", options: ["forest", "desert"] },
+				{ id: "height", label: "Marker height", type: "number", default: 2, min: 0, max: 10 },
+				{ id: "seed", label: "Terrain seed", type: "number", default: 1, min: 0, max: 99999, random: true },
+			],
+		}),
+	);
+	await nav.getByRole("button", { name: "Scenarios" }).click();
+	await page.getByText("Cube sandbox").first().click();
+	await page.getByTestId("scenario-detail").waitFor();
+	await page.locator("[data-testid=scenario-param][data-param=environment] select").selectOption("desert");
+	await page.getByTestId("scenario-launch").getByText('"name":"Marker_desert"').waitFor();
+	await page.getByTestId("scenario-launch").getByText("--biome=desert --seed=1").waitFor();
+	await step("86-scenario", page);
+	await page.getByTestId("scenario-play").click();
+	await page.getByTestId("run-state").getByText("Running").waitFor({ timeout: 90_000 });
+	if ((await page.getByTestId("scenario-select").inputValue()) !== "scenarios/sandbox.json") throw new Error("Play & Test should show the scenario it started");
+	for (let i = 0; !JSON.stringify(await page.evaluate(() => window.studio.call("run.call", "entities", {})).catch(() => "")).includes("Marker_desert"); i++) {
+		if (i > 50) throw new Error("the scenario's setup didn't reach the game");
+		await page.waitForTimeout(200);
+	}
+	await page.waitForTimeout(600);
+	await step("87-scenario-playing", page);
+	await page.evaluate(() => window.studio.call("run.stop"));
+	await page.getByTestId("run-state").getByText("Stopped").waitFor();
+	await page.getByTestId("scenario-select").selectOption("");
+	rmSync(join(projectPath, "scenarios"), { recursive: true });
+
 	// Review: a session asks for review; its worktree joins the queue; the Review page shows what it changed as a card,
 	// and a "needs work" note goes back to the session as one message.
 	const until = async (what: string, check: () => Promise<boolean>) => {

@@ -11,6 +11,7 @@ import { SoundsView } from "../modules/sounds/view";
 import { VoicesView } from "../modules/voices/view";
 import { TexturesView } from "../modules/textures/view";
 import { UiView } from "../modules/ui/view";
+import { ScenariosView } from "../modules/scenarios/view";
 import type { ModuleInfo } from "../shared/modules";
 
 export const MODULE_VIEWS: Record<string, ComponentType<{ module: ModuleInfo }>> = {
@@ -25,4 +26,5 @@ export const MODULE_VIEWS: Record<string, ComponentType<{ module: ModuleInfo }>>
 	voices: VoicesView,
 	textures: TexturesView,
 	ui: UiView,
+	scenarios: ScenariosView,
 };

@@ -43,6 +43,8 @@ export interface RunInfo {
 	 * multiplayer, `--host`), the others join it over the loopback address. Absent for an ordinary run.
 	 */
 	players?: RunPlayer[];
+	/** Set when the game was started as a scenario: which, and the parameter values used. */
+	scenario?: { path: string; title: string; values: Record<string, string | number | boolean> };
 	/** Set for the Scenes editor's run: the scene (assets-relative) shown paused, with the game's UI hidden. */
 	scene?: string;
 	/** Set for the UI section's run: the screen (assets/ui/<screen>.json) shown alone over the game, paused. */
@@ -73,6 +75,8 @@ export const MAX_RUN_PLAYERS = 4;
 export interface RunOptions {
 	/** Start this many copies of the game (2 to MAX_RUN_PLAYERS): the first hosts, the rest join it. Play & Test only. */
 	players?: number;
+	/** Start the game as a scenario says (scenarios/<name>.json in the checkout), with these parameter values (defaults where absent). */
+	scenario?: { path: string; values?: Record<string, unknown> };
 	/** Open this scene or prefab (assets-relative) paused, as the Scenes editor's live view. */
 	scene?: string;
 	/** Open the game paused with only this UI screen shown (the UI section's live view). */

@@ -11,6 +11,7 @@ import { delegateModel, delegateOptions } from "../shared/agent-models";
 import type { DelegateTarget, HostEvent, PromptMode, StudioRequestMethod } from "../shared/host";
 import type { StudioEvent } from "../shared/ipc";
 import { RESUME_NOTE } from "../shared/types";
+import { SCENARIO_DIR } from "../shared/scenario";
 import type { AgentTypeInfo, ContextUsage, GitCommit, NewSessionRequest, PendingQuestion, SessionRecord, SessionSummary, Settings, Target, WorktreeRecord, WorktreeSummary } from "../shared/types";
 import { findAgentType } from "../shared/agents";
 import * as g from "./git";
@@ -1290,7 +1291,7 @@ export class SessionService {
 					r.reviewLookAt = list(event.params.lookAt);
 					// Only pictures that exist in its checkout, as with a question's.
 					const startHere = (event.params.startHere ?? "").replace(/^\.?\//, "");
-					r.reviewStartHere = startHere.endsWith(".jsonl") && !startHere.includes("..") && existsSync(join(this.worktreePath(e), startHere)) ? startHere : undefined;
+					r.reviewStartHere = (startHere.endsWith(".jsonl") || (startHere.startsWith(`${SCENARIO_DIR}/`) && startHere.endsWith(".json"))) && !startHere.includes("..") && existsSync(join(this.worktreePath(e), startHere)) ? startHere : undefined;
 					queueMicrotask(() => this.deps.reviewRequested?.(this.summary(e)));
 					r.reviewImages = list(event.params.images).map((p) => p.replace(/^\.?\//, "")).filter((p) => /\.(png|jpe?g|webp|webm)$/i.test(p) && existsSync(join(this.worktreePath(e), p)));
 					r.reviewRequestedAt = new Date().toISOString();

@@ -5,7 +5,7 @@ targets: [project]
 defaultModel: anthropic/claude-sonnet-5-5
 models: [anthropic/claude-opus-5-5]
 thinking: medium
-skills: [odin-build, engine-control, multiplayer, delegation, studio-git, ui-design]
+skills: [odin-build, engine-control, multiplayer, delegation, studio-git, ui-design, scenarios]
 delegatesTo: [art-director, audio-director, engine-engineer]
 designDocs: [design-pillars, gameplay-loop, progression, technical-direction]
 ---
@@ -31,3 +31,10 @@ task contradicts them, and where a doc isn't established follow its "For now" gu
 When the game needs a model, art or a sound that doesn't exist, delegate it (Art Director, Audio Director) instead
 of using a placeholder silently; an engine feature or fix goes to the Engine Engineer, in the engine's repo (the
 game gets it when its engine is updated). See the **delegation** skill.
+
+## Play scenarios
+The user plays and tests through **scenarios** (`scenarios/<name>.json`: a way to start the game somewhere useful, with
+parameters they set; the **scenarios** skill has the format). When what you made takes a player more than a few seconds
+to reach, or is worth trying in several conditions, make or update a scenario for it, check it with `check_scenario`,
+prove it starts, and give it as `start_here` when you call `request_review`. When you rename something a scenario uses
+(a marker, a console command, a scene, a flag), fix the scenario in the same change.

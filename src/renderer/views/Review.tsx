@@ -280,6 +280,11 @@ export function Review({ worktreeId }: { worktreeId: string }) {
 	/** Play & Test, with the game brought to the moment the agent set up. */
 	const playFrom = (script: string) => {
 		play();
+		// A scenario: Play & Test starts it with its saved (or default) values, and shows its parameters.
+		if (script.endsWith(".json")) {
+			useStudio.getState().setPlayScenario(script);
+			return void useStudio.getState().startRun("hidden");
+		}
 		call("run.startAt", worktreeId, script).then((r) => {
 			const first = r.failed[0];
 			useStudio.getState().notify(first ? `Started, but ${script} line ${first.line} failed: ${first.error}` : `Started at the moment set up by ${script}`);

@@ -27,7 +27,7 @@ import { ReleaseService, releaseRequests } from "./release-service";
 import { UpdateService } from "./updates";
 import { openInStudioRequests } from "./open-in-studio";
 import { gatherSessionAssets } from "./session-assets";
-import { gatherReview, reviewRequests } from "./review";
+import { gatherReview, reviewRequests, scenarioRequests } from "./review";
 import { ReviewCheckService } from "./review-checks";
 import { StyleCheckService } from "./style-check";
 import { STYLE_REVIEWER, checksMessage } from "../shared/review";
@@ -124,6 +124,7 @@ async function main(): Promise<void> {
 		assetRequests(moduleInfos),
 		designDocRequests(),
 		reviewRequests((sessionId, p) => runner.captureClip(sessionId, p)),
+		scenarioRequests(),
 		releaseRequests(() => release, () => project?.name ?? "Game"),
 		openInStudioRequests(moduleInfos, (id, path) => sessions.adoptLinkedAsset(id, path)),
 	);

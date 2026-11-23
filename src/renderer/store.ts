@@ -128,6 +128,9 @@ interface State {
 	/** How many copies of the game Play & Test starts (1: an ordinary run). */
 	playPlayers: number;
 	setPlayPlayers(n: number): void;
+	/** The scenario Play & Test starts the game as (its path), or null: the game from its start. */
+	playScenario: string | null;
+	setPlayScenario(path: string | null): void;
 	testReports: Record<string, TestReport>;
 	testsRunning: string[];
 
@@ -171,6 +174,17 @@ async function historyStep(command: "undo" | "redo"): Promise<void> {
 		s.showError(err);
 	}
 	await useStudio.getState().refreshHistory();
+}
+
+/** The parameter values last used for a scenario in this project (kept on this machine). */
+export const scenarioValuesKey = (project: string | undefined, path: string) => `scenario-values:${project ?? ""}:${path}`;
+export function savedScenarioValues(project: string | undefined, path: string): Record<string, unknown> {
+	try {
+		const v: unknown = JSON.parse(localStorage.getItem(scenarioValuesKey(project, path)) ?? "{}");
+		return v && typeof v === "object" ? (v as Record<string, unknown>) : {};
+	} catch {
+		return {};
+	}
 }
 
 export const useStudio = create<State>((set, get) => ({
@@ -229,6 +243,8 @@ export const useStudio = create<State>((set, get) => ({
 	frame: null,
 	peerFrames: {},
 	playPlayers: Math.max(1, Math.min(MAX_RUN_PLAYERS, Number(localStorage.getItem("play-players")) || 1)),
+	playScenario: null,
+	setPlayScenario: (path) => set({ playScenario: path }),
 	setPlayPlayers(n) {
 		localStorage.setItem("play-players", String(n));
 		set({ playPlayers: n });
@@ -328,7 +344,13 @@ export const useStudio = create<State>((set, get) => ({
 		const checkout = get().playCheckout;
 		try {
 			if (mode === "build") await call("run.build", checkout);
-			else await call("run.start", checkout, mode, get().playPlayers > 1 ? { players: get().playPlayers } : undefined);
+			else {
+				const scenario = get().playScenario;
+				await call("run.start", checkout, mode, {
+					...(get().playPlayers > 1 ? { players: get().playPlayers } : {}),
+					...(scenario ? { scenario: { path: scenario, values: savedScenarioValues(get().project?.path, scenario) } } : {}),
+				});
+			}
 		} catch (err) {
 			get().showError(err);
 		}

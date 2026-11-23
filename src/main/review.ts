@@ -1,9 +1,11 @@
 // What the Review page shows for a worktree (shared/review.ts does the working out): its changed files grouped under
 // the assets they belong to, each with a file that stands for it now and in main, the session that made it, and
 // the sessions asking for review.
+import { existsSync, readFileSync } from "node:fs";
 import type { ModuleInfo } from "../shared/modules";
+import { SCENARIO_DIR, parseScenario, resolveScenario } from "../shared/scenario";
 import { STYLE_REVIEWER, type WorktreeReview, groupChanges } from "../shared/review";
-import { type AssetService, MODULES } from "./assets";
+import { type AssetService, MODULES, safeJoin } from "./assets";
 import { gatherSessionAssets, previewOf } from "./session-assets";
 import type { SessionService } from "./sessions";
 import { type StudioRequestHandlers, handler } from "./studio-requests";
@@ -11,6 +13,22 @@ import { type StudioRequestHandlers, handler } from "./studio-requests";
 /** Agents' tools for a review's evidence: `capture_clip` films the game (see RunService.captureClip). */
 export function reviewRequests(capture: (sessionId: string, params: { name?: string; script?: string; seconds?: number; fps?: number }) => Promise<unknown>): StudioRequestHandlers {
 	return { capture_clip: handler((ctx, p: { name?: string; script?: string; seconds?: number; fps?: number }) => capture(ctx.sessionId, p)) };
+}
+
+/** Agents' `check_scenario`: what is wrong with a scenario file, or what starting it (with these values) comes to. */
+export function scenarioRequests(): StudioRequestHandlers {
+	return {
+		check_scenario: handler((ctx, p: { path?: string; values?: Record<string, unknown> }) => {
+			const path = String(p.path ?? "").replace(/^\.?\//, "");
+			if (!path.startsWith(`${SCENARIO_DIR}/`) || !path.endsWith(".json")) throw new Error(`A scenario is ${SCENARIO_DIR}/<name>.json`);
+			const file = safeJoin(ctx.cwd, path);
+			if (!existsSync(file)) throw new Error(`There's no ${path}`);
+			const { scenario, problems } = parseScenario(readFileSync(file, "utf8"));
+			if (!scenario || problems.length) return { ok: false, problems };
+			const launch = resolveScenario(scenario, p.values ?? {});
+			return { ok: true, title: scenario.title, values: launch.values, args: launch.args, setup: launch.setup.map((c) => ({ cmd: c.cmd, ...c.args })) };
+		}),
+	};
 }
 
 export async function gatherReview(worktreeId: string, sessions: SessionService, assets: AssetService, checkoutRoot: (checkout: string | null) => string): Promise<WorktreeReview> {

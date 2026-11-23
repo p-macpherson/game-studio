@@ -202,6 +202,35 @@ describe.skipIf(!existsSync(join(engineRepo, "third_party/lib")))("RunService", 
 		await expect(runner.captureClip(null, { name: "  " })).rejects.toThrow("Give the clip a name");
 	}, 90_000);
 
+	it("starts the game as a scenario: its flags and scene on the command line, its setup sent once it runs", async () => {
+		mkdirSync(join(project, "scenarios"), { recursive: true });
+		writeFileSync(
+			join(project, "scenarios/sandbox.json"),
+			JSON.stringify({
+				title: "Sandbox",
+				flags: { biome: "{environment}" },
+				setup: [{ cmd: "spawn", name: "Marker_{environment}", position: [0, "{height}", 0] }, { cmd: "no_such_command" }],
+				params: [
+					{ id: "environment", type: "choice", options: ["forest", "desert"] },
+					{ id: "height", type: "number", default: 2 },
+				],
+			}),
+		);
+		const before = events.length;
+		const info = await runner.start(null, "hidden", { scenario: { path: "scenarios/sandbox.json", values: { environment: "desert" } } });
+		expect(info).toMatchObject({ state: "running", scenario: { path: "scenarios/sandbox.json", title: "Sandbox", values: { environment: "desert", height: 2 } } });
+		const entities = (await runner.call("entities")) as { entities?: { name: string }[] } | { name: string }[];
+		expect(JSON.stringify(entities)).toContain("Marker_desert");
+		// A setup command the game doesn't know is reported in the run's output, and the game keeps running.
+		const output = events.slice(before).flatMap((e) => (e.type === "run_output" ? [e.text] : [])).join("");
+		expect(output).toContain('scenario setup: {"cmd":"no_such_command"} failed');
+		await runner.stop();
+		// A broken file stops before anything is built.
+		writeFileSync(join(project, "scenarios/broken.json"), JSON.stringify({ title: "Broken", flags: { mode: "window" } }));
+		await expect(runner.start(null, "hidden", { scenario: { path: "scenarios/broken.json" } })).rejects.toThrow('The flag "mode" is set by the studio');
+		rmSync(join(project, "scenarios"), { recursive: true });
+	}, 90_000);
+
 	it("reports compiler errors on a failed build", async () => {
 		writeFileSync(join(project, "game/broken.odin"), "package game\n\nbroken :: proc() {\n\tx := undefined_thing\n}\n");
 		try {

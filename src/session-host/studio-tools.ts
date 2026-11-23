@@ -188,6 +188,24 @@ export function studioTools(ctx: StudioToolContext) {
 			},
 		}),
 		defineTool({
+			name: "check_scenario",
+			label: "Check a play scenario",
+			description:
+				"Check a play scenario file (scenarios/<name>.json; read the scenarios skill for the format): lists what is wrong with it, or, when nothing is, what starting " +
+				"it comes to with its default parameter values (or the `values` you give): the game's extra arguments and the control commands sent once it runs.",
+			parameters: Type.Object({
+				path: Type.String({ description: "e.g. scenarios/sandbox/rope.json" }),
+				values: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: "Parameter values to try, by id" })),
+			}),
+			async execute(_id, params, signal, onUpdate) {
+				const r = (await ctx.request("check_scenario", params, signal, progressTo(onUpdate))) as { ok: boolean; problems?: string[]; title?: string; values?: unknown; args?: string[]; setup?: unknown[] };
+				if (!r.ok) return ok(`The scenario can't be played until these are fixed:\n${(r.problems ?? []).map((p) => `- ${p}`).join("\n")}`);
+				return ok(
+					[`"${r.title}" is well-formed.`, `Values: ${JSON.stringify(r.values)}`, `Game arguments: ${r.args?.length ? r.args.join(" ") : "(none)"}`, `Setup commands:${r.setup?.length ? `\n${r.setup.map((c) => JSON.stringify(c)).join("\n")}` : " (none)"}`, "This checks the file, not the game: run the launch to prove it works."].join("\n"),
+				);
+			},
+		}),
+		defineTool({
 			name: "capture_clip",
 			label: "Film the game for review",
 			description:
@@ -606,13 +624,14 @@ export function studioTools(ctx: StudioToolContext) {
 				"worktree changed; what you give here is shown at its top, so make it easy to judge without running anything: a short summary of what changed, " +
 				"`look_at` (the few things to check or try, each one line: where to go in the game, what should happen), and `images` as proof where pictures say it " +
 				"(screenshots or renders you made of the change, before and after when you have both; build/ paths are fine). When the change is somewhere a player takes time to " +
-				"reach, give `start_here`: a control script you committed (one JSON command per line, like a test, e.g. tests/review/cave-door.jsonl) that takes the game from " +
-				"its start to that moment (load the scene, teleport, set what's needed, wait); the user's Play button runs it and then they play on. State test results in the summary.",
+				"reach, give `start_here`: a play scenario (scenarios/<name>.json, see the scenarios skill: best when it's worth keeping) or a control script you committed " +
+				"(one JSON command per line, like a test, e.g. tests/review/cave-door.jsonl) that takes the game from its start to that moment; the user's Play button " +
+				"starts the game that way and then they play on. State test results in the summary.",
 			parameters: Type.Object({
 				summary: Type.String(),
 				look_at: Type.Optional(Type.Array(Type.String(), { description: "What to check or try, one line each" })),
 				images: Type.Optional(Type.Array(Type.String(), { description: "Paths relative to the repo root: pictures (e.g. build/review/after-cave.png) and clips from capture_clip (.webm)" })),
-				start_here: Type.Optional(Type.String({ description: "A committed control script (.jsonl) that brings the game to the moment to look at" })),
+				start_here: Type.Optional(Type.String({ description: "A scenario (scenarios/<name>.json) or a committed control script (.jsonl) that brings the game to the moment to look at" })),
 			}),
 			async execute(_id, { summary, look_at, images, start_here }) {
 				tool("request_review", { summary, lookAt: JSON.stringify(look_at ?? []), images: JSON.stringify(images ?? []), startHere: start_here ?? "" });
@@ -651,7 +670,7 @@ export function studioTools(ctx: StudioToolContext) {
 		}),
 	];
 	// Every session talks to the studio; the rest (generation, renders, previews) only where its type allows.
-	const always = new Set(["set_session_title", "request_review", "open_in_studio", "ask_user", "delegate", "capture_clip"]);
+	const always = new Set(["set_session_title", "request_review", "open_in_studio", "ask_user", "delegate", "capture_clip", "check_scenario"]);
 	const allowed = ctx.studioTools ? tools.filter((t) => always.has(t.name) || ctx.studioTools!.includes(t.name)) : tools;
 	// Studio tools read what the agent's other tools write (render_sound reads sound.json): a turn that writes a file
 	// and renders it must not run the two at once, so any of these makes Pi run that turn's calls one by one.

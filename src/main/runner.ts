@@ -23,6 +23,7 @@ import {
 	scriptCommands,
 } from "../shared/run";
 import { parseScene, type SceneEntity, validateScene } from "../shared/scene";
+import { SCENARIO_DIR, type ScenarioLaunch, parseScenario, resolveScenario } from "../shared/scenario";
 import { safeJoin, walk } from "./assets";
 import { effectTextures, parseEffect } from "../shared/effect";
 import { parseShader, type ShaderInfo, shaderPath, validateShaderParams } from "../shared/shader";
@@ -181,6 +182,16 @@ export function runArgs(mode: RunMode, port: number, options: RunOptions = {}): 
 	return args;
 }
 
+/** Reads a scenario from a checkout and resolves it with the values given; throws with what's wrong with the file. */
+export function loadScenario(cwd: string, path: string, values?: Record<string, unknown>): { title: string; launch: ScenarioLaunch } {
+	if (!path.startsWith(`${SCENARIO_DIR}/`) || !path.endsWith(".json")) throw new Error(`${path} isn't a scenario (${SCENARIO_DIR}/<name>.json)`);
+	const file = safeJoin(cwd, path);
+	if (!existsSync(file)) throw new Error(`There's no scenario ${path} in this checkout`);
+	const { scenario, problems } = parseScenario(readFileSync(file, "utf8"));
+	if (!scenario || problems.length) throw new Error(`The scenario ${path} can't be played:\n${problems.map((p) => `- ${p}`).join("\n")}`);
+	return { title: scenario.title, launch: resolveScenario(scenario, values) };
+}
+
 const hooks = (info: ShaderInfo) => ({ vertex: info.hasVertex, surface: info.hasSurface, depth_fade: info.usesDepth, bounds: info.bounds });
 
 export class RunService {
@@ -230,6 +241,8 @@ export class RunService {
 
 	private async begin(sessionId: CheckoutId, mode: RunMode | null, options: RunOptions = {}): Promise<RunInfo> {
 		const co = this.checkout(sessionId);
+		// A scenario that can't be read stops here, before anything is built or stopped.
+		const scenario = options.scenario ? loadScenario(co.cwd, options.scenario.path, options.scenario.values) : null;
 		await this.stop();
 		const run: ActiveRun = {
 			info: {
@@ -241,6 +254,7 @@ export class RunService {
 				diagnostics: [],
 				startedAt: new Date().toISOString(),
 				scene: options.scene,
+				...(scenario ? { scenario: { path: options.scenario!.path, title: scenario.title, values: scenario.launch.values } } : {}),
 				screen: options.screen,
 				shader: options.shader?.name,
 				effect: options.effect?.name,
@@ -266,6 +280,7 @@ export class RunService {
 
 		const port = await freePort();
 		const args = runArgs(mode, port, options);
+		if (scenario) args.push(...scenario.launch.args);
 		// Multiplayer: this copy hosts; the others join it once it runs (below). Only the plain game, not a section's view.
 		const players = isEditorRun(run.info) ? 1 : Math.max(1, Math.min(MAX_RUN_PLAYERS, Math.floor(options.players ?? 1)));
 		const gamePort = players > 1 ? await freePort() : 0;
@@ -333,6 +348,11 @@ export class RunService {
 		if (run.info.players) run.info.players[0] = { ...run.info.players[0], state: "running" };
 		this.changed(run);
 		if (mode === "hidden") void this.pumpFrames(run, run.client, 0);
+		// The scenario's setup, once the game answers: a command that fails is reported and the rest still run.
+		for (const c of scenario?.launch.setup ?? []) {
+			if (this.run !== run || run.info.state !== "running") break;
+			await run.client.call(c.cmd, c.args).catch((err: Error) => this.output(run, `scenario setup: ${JSON.stringify({ cmd: c.cmd, ...c.args })} failed: ${err.message}\n`));
+		}
 		for (let index = 1; index < players; index++) await this.join(run, co, mode, index, gamePort);
 		return run.info;
 	}

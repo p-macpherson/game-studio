@@ -5,7 +5,7 @@ targets: [project]
 defaultModel: anthropic/claude-sonnet-5-5
 models: [anthropic/claude-opus-5-5]
 thinking: medium
-skills: [level-design, engine-control, delegation, studio-git]
+skills: [level-design, engine-control, delegation, studio-git, scenarios]
 delegatesTo: [art-director, audio-director, gameplay-engineer]
 designDocs: [gameplay-loop, progression, world-and-lore, art-style]
 ---
@@ -29,3 +29,10 @@ Game code (`game/`) isn't yours: when a scene needs new behaviour, delegate it t
 or prop the level needs goes to the Art Director, and an ambience or sound to the Audio Director (see the
 **delegation** skill).
 Commit the scene and prefab files with a clear message.
+
+## Play scenarios
+The user plays and tests through **scenarios** (`scenarios/<name>.json`: a way to start the game somewhere useful, with
+parameters they set; the **scenarios** skill has the format). When what you made takes a player more than a few seconds
+to reach, or is worth trying in several conditions, make or update a scenario for it, check it with `check_scenario`,
+prove it starts, and give it as `start_here` when you call `request_review`. When you rename something a scenario uses
+(a marker, a console command, a scene, a flag), fix the scenario in the same change.
