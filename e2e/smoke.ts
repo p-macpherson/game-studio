@@ -51,7 +51,8 @@ writeFileSync(
 		engineRepo,
 		studioRepo,
 		worktreeRoot: join(root, "worktrees"),
-		recentProjects: [],
+		// A project that's gone, remembered twice the way older studios did (with and without a trailing slash).
+		recentProjects: [`${join(root, "old-game")}/`, join(root, "old-game")],
 	}),
 );
 
@@ -104,6 +105,17 @@ try {
 	await page.getByRole("button", { name: "Create project" }).click();
 	await page.locator(".project-name", { hasText: "E2E Game" }).waitFor({ timeout: 60_000 });
 	await step("01-project", page);
+	// The project menu: the open project, and the remembered one once (it's gone, so it can only be taken off the list).
+	await page.getByTestId("project-current").click();
+	const projectRows = page.getByTestId("project-menu").getByTestId("project-row");
+	await projectRows.filter({ hasText: "old-game" }).getByText("not found").waitFor();
+	if ((await projectRows.count()) !== 2) throw new Error(`the project menu should list the open project and old-game once, not ${await projectRows.count()} rows`);
+	await projectRows.filter({ hasText: "old-game" }).hover();
+	await step("01a-project-menu", page);
+	await projectRows.filter({ hasText: "old-game" }).getByTestId("project-forget").click();
+	await projectRows.filter({ hasText: "old-game" }).waitFor({ state: "detached" });
+	await page.keyboard.press("Escape");
+	await page.getByTestId("project-menu").waitFor({ state: "detached" });
 
 	// New Session can show the agent types as the delegation graph: a node picks the type.
 	await page.getByRole("button", { name: "+ New session" }).click();

@@ -20,6 +20,7 @@ import type {
 	ModelInfo,
 	NewSessionRequest,
 	ProjectInfo,
+	RecentProject,
 	ProviderInfo,
 	SessionSummary,
 	Settings,
@@ -40,6 +41,10 @@ export interface StudioApi {
 	/** Creates a project from the template in an empty folder or empty repo. */
 	"project.create"(path: string, name: string): Promise<ProjectInfo>;
 	"project.close"(): Promise<void>;
+	/** The projects opened lately, newest first, each with its game's name and whether its folder is still a project. */
+	"project.recent"(): Promise<RecentProject[]>;
+	/** Takes a project off that list (its folder isn't touched). */
+	"project.forget"(path: string): Promise<void>;
 	"dialog.pickFolder"(title: string): Promise<string | null>;
 
 	"git.status"(target: Target): Promise<GitStatus>;

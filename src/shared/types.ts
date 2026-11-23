@@ -167,6 +167,11 @@ export interface ProjectInfo {
 	name: string;
 }
 
+/** A project on the recent list: its game's name (the folder's when it can't be read) and whether it's still there. */
+export interface RecentProject extends ProjectInfo {
+	exists: boolean;
+}
+
 export interface GitFileStatus {
 	path: string;
 	/** Porcelain XY codes: index (staged) and worktree (unstaged); `?` for untracked. */

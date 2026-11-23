@@ -1,5 +1,5 @@
 import { existsSync, type FSWatcher, readFileSync, watch } from "node:fs";
-import { join, resolve, sep } from "node:path";
+import { basename, join, resolve, sep } from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 import { leafName } from "../shared/asset-names";
 import { EditHistory } from "./edit-history";
@@ -37,7 +37,7 @@ import { UiArtPipeline, uiRequests } from "./ui";
 import { texturePaths } from "../modules/textures/info";
 import { RunService, type SceneView } from "./runner";
 import { SessionService } from "./sessions";
-import { SettingsStore } from "./settings";
+import { SettingsStore, projectPath } from "./settings";
 import { registerStudioFileScheme, serveStudioFiles } from "./studio-files";
 import { openTerminal } from "./terminal";
 
@@ -245,10 +245,22 @@ async function main(): Promise<void> {
 		"project.current": async () => project,
 		"project.open": async (path) => {
 			const dir = path ?? (await pickFolder("Open game project"));
-			return dir ? setProject(readProject(dir)) : null;
+			return dir ? setProject(readProject(projectPath(dir))) : null;
+		},
+		"project.recent": async () =>
+			settings.get().recentProjects.map((path) => {
+				try {
+					return { path, name: readProject(path).name, exists: true };
+				} catch {
+					// Moved, deleted, or no longer a project: still listed, so it can be taken off the list.
+					return { path, name: basename(path), exists: false };
+				}
+			}),
+		"project.forget": async (path) => {
+			settings.forgetProject(path);
 		},
 		"project.create": async (path, name) => {
-			const info = await createProject({ path, name, templateDir: join(appRoot, "templates/game"), engineRepo: settings.get().engineRepo });
+			const info = await createProject({ path: projectPath(path), name, templateDir: join(appRoot, "templates/game"), engineRepo: settings.get().engineRepo });
 			setProject(info);
 			return info;
 		},

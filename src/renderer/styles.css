@@ -148,9 +148,130 @@ a {
 .sidebar .project {
 	padding: 6px 8px 12px;
 }
+.sidebar .project {
+	position: relative;
+}
 .sidebar .project-name {
 	font-weight: 600;
 	font-size: 14px;
+}
+/* The project switcher: the open project's name is a button; its menu floats over the sidebar. */
+.project-current {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	text-align: left;
+	background: none;
+	border: 1px solid transparent;
+	border-radius: 8px;
+	padding: 6px 8px;
+	margin: -6px -8px;
+	width: calc(100% + 16px);
+	color: var(--text);
+}
+.project-current:hover,
+.project-current.open {
+	background: var(--panel-2);
+	border-color: var(--border);
+}
+.project-path {
+	font-size: 11px;
+	color: var(--muted);
+}
+.project-menu {
+	position: fixed;
+	z-index: 40;
+	width: 300px;
+	padding: 6px;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+	max-height: 70vh;
+	overflow-y: auto;
+}
+.project-menu-label {
+	padding: 6px 8px 2px;
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--muted);
+}
+.project-row {
+	display: flex;
+	align-items: center;
+	border-radius: 6px;
+}
+.project-row:hover:not(.current) {
+	background: var(--panel-2);
+}
+.project-row.current {
+	background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.project-row-open {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	text-align: left;
+	background: none;
+	border: none;
+	padding: 6px 8px;
+	color: var(--text);
+}
+.project-row-open:disabled {
+	opacity: 1;
+	cursor: default;
+}
+.project-row-name {
+	max-width: 100%;
+	font-weight: 600;
+}
+.project-row-path {
+	max-width: 100%;
+	font-size: 11px;
+	color: var(--muted);
+}
+.project-row.missing .project-row-name {
+	color: var(--muted);
+	text-decoration: line-through;
+}
+.project-row.missing .project-row-path {
+	color: var(--yellow);
+}
+.project-row-mark {
+	padding: 0 10px;
+	color: var(--accent);
+}
+.project-row-forget {
+	background: none;
+	border: none;
+	color: var(--muted);
+	padding: 4px 10px;
+	visibility: hidden;
+}
+.project-row:hover .project-row-forget,
+.project-row-forget:focus-visible {
+	visibility: visible;
+}
+.project-row-forget:hover {
+	color: var(--text);
+}
+.project-menu-actions {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	border-top: 1px solid var(--border);
+	margin-top: 4px;
+	padding-top: 4px;
+}
+.project-action-glyph {
+	width: 16px;
+	text-align: center;
+	color: var(--muted);
 }
 .nav-item {
 	display: flex;

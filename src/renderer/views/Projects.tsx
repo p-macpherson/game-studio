@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { RecentProject } from "../../shared/types";
 import { call } from "../api";
 import { useStudio } from "../store";
-import { useShallow } from "zustand/react/shallow";
 
 async function run(action: () => Promise<unknown>) {
 	try {
@@ -58,9 +58,55 @@ function NewProjectDialog({ onClose }: { onClose(): void }) {
 	);
 }
 
+/** The recent projects, read when `active` turns on and whenever the open project changes. */
+function useRecent(active: boolean): [RecentProject[] | null, () => void] {
+	const current = useStudio((s) => s.project?.path);
+	const [recent, setRecent] = useState<RecentProject[] | null>(null);
+	const [version, setVersion] = useState(0);
+	useEffect(() => {
+		if (!active) return;
+		let live = true;
+		call("project.recent").then((r) => live && setRecent(r), () => live && setRecent([]));
+		return () => {
+			live = false;
+		};
+	}, [active, current, version]);
+	return [recent, () => setVersion((n) => n + 1)];
+}
+
+/** Opens another project; with agents at work in this one, only after the person agrees. */
+function switchTo(path?: string): void {
+	const s = useStudio.getState();
+	const working = s.sessions.filter((x) => x.target === "project" && (x.status === "in_progress" || x.status === "starting")).length;
+	if (s.project && working && !window.confirm(`${working} session${working > 1 ? "s are" : " is"} still working in “${s.project.name}”.\n\nIt's safer to let ${working > 1 ? "them" : "it"} finish, or stop ${working > 1 ? "them" : "it"}, before opening another project. Switch anyway?`)) return;
+	void run(() => call("project.open", path));
+}
+
+/** One project on the recent list: its game's name over its folder; a missing one can only be taken off the list. */
+function RecentRow({ p, current, onPick, onForget }: { p: RecentProject; current: boolean; onPick(): void; onForget(): void }) {
+	const folder = p.path.slice(0, p.path.lastIndexOf("/")) || "/";
+	return (
+		<div className={`project-row ${current ? "current" : ""} ${p.exists ? "" : "missing"}`} data-testid="project-row" data-path={p.path}>
+			<button className="project-row-open" disabled={current || !p.exists} onClick={onPick} title={p.exists ? (current ? `${p.path} (open now)` : `Open ${p.path}`) : `${p.path} isn't there any more (moved or deleted), or is no longer a Game Studio project`}>
+				<span className="project-row-name ellipsis">{p.name}</span>
+				<span className="project-row-path ellipsis">{p.exists ? folder : "not found"}</span>
+			</button>
+			{current ? (
+				<span className="project-row-mark" aria-label="Open now">
+					✓
+				</span>
+			) : (
+				<button className="project-row-forget" onClick={onForget} title="Take it off this list (the folder isn't touched)" aria-label={`Take ${p.name} off the list`} data-testid="project-forget">
+					✕
+				</button>
+			)}
+		</div>
+	);
+}
+
 export function ProjectPicker({ onSkip }: { onSkip(): void }) {
-	const { settings } = useStudio(useShallow((s) => ({ settings: s.settings })));
 	const [creating, setCreating] = useState(false);
+	const [recent, reload] = useRecent(true);
 	return (
 		<div className="picker">
 			<div className="card">
@@ -70,15 +116,13 @@ export function ProjectPicker({ onSkip }: { onSkip(): void }) {
 					<button className="primary" onClick={() => setCreating(true)}>
 						New project…
 					</button>
-					<button onClick={() => run(() => call("project.open"))}>Open project…</button>
+					<button onClick={() => switchTo()}>Open project…</button>
 				</div>
-				{settings && settings.recentProjects.length > 0 && (
-					<div className="col">
+				{recent && recent.length > 0 && (
+					<div className="col" style={{ gap: 2 }}>
 						<h3>Recent</h3>
-						{settings.recentProjects.map((p) => (
-							<div key={p} className="list-row file-row" onClick={() => run(() => call("project.open", p))}>
-								{p}
-							</div>
+						{recent.map((p) => (
+							<RecentRow key={p.path} p={p} current={false} onPick={() => switchTo(p.path)} onForget={() => void run(() => call("project.forget", p.path)).then(reload)} />
 						))}
 					</div>
 				)}
@@ -91,43 +135,86 @@ export function ProjectPicker({ onSkip }: { onSkip(): void }) {
 	);
 }
 
+/** The sidebar's project switcher: the open project's name is the button; its menu floats over the sidebar. */
 export function ProjectMenu() {
-	const { project, settings } = useStudio(useShallow((s) => ({ project: s.project, settings: s.settings })));
+	const project = useStudio((s) => s.project);
 	const [open, setOpen] = useState(false);
 	const [creating, setCreating] = useState(false);
+	const [recent, reload] = useRecent(open);
+	// The menu is wider than the sidebar (which clips what overflows it), so it is placed against the window.
+	const button = useRef<HTMLButtonElement>(null);
+	const [at, setAt] = useState({ left: 0, top: 0 });
+	const toggle = () => {
+		const r = button.current?.getBoundingClientRect();
+		if (r) setAt({ left: r.left, top: r.bottom + 4 });
+		setOpen(!open);
+	};
+	// Closes on a click anywhere else, and on Escape.
+	useEffect(() => {
+		if (!open) return;
+		const click = (e: MouseEvent) => !(e.target as Element | null)?.closest?.(".project, .project-menu") && setOpen(false);
+		const key = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+		document.addEventListener("mousedown", click);
+		document.addEventListener("keydown", key);
+		return () => {
+			document.removeEventListener("mousedown", click);
+			document.removeEventListener("keydown", key);
+		};
+	}, [open]);
+	const others = recent?.filter((p) => p.path !== project?.path) ?? [];
+	const act = (what: () => void) => {
+		setOpen(false);
+		what();
+	};
 	return (
 		<div className="project">
-			<div className="row">
-				<div className="grow">
-					<div className="project-name ellipsis">{project?.name ?? "No project"}</div>
-					<div className="muted ellipsis" style={{ fontSize: 11 }} title={project?.path}>
-						{project?.path ?? "Engine and studio only"}
-					</div>
-				</div>
-				<button className="ghost" title="Projects" onClick={() => setOpen(!open)}>
+			<button ref={button} className={`project-current ${open ? "open" : ""}`} onClick={toggle} aria-haspopup="menu" aria-expanded={open} title={project ? `${project.path}\nClick to switch project` : "Open or start a project"} data-testid="project-current">
+				<span className="col grow" style={{ gap: 0, minWidth: 0 }}>
+					<span className="project-name ellipsis">{project?.name ?? "No project"}</span>
+					<span className="project-path ellipsis">{project?.path ?? "Engine and studio only"}</span>
+				</span>
+				<span className="muted" aria-hidden>
 					▾
-				</button>
-			</div>
+				</span>
+			</button>
 			{open && (
-				<div className="col card" style={{ marginTop: 8, padding: 8, gap: 2 }}>
-					<button className="ghost nav-item" onClick={() => (setCreating(true), setOpen(false))}>
-						New project…
-					</button>
-					<button className="ghost nav-item" onClick={() => (setOpen(false), run(() => call("project.open")))}>
-						Open project…
-					</button>
-					{settings?.recentProjects
-						.filter((p) => p !== project?.path)
-						.map((p) => (
-							<button key={p} className="ghost nav-item ellipsis" title={p} onClick={() => (setOpen(false), run(() => call("project.open", p)))}>
-								{p.split("/").pop()}
-							</button>
-						))}
+				<div className="card project-menu" role="menu" style={at} data-testid="project-menu">
 					{project && (
-						<button className="ghost nav-item" onClick={() => (setOpen(false), run(() => call("project.close")))}>
-							Close project
-						</button>
+						<>
+							<div className="project-menu-label">Open now</div>
+							<RecentRow p={{ ...project, exists: true }} current onPick={() => {}} onForget={() => {}} />
+						</>
 					)}
+					{others.length > 0 && (
+						<>
+							<div className="project-menu-label">{project ? "Switch to" : "Recent projects"}</div>
+							{others.map((p) => (
+								<RecentRow key={p.path} p={p} current={false} onPick={() => act(() => switchTo(p.path))} onForget={() => void run(() => call("project.forget", p.path)).then(reload)} />
+							))}
+						</>
+					)}
+					<div className="project-menu-actions">
+						<button className="ghost nav-item" onClick={() => act(() => setCreating(true))} data-testid="project-new">
+							<span className="project-action-glyph" aria-hidden>
+								+
+							</span>
+							New project…
+						</button>
+						<button className="ghost nav-item" onClick={() => act(() => switchTo())} data-testid="project-open">
+							<span className="project-action-glyph" aria-hidden>
+								📂
+							</span>
+							Open a project folder…
+						</button>
+						{project && (
+							<button className="ghost nav-item" onClick={() => act(() => void run(() => call("project.close")))} data-testid="project-close">
+								<span className="project-action-glyph" aria-hidden>
+									✕
+								</span>
+								Close project
+							</button>
+						)}
+					</div>
 				</div>
 			)}
 			{creating && <NewProjectDialog onClose={() => setCreating(false)} />}
