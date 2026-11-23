@@ -6,6 +6,7 @@ import type { AgentTypeInfo, ModelInfo, ProjectInfo, SessionSummary, Settings, T
 import type { HistoryStep } from "../shared/history";
 import type { SessionAssets } from "../shared/session-assets";
 import { call } from "./api";
+import { type SessionEvent, applyEvent, withSnapshot } from "./transcript";
 
 export type View = "sessions" | "worktrees" | "source-control" | "settings" | "play" | "release" | `module:${string}`;
 
@@ -153,6 +154,8 @@ interface State {
 }
 
 const emptyTranscript = (): Transcript => ({ messages: [], runningTools: {} });
+/** Per session: the events that have arrived during each fetch of its messages still in flight. */
+const loading = new Map<string, Set<SessionEvent[]>>();
 
 /** A worktree of the game project that's still being worked on: one the selector offers. */
 /** Open: not merged or discarded (its folder may be unloaded to free space; selecting it loads it). */
@@ -317,11 +320,19 @@ export const useStudio = create<State>((set, get) => ({
 		if (id) void get().loadTranscript(id);
 	},
 	async loadTranscript(id) {
+		// Events that arrive while the snapshot is fetched are kept and applied on top of it: the snapshot and the
+		// events travel separately, so either can be the newer one (see transcript.ts).
+		const during: SessionEvent[] = [];
+		const waiting = loading.get(id) ?? new Set<SessionEvent[]>();
+		loading.set(id, waiting.add(during));
 		try {
 			const messages = (await call("sessions.messages", id)) as ChatMessage[];
-			set((s) => ({ transcripts: { ...s.transcripts, [id]: { ...emptyTranscript(), ...s.transcripts[id], messages, streaming: undefined } } }));
+			set((s) => ({ transcripts: { ...s.transcripts, [id]: withSnapshot<ChatMessage, Transcript>({ ...emptyTranscript(), ...s.transcripts[id] }, messages, during) } }));
 		} catch (err) {
 			get().showError(err);
+		} finally {
+			waiting.delete(during);
+			if (!waiting.size) loading.delete(id);
 		}
 	},
 	showError: (err) => set({ error: err instanceof Error ? err.message : String(err) }),
@@ -409,10 +420,11 @@ export const useStudio = create<State>((set, get) => ({
 				break;
 			}
 			case "session_event":
+				for (const during of loading.get(event.id) ?? []) during.push(event.event);
 				set((s) => {
 					const t = s.transcripts[event.id];
 					if (!t) return {};
-					return { transcripts: { ...s.transcripts, [event.id]: applyEvent(t, event.event) } };
+					return { transcripts: { ...s.transcripts, [event.id]: applyEvent<ChatMessage, Transcript>(t, event.event) } };
 				});
 				// A compaction replaced the conversation with a summary of it: read it again.
 				if (event.event.type === "compaction_end" && get().transcripts[event.id]) void get().loadTranscript(event.id);
@@ -421,35 +433,3 @@ export const useStudio = create<State>((set, get) => ({
 	},
 }));
 
-function applyEvent(t: Transcript, ev: { type: string; [k: string]: unknown }): Transcript {
-	const message = ev.message as ChatMessage | undefined;
-	switch (ev.type) {
-		case "message_start":
-		case "message_update":
-			return message?.role === "assistant" ? { ...t, streaming: message } : t;
-		case "message_end": {
-			if (!message || message.role === "system") return t;
-			const last = t.messages.at(-1);
-			const duplicate = last && last.role === message.role && last.timestamp === message.timestamp;
-			return {
-				...t,
-				messages: duplicate ? t.messages : [...t.messages, message],
-				streaming: message.role === "assistant" ? undefined : t.streaming,
-			};
-		}
-		case "tool_execution_start":
-			return { ...t, runningTools: { ...t.runningTools, [String(ev.toolCallId)]: String(ev.toolName) } };
-		case "tool_execution_end": {
-			const { [String(ev.toolCallId)]: _, ...rest } = t.runningTools;
-			return { ...t, runningTools: rest };
-		}
-		case "agent_settled":
-			return { ...t, runningTools: {}, streaming: undefined };
-		case "compaction_start":
-			return { ...t, compacting: true };
-		case "compaction_end":
-			return { ...t, compacting: false };
-		default:
-			return t;
-	}
-}
