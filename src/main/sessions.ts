@@ -56,6 +56,8 @@ export interface SessionServiceDeps {
 	/** Serves an agent tool's call into the studio (asset generation). `cwd` is the session's worktree. */
 	studioRequest?(req: StudioRequest): Promise<unknown>;
 	cancelStudioRequest?(requestId: string): void;
+	/** A session asked for review (its work is committed): the studio checks the worktree itself. */
+	reviewRequested?(session: SessionSummary): void;
 }
 
 export interface StudioRequest {
@@ -1259,6 +1261,7 @@ export class SessionService {
 					};
 					r.reviewLookAt = list(event.params.lookAt);
 					// Only pictures that exist in its checkout, as with a question's.
+					queueMicrotask(() => this.deps.reviewRequested?.(this.summary(e)));
 					r.reviewImages = list(event.params.images).map((p) => p.replace(/^\.?\//, "")).filter((p) => /\.(png|jpe?g|webp)$/i.test(p) && existsSync(join(this.worktreePath(e), p)));
 					r.reviewRequestedAt = new Date().toISOString();
 				}

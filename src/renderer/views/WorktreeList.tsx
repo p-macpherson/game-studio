@@ -9,7 +9,20 @@ import { isOpenWorktree, useStudio } from "../store";
 import { confirmDiscard, unsavedOf } from "../workspace";
 import { GROUPS, megabytes, otherFiles } from "./Worktrees";
 import { WorktreeChanges } from "./WorktreeChanges";
-import { Review } from "./Review";
+import { Review, useChecks } from "./Review";
+import { checksLine } from "../../shared/review";
+
+/** In the review queue: how the studio's own checks of the worktree went. */
+function QueueChecks({ worktreeId }: { worktreeId: string }) {
+	const checks = useChecks(worktreeId, true);
+	if (!checks) return null;
+	const line = checksLine(checks);
+	return (
+		<span className={`badge ${line.ok === false ? "check-failed" : line.ok ? "review" : ""}`} data-testid="review-queue-checks">
+			{line.ok === false ? "✗" : line.ok ? "✓" : "⏳"} {line.text}
+		</span>
+	);
+}
 
 interface Facts {
 	changes: number;
@@ -361,6 +374,7 @@ function WorktreeList() {
 											{w.label}
 										</span>
 										<span className="badge">{GROUPS.find((g) => g.target === w.target)?.label ?? w.target}</span>
+										{w.target === "project" && <QueueChecks worktreeId={w.id} />}
 										{working(w) && (
 											<span className="badge status-in_progress">
 												<span className="dot" />

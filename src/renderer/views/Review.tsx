@@ -3,9 +3,9 @@
 // the sessions that made those things. Code and other files are read as a diff (WorktreeChanges), a click away.
 import { useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { type ReviewItem, type ReviewPreview, type Verdict, type WorktreeReview, reviewMessages } from "../../shared/review";
+import { type ReviewChecks, type ReviewItem, type ReviewPreview, type Verdict, type WorktreeReview, checksLine, reviewMessages } from "../../shared/review";
 import { findAgentType } from "../../shared/agents";
-import { call, studioFile } from "../api";
+import { call, onEvent, studioFile } from "../api";
 import { useStudio } from "../store";
 
 const CHANGE = { added: "New", modified: "Changed", deleted: "Removed" } as const;
@@ -91,6 +91,50 @@ function Card({ item, worktreeId, version, verdict, maker, onVerdict }: { item: 
 	);
 }
 
+/** The studio's own checks of the worktree: whether it builds and its tests pass, with what failed. */
+export function useChecks(worktreeId: string, enabled: boolean): ReviewChecks | null {
+	const [checks, setChecks] = useState<ReviewChecks | null>(null);
+	useEffect(() => {
+		if (!enabled) return;
+		let live = true;
+		const load = () => call("worktrees.checks", worktreeId).then((c) => live && setChecks(c), () => {});
+		load();
+		const off = onEvent((e) => e.type === "review_checks" && e.worktreeId === worktreeId && load());
+		return () => {
+			live = false;
+			off();
+		};
+	}, [worktreeId, enabled]);
+	return checks;
+}
+
+function Checks({ worktreeId, checks }: { worktreeId: string; checks: ReviewChecks | null }) {
+	const line = checks ? checksLine(checks) : null;
+	const failed = checks?.tests.filter((t) => !t.ok) ?? [];
+	return (
+		<div className={`review-checks ${line?.ok === false ? "failed" : line?.ok ? "passed" : ""}`} data-testid="review-checks">
+			<div className="row">
+				<b>{line ? `${line.ok === false ? "✗" : line.ok ? "✓" : "⏳"} ${line.text}` : "Not checked yet: does it build, do its tests pass?"}</b>
+				{checks?.state === "done" && (
+					<span className="muted small" title={`Checked at commit ${checks.commit.slice(0, 7)}`}>
+						checked {new Date(checks.finishedAt ?? checks.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+					</span>
+				)}
+				<span className="grow" />
+				<button className="small" disabled={checks?.state === "running"} onClick={() => void call("worktrees.runChecks", worktreeId)} data-testid="review-run-checks">
+					{checks ? "Check again" : "Check now"}
+				</button>
+			</div>
+			{checks?.build && !checks.build.ok && <pre className="review-check-output">{checks.build.errors.join("\n")}</pre>}
+			{failed.map((t) => (
+				<div key={t.script} className="small">
+					<code>{t.script}</code>: {t.problem}
+				</div>
+			))}
+		</div>
+	);
+}
+
 export function Review({ worktreeId }: { worktreeId: string }) {
 	const { worktree, sessions, agentTypes, assetsVersion, openReview, showError } = useStudio(
 		useShallow((s) => ({
@@ -145,6 +189,8 @@ export function Review({ worktreeId }: { worktreeId: string }) {
 	const working = mine.some((s) => s.status === "in_progress" || s.status === "starting");
 	const messages = review ? reviewMessages(items, verdicts, review.fallbackSession, general) : [];
 	const title = (id: string | undefined) => sessions.find((s) => s.id === id)?.title;
+	const game = worktree?.target === "project";
+	const checks = useChecks(worktreeId, game);
 	const send = async () => {
 		setSending(true);
 		try {
@@ -197,6 +243,7 @@ export function Review({ worktreeId }: { worktreeId: string }) {
 			</div>
 			{error && <div className="msg error" style={{ margin: 16 }}>Could not load the review: {error}</div>}
 			<div className="review-body">
+				{game && review && items.length + review.code.length > 0 && <Checks worktreeId={worktreeId} checks={checks} />}
 				{review?.requests.map((r) => (
 					<div key={r.sessionId} className="review-request" data-testid="review-request">
 						<div className="row">

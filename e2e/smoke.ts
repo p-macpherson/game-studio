@@ -1342,6 +1342,8 @@ try {
 	await nav.getByTestId("review-count").waitFor();
 	const queued = page.getByTestId("review-queue-row").filter({ hasText: "Wrote the review notes" });
 	await queued.waitFor();
+	// The studio checked the worktree itself when the review was asked for: it builds, and its test passes.
+	await queued.getByTestId("review-queue-checks").getByText("its test passes").waitFor({ timeout: 120_000 });
 	await step("82-review-queue", page);
 	await queued.getByTestId("review-queue-open").click();
 	await page.getByTestId("review-request").getByText("Wrote the review notes: a first pass.").waitFor();
@@ -1349,6 +1351,7 @@ try {
 	const proofs = page.getByTestId("review-evidence").locator("img");
 	if ((await proofs.count()) !== 1) throw new Error("the review should show the one picture that exists");
 	await until("the proof to load", () => proofs.first().evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0));
+	await page.getByTestId("review-checks").getByText("✓ Builds · its test passes").waitFor();
 	const reviewCard = page.locator('[data-testid=review-card][data-path="docs/design/Review Notes.md"]');
 	await reviewCard.waitFor();
 	await reviewCard.getByTestId("review-redo").click();

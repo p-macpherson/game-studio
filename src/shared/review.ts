@@ -48,6 +48,30 @@ export interface WorktreeReview {
 	fallbackSession?: string;
 }
 
+/** The studio's own checks of a game worktree, run when a session asks for review: does it build, do its tests pass. */
+export interface ReviewChecks {
+	worktreeId: string;
+	state: "running" | "done";
+	/** The commit that was checked (the worktree's HEAD then). */
+	commit: string;
+	startedAt: string;
+	finishedAt?: string;
+	/** While running: what it's doing now. */
+	doing?: string;
+	build?: { ok: boolean; errors: string[] };
+	tests: { script: string; ok: boolean; durationMs: number; problem?: string }[];
+}
+
+/** In a line: "Builds · 3 of 3 tests pass", "Doesn't build", "1 of 3 tests fails". */
+export function checksLine(c: ReviewChecks): { ok: boolean | null; text: string } {
+	if (c.state === "running") return { ok: null, text: c.doing ?? "Checking…" };
+	if (c.build && !c.build.ok) return { ok: false, text: "Doesn't build" };
+	const failed = c.tests.filter((t) => !t.ok).length;
+	if (!c.tests.length) return { ok: true, text: "Builds · no tests to run" };
+	if (failed) return { ok: false, text: `Builds · ${failed} of ${c.tests.length} test${c.tests.length === 1 ? "" : "s"} fail${failed === 1 ? "s" : ""}` };
+	return { ok: true, text: `Builds · ${c.tests.length === 1 ? "its test passes" : `all ${c.tests.length} tests pass`}` };
+}
+
 export interface Verdict {
 	verdict: "fine" | "redo";
 	note?: string;

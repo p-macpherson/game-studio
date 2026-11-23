@@ -28,6 +28,7 @@ import { UpdateService } from "./updates";
 import { openInStudioRequests } from "./open-in-studio";
 import { gatherSessionAssets } from "./session-assets";
 import { gatherReview } from "./review";
+import { ReviewCheckService } from "./review-checks";
 import { runInBrowser, serveFolder } from "./web-runner";
 import { shaderRequests } from "./shaders";
 import { UiArtPipeline, uiRequests } from "./ui";
@@ -125,9 +126,18 @@ async function main(): Promise<void> {
 		idleTimeoutMs: 10 * 60_000,
 		studioRequest: requests.studioRequest,
 		cancelStudioRequest: requests.cancelStudioRequest,
+		// Only the game has a build and tests the studio knows how to run.
+		reviewRequested: (s) => s.target === "project" && s.worktree === "active" && void checks.request(s.worktreeId).catch((err) => console.error("review checks failed:", err)),
 	});
 
 	const runner = new RunService({ projectPath: () => project?.path ?? null, sessions, emit });
+	const checks = new ReviewCheckService({
+		head: async (id) => (await g.revParse(sessions.checkoutPath(id), "HEAD")).trim(),
+		compile: (id) => runner.compile(id),
+		tests: (id) => runner.tests(id),
+		test: (id, script) => runner.test(id, script),
+		changed: (worktreeId) => emit({ type: "review_checks", worktreeId }),
+	});
 	/** The main checkout (null or "main"), a worktree (by id), or a session's worktree (by session id). */
 	const checkoutRoot = (checkout: string | null): string => {
 		if (!checkout || checkout === "main") {
@@ -408,6 +418,8 @@ async function main(): Promise<void> {
 		},
 		"worktrees.changedFiles": (id) => sessions.worktreeChangedFiles(id),
 		"worktrees.review": (id) => gatherReview(id, sessions, assets, checkoutRoot),
+		"worktrees.checks": async (id) => checks.get(id),
+		"worktrees.runChecks": async (id) => void checks.request(id, true).catch((err) => console.error("review checks failed:", err)),
 		"sessions.raw": async (id) => sessions.raw(id),
 		"sessions.merge": async (id) => {
 			const worktree = sessions.get(id).worktreeId;

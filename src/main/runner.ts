@@ -17,6 +17,7 @@ import {
 	isEditorRun,
 	isMultiplayerTest,
 	type TestReport,
+	type Diagnostic,
 	pairReplies,
 	parseDiagnostics,
 	scriptCommands,
@@ -758,6 +759,13 @@ export class RunService {
 		return walk(join(cwd, "tests"), cwd)
 			.filter((p) => p.endsWith(".jsonl"))
 			.sort();
+	}
+
+	/** Does the checkout compile? Builds it without starting anything or touching the Play & Test run. */
+	async compile(sessionId: CheckoutId): Promise<{ ok: boolean; diagnostics: Diagnostic[]; output: string }> {
+		const co = this.checkout(sessionId);
+		const r = await this.exec(co, ["build"]);
+		return { ok: r.code === 0, diagnostics: parseDiagnostics(r.stdout + r.stderr, co.cwd), output: (r.stdout + r.stderr).slice(-8000) };
 	}
 
 	/** Runs one control script headlessly via `build.sh test`. Tests run one at a time. */
