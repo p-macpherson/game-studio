@@ -2,6 +2,7 @@ import { existsSync, type FSWatcher, readFileSync, watch } from "node:fs";
 import { basename, join, resolve, sep } from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, Menu, powerSaveBlocker, shell } from "electron";
 import { KeepAwake, isWorking } from "./keep-awake";
+import { quitWarning } from "./quit-warning";
 import { leafName } from "../shared/asset-names";
 import { EditHistory } from "./edit-history";
 import type { StudioApi, StudioEvent, StudioMethod } from "../shared/ipc";
@@ -64,6 +65,10 @@ let win: BrowserWindow | null = null;
 /** Holds the computer's sleep off while agents work (keep-awake.ts); `refreshAwake` re-reads whether any do. */
 const awake = new KeepAwake({ start: () => powerSaveBlocker.start("prevent-app-suspension"), stop: (id) => powerSaveBlocker.stop(id) });
 let refreshAwake: (() => void) | undefined;
+/** What to warn about before the window closes (sessions still in progress), once the sessions are loaded. */
+let sessionsWarning: (() => ReturnType<typeof quitWarning>) | undefined;
+/** Set when a close has been agreed to already. */
+let closeUnasked = false;
 
 function emit(event: StudioEvent): void {
 	win?.webContents.send("studio:event", event);
@@ -158,6 +163,7 @@ async function main(): Promise<void> {
 		},
 	});
 
+	sessionsWarning = () => quitWarning(sessions.list());
 	refreshAwake = () => awake.update(settings.get().keepAwake !== false && sessions.list().some(isWorking));
 	const runner = new RunService({ projectPath: () => project?.path ?? null, sessions, emit });
 	const checks = new ReviewCheckService({
@@ -388,7 +394,12 @@ async function main(): Promise<void> {
 		"updates.check": () => updates.check(),
 		"updates.prepare": () => updates.prepare(),
 		// Closing the windows runs the usual shutdown (sessions, workers, the game) before the updater takes over.
-		"updates.restart": async () => updates.restart(() => BrowserWindow.getAllWindows().forEach((w) => w.close())),
+		"updates.restart": async () =>
+			updates.restart(() => {
+				// The Updates panel has said which sessions stop: no second question.
+				closeUnasked = true;
+				BrowserWindow.getAllWindows().forEach((w) => w.close());
+			}),
 		"itch.hasKey": async () => release.hasItchKey(),
 		"itch.setKey": async (key) => release.setItchKey(key),
 		"worktrees.status": (id) => sessions.worktreeStatus(id),
@@ -599,6 +610,15 @@ function createWindow(): void {
 	win.webContents.setWindowOpenHandler(({ url }) => {
 		void shell.openExternal(url);
 		return { action: "deny" };
+	});
+	// Closing (the window's ✕, Quit, Ctrl+Q) while agents work interrupts them: ask first. Not in automated runs, and
+	// not when the person has already been told (restarting to update).
+	win.on("close", (e) => {
+		if (closeUnasked || process.env.GAME_STUDIO_MUTE) return;
+		const warning = sessionsWarning?.();
+		if (!warning || !win) return;
+		const choice = dialog.showMessageBoxSync(win, { type: "warning", title: "Game Studio", message: warning.message, detail: warning.detail, buttons: ["Keep working", "Quit anyway"], defaultId: 0, cancelId: 0, noLink: true });
+		if (choice === 0) e.preventDefault();
 	});
 	if (STARTUP_CHECK) startupCheck(win);
 	if (process.env.ELECTRON_RENDERER_URL) void win.loadURL(process.env.ELECTRON_RENDERER_URL);
