@@ -88,6 +88,8 @@ export interface StudioApi {
 	"run.stream"(on: boolean): Promise<void>;
 	"run.tests"(sessionId: CheckoutId): Promise<string[]>;
 	"run.test"(sessionId: CheckoutId, script: string): Promise<TestReport>;
+	/** Starts the game and plays a control script into it, then leaves it running (a review's "start here"). */
+	"run.startAt"(sessionId: CheckoutId, script: string): Promise<{ ran: number; failed: { line: number; command: string; error: string }[] }>;
 	"run.image"(sessionId: CheckoutId, path: string): Promise<string>;
 
 	"gen.status"(): Promise<GenStatus>;

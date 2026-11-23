@@ -298,6 +298,7 @@ async function main(): Promise<void> {
 		"run.call": (cmd, args, player) => runner.call(cmd, args, player),
 		"run.stream": async (on) => runner.setStreaming(on),
 		"run.tests": async (sessionId) => runner.tests(sessionId),
+		"run.startAt": (sessionId, script) => runner.startAt(sessionId, script),
 		"run.test": (sessionId, script) => runner.test(sessionId, script),
 		"run.image": async (sessionId, path) => runner.image(sessionId, path),
 

@@ -214,6 +214,14 @@ export function Review({ worktreeId }: { worktreeId: string }) {
 		useStudio.getState().selectWorktree(worktreeId);
 		useStudio.getState().setView("play");
 	};
+	/** Play & Test, with the game brought to the moment the agent set up. */
+	const playFrom = (script: string) => {
+		play();
+		call("run.startAt", worktreeId, script).then((r) => {
+			const first = r.failed[0];
+			useStudio.getState().notify(first ? `Started, but ${script} line ${first.line} failed: ${first.error}` : `Started at the moment set up by ${script}`);
+		}, showError);
+	};
 
 	return (
 		<div className="review" data-testid="review">
@@ -251,6 +259,11 @@ export function Review({ worktreeId }: { worktreeId: string }) {
 							<b className="grow ellipsis">
 								{findAgentType(agentTypes, r.agentType)?.name ?? r.agentType}: {r.title}
 							</b>
+							{r.startHere && game && (
+								<button className="small primary" onClick={() => playFrom(r.startHere!)} title={`Build and start this worktree's game, then run ${r.startHere} to bring it to the moment to look at. You play on from there.`} data-testid="review-play-from">
+									▶ Play from here
+								</button>
+							)}
 							<button className="link small" onClick={() => useStudio.getState().selectSession(r.sessionId)}>
 								Open the session ›
 							</button>

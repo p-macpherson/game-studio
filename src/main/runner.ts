@@ -337,6 +337,39 @@ export class RunService {
 		return run.info;
 	}
 
+	/**
+	 * Play from a moment: starts the game (streamed to Play & Test) and sends it a control script's commands, one by
+	 * one, to bring it to the state a reviewer should see (a teleport, some gold, a wait). The game then keeps running
+	 * for the person to play; a `quit` in the script ends the script, not the game.
+	 */
+	async startAt(sessionId: CheckoutId, script: string): Promise<{ ran: number; failed: { line: number; command: string; error: string }[] }> {
+		const co = this.checkout(sessionId);
+		const text = readFileSync(safeJoin(co.cwd, script), "utf8");
+		const info = await this.start(sessionId, "hidden");
+		if (info.state !== "running") throw new Error(info.state === "build_failed" ? "This worktree doesn't build: see Play & Test for the errors" : "The game didn't start");
+		const failed: { line: number; command: string; error: string }[] = [];
+		let ran = 0;
+		for (const { line, command } of scriptCommands(text)) {
+			let parsed: { cmd?: unknown; [k: string]: unknown };
+			try {
+				parsed = JSON.parse(command);
+			} catch {
+				failed.push({ line, command, error: "not a JSON command" });
+				continue;
+			}
+			const { cmd, ...args } = parsed;
+			if (cmd === "quit" || cmd === "exit") break;
+			try {
+				await this.call(String(cmd), args);
+				ran++;
+			} catch (err) {
+				failed.push({ line, command, error: err instanceof Error ? err.message : String(err) });
+				if (this.run?.info.state !== "running") break; // the game went away: nothing more can be sent
+			}
+		}
+		return { ran, failed };
+	}
+
 	/** Asks the game to quit, then kills it if it hasn't exited after two seconds. */
 	async stop(): Promise<void> {
 		const run = this.run;

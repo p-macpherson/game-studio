@@ -13,7 +13,7 @@ export async function gatherReview(worktreeId: string, sessions: SessionService,
 	const inIt = sessions.list().filter((s) => s.worktreeId === worktreeId);
 	const requests = inIt
 		.filter((s) => s.reviewRequested && s.status !== "done")
-		.map((s) => ({ sessionId: s.id, title: s.title, agentType: s.agentType, summary: s.reviewSummary ?? "", at: s.reviewRequestedAt, lookAt: s.reviewLookAt ?? [], images: s.reviewImages ?? [] }))
+		.map((s) => ({ sessionId: s.id, title: s.title, agentType: s.agentType, summary: s.reviewSummary ?? "", at: s.reviewRequestedAt, lookAt: s.reviewLookAt ?? [], images: s.reviewImages ?? [], ...(s.reviewStartHere ? { startHere: s.reviewStartHere } : {}) }))
 		.sort((a, b) => (a.at ?? "").localeCompare(b.at ?? ""));
 	// Newest first; a person's own sessions (no parent) before sub-agents.
 	const fallbackSession = [...inIt].sort((a, b) => Number(!!a.parentId) - Number(!!b.parentId) || b.createdAt.localeCompare(a.createdAt))[0]?.id;

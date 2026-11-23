@@ -1332,7 +1332,7 @@ try {
 	await page.evaluate(([id, text]) => window.studio.call("sessions.send", id, text), [reviewed.id, proof]);
 	await page.waitForTimeout(500);
 	await until("the proof picture", async () => (await sessionOf(reviewed.id)).status === "idle");
-	const ask = `tool request_review ${JSON.stringify({ summary: "Wrote the review notes: a first pass.", look_at: ["Open the doc: it should say what we review"], images: ["build/review/after.png", "build/review/missing.png"] })}`;
+	const ask = `tool request_review ${JSON.stringify({ summary: "Wrote the review notes: a first pass.", look_at: ["Open the doc: it should say what we review"], images: ["build/review/after.png", "build/review/missing.png"], start_here: "tests/smoke.jsonl" })}`;
 	await page.evaluate(([id, text]) => window.studio.call("sessions.send", id, text), [reviewed.id, ask]);
 	await until("the review request", async () => {
 		const s = await sessionOf(reviewed.id);
@@ -1352,6 +1352,15 @@ try {
 	if ((await proofs.count()) !== 1) throw new Error("the review should show the one picture that exists");
 	await until("the proof to load", () => proofs.first().evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0));
 	await page.getByTestId("review-checks").getByText("✓ Builds · its test passes").waitFor();
+	// Play from here: the game starts in Play & Test and the agent's script runs into it; then the person plays on.
+	await page.getByTestId("review-play-from").click();
+	await page.getByTestId("run-state").getByText("Running").waitFor({ timeout: 90_000 });
+	await page.getByTestId("notice").getByText("Started at the moment set up by tests/smoke.jsonl").waitFor({ timeout: 30_000 });
+	await step("83a-play-from-here", page);
+	await page.evaluate(() => window.studio.call("run.stop"));
+	await page.getByTestId("run-state").getByText("Stopped").waitFor();
+	await nav.getByRole("button", { name: "Worktrees" }).click();
+	await page.getByTestId("review").waitFor(); // back on the review it was started from
 	const reviewCard = page.locator('[data-testid=review-card][data-path="docs/design/Review Notes.md"]');
 	await reviewCard.waitFor();
 	await reviewCard.getByTestId("review-redo").click();

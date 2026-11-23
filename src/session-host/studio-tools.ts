@@ -584,14 +584,17 @@ export function studioTools(ctx: StudioToolContext) {
 				"Tell the user your work is committed on this session's branch and ready for them to review and merge. The user reviews on a Review page that shows what the " +
 				"worktree changed; what you give here is shown at its top, so make it easy to judge without running anything: a short summary of what changed, " +
 				"`look_at` (the few things to check or try, each one line: where to go in the game, what should happen), and `images` as proof where pictures say it " +
-				"(screenshots or renders you made of the change, before and after when you have both; build/ paths are fine). State test results in the summary.",
+				"(screenshots or renders you made of the change, before and after when you have both; build/ paths are fine). When the change is somewhere a player takes time to " +
+				"reach, give `start_here`: a control script you committed (one JSON command per line, like a test, e.g. tests/review/cave-door.jsonl) that takes the game from " +
+				"its start to that moment (load the scene, teleport, set what's needed, wait); the user's Play button runs it and then they play on. State test results in the summary.",
 			parameters: Type.Object({
 				summary: Type.String(),
 				look_at: Type.Optional(Type.Array(Type.String(), { description: "What to check or try, one line each" })),
 				images: Type.Optional(Type.Array(Type.String(), { description: "Paths relative to the repo root, e.g. build/review/after-cave.png" })),
+				start_here: Type.Optional(Type.String({ description: "A committed control script (.jsonl) that brings the game to the moment to look at" })),
 			}),
-			async execute(_id, { summary, look_at, images }) {
-				tool("request_review", { summary, lookAt: JSON.stringify(look_at ?? []), images: JSON.stringify(images ?? []) });
+			async execute(_id, { summary, look_at, images, start_here }) {
+				tool("request_review", { summary, lookAt: JSON.stringify(look_at ?? []), images: JSON.stringify(images ?? []), startHere: start_here ?? "" });
 				return ok("The user has been asked to review the branch.");
 			},
 		}),

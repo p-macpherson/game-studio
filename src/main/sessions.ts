@@ -1261,6 +1261,8 @@ export class SessionService {
 					};
 					r.reviewLookAt = list(event.params.lookAt);
 					// Only pictures that exist in its checkout, as with a question's.
+					const startHere = (event.params.startHere ?? "").replace(/^\.?\//, "");
+					r.reviewStartHere = startHere.endsWith(".jsonl") && !startHere.includes("..") && existsSync(join(this.worktreePath(e), startHere)) ? startHere : undefined;
 					queueMicrotask(() => this.deps.reviewRequested?.(this.summary(e)));
 					r.reviewImages = list(event.params.images).map((p) => p.replace(/^\.?\//, "")).filter((p) => /\.(png|jpe?g|webp)$/i.test(p) && existsSync(join(this.worktreePath(e), p)));
 					r.reviewRequestedAt = new Date().toISOString();

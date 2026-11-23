@@ -37,6 +37,8 @@ export interface ReviewRequest {
 	/** What the agent says to check or try, and its pictures of the change (paths in the worktree's checkout). */
 	lookAt: string[];
 	images: string[];
+	/** A control script that brings the game to the moment to look at: "Play from here" runs it. */
+	startHere?: string;
 }
 
 export interface WorktreeReview {
