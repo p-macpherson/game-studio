@@ -1,0 +1,261 @@
+// Reviewing a worktree in one pass: what it changed as cards you can look at and listen to, main's version beside
+// the worktree's; a verdict per card (fine, or needs work with a note); and one button that sends every note back to
+// the sessions that made those things. Code and other files are read as a diff (WorktreeChanges), a click away.
+import { useEffect, useMemo, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
+import { type ReviewItem, type ReviewPreview, type Verdict, type WorktreeReview, reviewMessages } from "../../shared/review";
+import { findAgentType } from "../../shared/agents";
+import { call, studioFile } from "../api";
+import { useStudio } from "../store";
+
+const CHANGE = { added: "New", modified: "Changed", deleted: "Removed" } as const;
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+const key = (worktreeId: string) => `review:${worktreeId}`;
+function loadVerdicts(worktreeId: string): Record<string, Verdict> {
+	try {
+		return JSON.parse(localStorage.getItem(key(worktreeId)) ?? "{}") as Record<string, Verdict>;
+	} catch {
+		return {};
+	}
+}
+
+/** One side of a comparison: the asset as main has it, or as the worktree does. */
+function Side({ label, preview, checkout, version, icon, absent, other }: { label: string; preview?: ReviewPreview; checkout: string; version?: string; icon: string; absent?: string; other?: { src: string; label: string } }) {
+	const src = preview ? studioFile(checkout, preview.path, version) : null;
+	return (
+		<div className="review-side" data-testid="review-side">
+			<span className="review-side-label">{label}</span>
+			{absent ? (
+				<span className="review-side-none">{absent}</span>
+			) : preview?.kind === "image" && src ? (
+				<img
+					src={src}
+					alt=""
+					loading="lazy"
+					title="Click to enlarge"
+					onClick={() => useStudio.getState().showImages([...(other ? [other] : []), { src, label: `${label}: ${preview.path}` }], other ? 1 : 0)}
+				/>
+			) : preview?.kind === "audio" && src ? (
+				<audio controls preload="none" src={src} />
+			) : (
+				<span className="review-side-none">{icon} no preview: open it in its section</span>
+			)}
+		</div>
+	);
+}
+
+function Card({ item, worktreeId, version, verdict, maker, onVerdict }: { item: ReviewItem; worktreeId: string; version?: string; verdict?: Verdict; maker?: string; onVerdict(v: Verdict | undefined): void }) {
+	const before = item.before?.kind === "image" ? { src: studioFile("main", item.before.path), label: `In main: ${item.before.path}` } : undefined;
+	return (
+		<div className={`review-card ${verdict ? `verdict-${verdict.verdict}` : ""}`} data-testid="review-card" data-path={item.path}>
+			<div className="row review-card-head">
+				<span className={`change-label change-${item.change}`}>{CHANGE[item.change]}</span>
+				<b className="grow ellipsis" title={item.path}>
+					{item.name}
+				</b>
+				{item.change !== "deleted" && (
+					<button className="link small" onClick={() => useStudio.getState().showAsset({ path: item.path, checkout: worktreeId })} title={`Open it in ${item.module.name}, in this worktree`}>
+						Open ›
+					</button>
+				)}
+			</div>
+			{item.preview || item.before ? (
+				<div className="review-compare">
+					{item.change !== "added" && <Side label="In main" preview={item.before} checkout="main" icon={item.module.icon} />}
+					<Side label="This worktree" preview={item.preview} checkout={worktreeId} version={version} icon={item.module.icon} absent={item.change === "deleted" ? "Removed" : undefined} other={before} />
+				</div>
+			) : (
+				// Nothing to look at or hear (a doc, a scene, a shader): its words, and its lines a click away.
+				<button className="review-text" onClick={() => useStudio.getState().openChanges(worktreeId, item.path)} title="Read what changed in it, line by line">
+					<span className="review-excerpt">{item.excerpt || `${item.module.icon} ${item.path}`}</span>
+					<span className="link small">Read its changes ›</span>
+				</button>
+			)}
+			<span className="muted small" title={item.files.map((f) => `${CHANGE[f.change]}: ${f.path}`).join("\n")}>
+				{plural(item.files.length, "file")}
+				{maker ? ` · by “${maker}”` : ""}
+			</span>
+			<div className="row review-verdict">
+				<button className={`small ${verdict?.verdict === "fine" ? "picked" : ""}`} onClick={() => onVerdict(verdict?.verdict === "fine" ? undefined : { verdict: "fine" })} data-testid="review-fine">
+					✓ Fine
+				</button>
+				<button className={`small ${verdict?.verdict === "redo" ? "picked" : ""}`} onClick={() => onVerdict(verdict?.verdict === "redo" ? undefined : { verdict: "redo", note: verdict?.note })} data-testid="review-redo">
+					✎ Needs work
+				</button>
+			</div>
+			{verdict?.verdict === "redo" && (
+				<textarea autoFocus rows={2} placeholder="What should change? (goes to the agent that made it)" value={verdict.note ?? ""} onChange={(e) => onVerdict({ verdict: "redo", note: e.target.value })} data-testid="review-note" />
+			)}
+		</div>
+	);
+}
+
+export function Review({ worktreeId }: { worktreeId: string }) {
+	const { worktree, sessions, agentTypes, assetsVersion, openReview, showError } = useStudio(
+		useShallow((s) => ({
+			worktree: s.worktrees.find((w) => w.id === worktreeId),
+			sessions: s.sessions,
+			agentTypes: s.agentTypes,
+			assetsVersion: s.assetsVersion,
+			openReview: s.openReview,
+			showError: s.showError,
+		})),
+	);
+	const [review, setReview] = useState<WorktreeReview | null>(null);
+	const [error, setError] = useState<string | null>(null);
+	const [verdicts, setVerdicts] = useState<Record<string, Verdict>>(() => loadVerdicts(worktreeId));
+	const [general, setGeneral] = useState("");
+	const [sending, setSending] = useState(false);
+	const mine = sessions.filter((s) => s.worktreeId === worktreeId);
+	// Reload when the worktree changes, and when one of its sessions asks for review or stops asking.
+	const asking = mine.map((s) => `${s.id}:${s.reviewRequested ? s.reviewRequestedAt : ""}`).join(",");
+	useEffect(() => {
+		let live = true;
+		call("worktrees.review", worktreeId).then(
+			(r) => live && (setReview(r), setError(null)),
+			(e) => live && setError((e as Error).message),
+		);
+		return () => {
+			live = false;
+		};
+	}, [worktreeId, worktree?.updatedAt, assetsVersion, asking]);
+	const setVerdict = (path: string, v: Verdict | undefined) =>
+		setVerdicts((all) => {
+			const next = { ...all };
+			if (v) next[path] = v;
+			else delete next[path];
+			localStorage.setItem(key(worktreeId), JSON.stringify(next));
+			return next;
+		});
+
+	const items = review?.items ?? [];
+	const groups = useMemo(() => {
+		const out: { id: string; name: string; icon: string; items: ReviewItem[] }[] = [];
+		for (const i of items) {
+			const g = out.find((x) => x.id === i.module.id);
+			if (g) g.items.push(i);
+			else out.push({ ...i.module, items: [i] });
+		}
+		return out;
+	}, [items]);
+	const count = (v: Verdict["verdict"]) => items.filter((i) => verdicts[i.path]?.verdict === v).length;
+	const fine = count("fine");
+	const redo = count("redo");
+	const working = mine.some((s) => s.status === "in_progress" || s.status === "starting");
+	const messages = review ? reviewMessages(items, verdicts, review.fallbackSession, general) : [];
+	const title = (id: string | undefined) => sessions.find((s) => s.id === id)?.title;
+	const send = async () => {
+		setSending(true);
+		try {
+			for (const m of messages) await call("sessions.send", m.sessionId, m.text);
+			// What was sent is with the agents now; what was fine stays ticked for the next look.
+			setVerdicts((all) => {
+				const next = Object.fromEntries(Object.entries(all).filter(([, v]) => v.verdict === "fine"));
+				localStorage.setItem(key(worktreeId), JSON.stringify(next));
+				return next;
+			});
+			setGeneral("");
+			useStudio.getState().notify(`Sent your notes to ${plural(messages.length, "session")}`);
+			await useStudio.getState().refreshSessions();
+		} catch (err) {
+			showError(err);
+		} finally {
+			setSending(false);
+		}
+	};
+	const play = () => {
+		useStudio.getState().selectWorktree(worktreeId);
+		useStudio.getState().setView("play");
+	};
+
+	return (
+		<div className="review" data-testid="review">
+			<div className="changes-head">
+				<button onClick={() => openReview(null)} data-testid="review-back">
+					← Worktrees
+				</button>
+				<div className="col grow" style={{ gap: 2, minWidth: 0 }}>
+					<h2 className="ellipsis">Review “{worktree?.label ?? worktreeId}”</h2>
+					<span className="muted small" data-testid="review-summary">
+						{review === null ? "Loading…" : items.length + review.code.length === 0 ? "Nothing changed against main." : [items.length ? `${plural(items.length, "thing")} to look at` : "", review.code.length ? `${plural(review.code.length, "file")} of code and other changes` : ""].filter(Boolean).join(" · ")}
+					</span>
+				</div>
+				{worktree?.target === "project" && (
+					<button onClick={play} title="Switch to this worktree and open Play & Test, to build and play what it changed" data-testid="review-play">
+						▶ Play this worktree
+					</button>
+				)}
+				<button disabled={!review?.code.length && !items.length} onClick={() => useStudio.getState().openChanges(worktreeId)} title="Every changed file, line by line" data-testid="review-code">
+					Read the changes{review?.code.length ? ` (${review.code.length} code)` : ""}
+				</button>
+				{worktree?.status === "active" && (
+					<button className="primary" onClick={() => useStudio.getState().openMerge(worktreeId)}>
+						Merge…
+					</button>
+				)}
+			</div>
+			{error && <div className="msg error" style={{ margin: 16 }}>Could not load the review: {error}</div>}
+			<div className="review-body">
+				{review?.requests.map((r) => (
+					<div key={r.sessionId} className="review-request" data-testid="review-request">
+						<div className="row">
+							<span className="badge review">Ready for review</span>
+							<b className="grow ellipsis">
+								{findAgentType(agentTypes, r.agentType)?.name ?? r.agentType}: {r.title}
+							</b>
+							<button className="link small" onClick={() => useStudio.getState().selectSession(r.sessionId)}>
+								Open the session ›
+							</button>
+						</div>
+						{r.summary && <div className="review-request-summary">{r.summary}</div>}
+						{r.lookAt.length > 0 && (
+							<ul className="review-look-at" data-testid="review-look-at">
+								{r.lookAt.map((line, i) => (
+									<li key={i}>{line}</li>
+								))}
+							</ul>
+						)}
+						{r.images.length > 0 && (
+							<div className="review-evidence" data-testid="review-evidence">
+								{r.images.map((p, i) => (
+									<img key={p} src={studioFile(worktreeId, p, r.at)} alt="" title={p} loading="lazy" onClick={() => useStudio.getState().showImages(r.images.map((x) => ({ src: studioFile(worktreeId, x, r.at), label: x })), i)} />
+								))}
+							</div>
+						)}
+					</div>
+				))}
+				{groups.map((g) => (
+					<div key={g.id} className="col" style={{ gap: 8 }}>
+						<h3>
+							{g.icon} {g.name} <span className="muted">{g.items.length}</span>
+						</h3>
+						<div className="review-cards">
+							{g.items.map((i) => (
+								<Card key={i.path} item={i} worktreeId={worktreeId} version={worktree?.updatedAt} verdict={verdicts[i.path]} maker={title(i.sessionId)} onVerdict={(v) => setVerdict(i.path, v)} />
+							))}
+						</div>
+					</div>
+				))}
+				{review && !items.length && review.code.length > 0 && <div className="empty">This worktree changed only code and other files: read them with “Read the changes”{worktree?.target === "project" ? ", or play it" : ""}.</div>}
+			</div>
+			{review && (items.length > 0 || review.fallbackSession) && (
+				<div className="review-foot" data-testid="review-foot">
+					<span className="muted small" data-testid="review-tally">
+						{items.length > 0 ? `${fine} fine · ${redo} need work · ${items.length - fine - redo} not looked at` : ""}
+					</span>
+					<input className="grow" placeholder={review.fallbackSession ? `A note on the whole thing (to “${title(review.fallbackSession) ?? "the session"}”)` : "No session in this worktree to send notes to"} disabled={!review.fallbackSession} value={general} onChange={(e) => setGeneral(e.target.value)} data-testid="review-general" />
+					<button
+						className="primary"
+						disabled={sending || !messages.length}
+						onClick={send}
+						title={messages.length ? `Sends one message to ${messages.map((m) => `“${title(m.sessionId) ?? m.sessionId}”`).join(", ")}${working ? ". An agent is working: it gets the message when it finishes its current step" : ""}` : "Mark something as needing work, or write a note, first"}
+						data-testid="review-send"
+					>
+						{sending ? "Sending…" : `Send notes to the agents${redo ? ` (${redo})` : ""}`}
+					</button>
+				</div>
+			)}
+		</div>
+	);
+}

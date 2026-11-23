@@ -9,6 +9,7 @@ import { isOpenWorktree, useStudio } from "../store";
 import { confirmDiscard, unsavedOf } from "../workspace";
 import { GROUPS, megabytes, otherFiles } from "./Worktrees";
 import { WorktreeChanges } from "./WorktreeChanges";
+import { Review } from "./Review";
 
 interface Facts {
 	changes: number;
@@ -30,7 +31,10 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 export function WorktreesView() {
 	const changesOf = useStudio((s) => s.changesOf);
-	return changesOf ? <WorktreeChanges key={changesOf} worktreeId={changesOf} /> : <WorktreeList />;
+	const reviewOf = useStudio((s) => s.reviewOf);
+	// Reading the changes from a review comes back to the review.
+	if (changesOf) return <WorktreeChanges key={changesOf} worktreeId={changesOf} />;
+	return reviewOf ? <Review key={reviewOf} worktreeId={reviewOf} /> : <WorktreeList />;
 }
 
 function WorktreeList() {
@@ -77,6 +81,12 @@ function WorktreeList() {
 	}, [worktrees, assetsVersion, project]);
 
 	const working = (w: WorktreeSummary) => sessions.some((s) => s.worktreeId === w.id && (s.status === "in_progress" || s.status === "starting"));
+	/** The sessions in a worktree that asked for review and still wait for it, oldest request first. */
+	const asking = (w: WorktreeSummary) => sessions.filter((s) => s.worktreeId === w.id && s.reviewRequested && s.status !== "done").sort((a, b) => (a.reviewRequestedAt ?? "").localeCompare(b.reviewRequestedAt ?? ""));
+	const queue = list
+		.map((w) => ({ w, asks: asking(w) }))
+		.filter((q) => q.asks.length)
+		.sort((a, b) => (a.asks[0].reviewRequestedAt ?? "").localeCompare(b.asks[0].reviewRequestedAt ?? ""));
 	const act = async (what: () => Promise<unknown>) => {
 		setBusy(true);
 		try {
@@ -237,6 +247,7 @@ function WorktreeList() {
 							</span>
 						)}
 						{unloaded && <span className="badge">unloaded</span>}
+						{asking(w).length > 0 && <span className="badge review">Ready for review</span>}
 					</div>
 					<div className="row muted small worktree-row-facts">
 						{f && <span title="Files it changed against main">{plural(f.changes, "change")}</span>}
@@ -267,6 +278,9 @@ function WorktreeList() {
 						</button>
 					)}
 					{!f?.conflicts && engineButton(w, busyHere)}
+					<button className={`small ${asking(w).length ? "primary" : ""}`} disabled={unloaded || !f || f.changes === 0} onClick={() => useStudio.getState().openReview(w.id)} title={unloaded ? "Switch to it first: its folder isn't on disk" : "Look at what it changed beside main's version, mark what needs work, and send your notes to its agents"} data-testid="worktrees-review">
+						Review
+					</button>
 					<button className="small" disabled={unloaded || !f || f.changes === 0} onClick={() => useStudio.getState().openChanges(w.id)} title={unloaded ? "Switch to it first: its folder isn't on disk" : "Read everything this worktree changed, file by file"} data-testid="worktrees-changes">
 						View changes
 					</button>
@@ -330,6 +344,41 @@ function WorktreeList() {
 						<button className="primary" disabled={!label.trim()} onMouseDown={(e) => e.preventDefault()} onClick={submitLabel}>
 							Create
 						</button>
+					</div>
+				</div>
+			)}
+			{queue.length > 0 && (
+				<div className="col" style={{ gap: 6 }} data-testid="review-queue">
+					<h3>
+						Waiting for your review <span className="muted">{queue.length}</span>
+					</h3>
+					<div className="card worktree-rows">
+						{queue.map(({ w, asks }) => (
+							<div key={w.id} className="worktree-row" data-testid="review-queue-row">
+								<div className="worktree-row-main">
+									<div className="row">
+										<span className="worktree-row-label ellipsis" title={w.label}>
+											{w.label}
+										</span>
+										<span className="badge">{GROUPS.find((g) => g.target === w.target)?.label ?? w.target}</span>
+										{working(w) && (
+											<span className="badge status-in_progress">
+												<span className="dot" />
+												still working
+											</span>
+										)}
+									</div>
+									<div className="muted small ellipsis" title={asks.map((s) => s.reviewSummary).filter(Boolean).join("\n\n")}>
+										{asks[0].reviewRequestedAt ? `Asked ${ago(asks[0].reviewRequestedAt)}` : "Asked"}
+										{facts[w.id] ? ` · ${plural(facts[w.id].changes, "change")}` : ""}
+										{asks[0].reviewSummary ? ` · ${asks[0].reviewSummary}` : ""}
+									</div>
+								</div>
+								<button className="primary small" disabled={w.checkout === "removed"} onClick={() => useStudio.getState().openReview(w.id)} data-testid="review-queue-open">
+									Review
+								</button>
+							</div>
+						))}
 					</div>
 				</div>
 			)}

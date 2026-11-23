@@ -27,6 +27,7 @@ import { ReleaseService, releaseRequests } from "./release-service";
 import { UpdateService } from "./updates";
 import { openInStudioRequests } from "./open-in-studio";
 import { gatherSessionAssets } from "./session-assets";
+import { gatherReview } from "./review";
 import { runInBrowser, serveFolder } from "./web-runner";
 import { shaderRequests } from "./shaders";
 import { UiArtPipeline, uiRequests } from "./ui";
@@ -406,6 +407,7 @@ async function main(): Promise<void> {
 			history.clear(id);
 		},
 		"worktrees.changedFiles": (id) => sessions.worktreeChangedFiles(id),
+		"worktrees.review": (id) => gatherReview(id, sessions, assets, checkoutRoot),
 		"sessions.raw": async (id) => sessions.raw(id),
 		"sessions.merge": async (id) => {
 			const worktree = sessions.get(id).worktreeId;

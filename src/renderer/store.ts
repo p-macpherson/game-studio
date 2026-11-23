@@ -94,7 +94,12 @@ interface State {
 	history: { worktree: string; steps: HistoryStep[]; unsaved: string[] } | null;
 	/** The worktree whose changes the Worktrees page shows (null: its list). */
 	changesOf: string | null;
-	openChanges(worktreeId: string | null): void;
+	/** `file`: the file to show first. */
+	openChanges(worktreeId: string | null, file?: string): void;
+	changesFile: string | null;
+	/** The worktree whose Review page the Worktrees page shows (under its changes, when those are open too). */
+	reviewOf: string | null;
+	openReview(worktreeId: string | null): void;
 	/** The worktree whose Merge dialog is open. */
 	merging: string | null;
 	openMerge(worktreeId: string | null): void;
@@ -194,7 +199,10 @@ export const useStudio = create<State>((set, get) => ({
 	history: null,
 	merging: null,
 	changesOf: null,
-	openChanges: (worktreeId) => set(worktreeId ? { changesOf: worktreeId, view: "worktrees" } : { changesOf: null }),
+	changesFile: null,
+	openChanges: (worktreeId, file) => set(worktreeId ? { changesOf: worktreeId, changesFile: file ?? null, view: "worktrees" } : { changesOf: null, changesFile: null }),
+	reviewOf: null,
+	openReview: (worktreeId) => set(worktreeId ? { reviewOf: worktreeId, changesOf: null, view: "worktrees" } : { reviewOf: null }),
 	openMerge: (worktreeId) => set({ merging: worktreeId }),
 	notice: null,
 	update: null,

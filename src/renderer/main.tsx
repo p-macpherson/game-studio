@@ -51,9 +51,11 @@ function UpdateNavItem() {
 }
 
 function App() {
-	const { project, view, setView, sessions, modules, error, refresh, handleEvent, newSession, run, worktreeChanges, notice, merging, selectedLabel, openWorktrees } = useStudio(
+	const { project, view, setView, sessions, modules, error, refresh, handleEvent, newSession, run, worktreeChanges, notice, merging, selectedLabel, openWorktrees, toReview } = useStudio(
 		useShallow((s) => ({
 			openWorktrees: s.worktrees.filter((w) => w.status === "active").length,
+			// Open worktrees with a session waiting for the person's review.
+			toReview: new Set(s.sessions.filter((x) => x.reviewRequested && x.status !== "done" && s.worktrees.some((w) => w.id === x.worktreeId && w.status === "active")).map((x) => x.worktreeId)).size,
 			selectedLabel: s.worktrees.find((w) => w.id === s.selected)?.label ?? "main",
 			project: s.project,
 			view: s.view,
@@ -129,6 +131,11 @@ function App() {
 				<span className="nav-label">{label}</span>
 				{changes && <ChangeCountsLabel {...changes} />}
 				{v === "sessions" && active > 0 && <span className="count">{active}</span>}
+				{v === "worktrees" && toReview > 0 && (
+					<span className="count review-count" title={`${toReview} waiting for your review`} data-testid="review-count">
+						● {toReview}
+					</span>
+				)}
 				{v === "worktrees" && openWorktrees > 0 && (
 					<span className="count" data-testid="worktrees-count">
 						{openWorktrees}

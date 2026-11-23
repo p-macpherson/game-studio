@@ -325,7 +325,11 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 					<StatusBadge s={s} />
 					<TargetBadge target={s.target} />
 					<span className="badge">{typeName}</span>
-					{s.reviewRequested && <span className="badge review">Ready for review</span>}
+					{s.reviewRequested && (
+						<button className="chip badge review" onClick={() => useStudio.getState().openReview(s.worktreeId)} title="Review what its worktree changed: look, listen, and send your notes back" data-testid="session-review">
+							Ready for review ›
+						</button>
+					)}
 					{hasWorktree && (
 						<button className="chip" onClick={() => useStudio.getState().openChanges(s.worktreeId)} title="Read what its worktree changed (Worktrees → View changes)" data-testid="session-changes">
 							Changes ›

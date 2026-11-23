@@ -24,9 +24,10 @@ export function WorktreeChanges({ worktreeId }: { worktreeId: string }) {
 			showAsset: s.showAsset,
 		})),
 	);
+	const reviewing = useStudio((s) => s.reviewOf === worktreeId);
 	const [files, setFiles] = useState<DiffFile[] | null>(null);
 	const [error, setError] = useState<string | null>(null);
-	const [picked, setPicked] = useState<string | null>(null);
+	const [picked, setPicked] = useState<string | null>(() => useStudio.getState().changesFile);
 	const [showRecords, setShowRecords] = useState(false);
 	const [whole, setWhole] = useState(false);
 	useEffect(() => {
@@ -64,7 +65,7 @@ export function WorktreeChanges({ worktreeId }: { worktreeId: string }) {
 		<div className="changes" data-testid="worktree-changes">
 			<div className="changes-head">
 				<button onClick={() => openChanges(null)} data-testid="changes-back">
-					← Worktrees
+					← {reviewing ? "Review" : "Worktrees"}
 				</button>
 				<div className="col grow" style={{ gap: 2, minWidth: 0 }}>
 					<h2 className="ellipsis">Changes in “{worktree?.label ?? worktreeId}”</h2>

@@ -1315,6 +1315,62 @@ try {
 	await page.getByRole("button", { name: "Appearance", exact: true }).click();
 	await page.locator("[data-testid=theme-card][data-theme-id=simple-dark]").click();
 	await page.getByTestId("font-option").filter({ hasText: "System" }).first().click();
+	// Review: a session asks for review; its worktree joins the queue; the Review page shows what it changed as a card,
+	// and a "needs work" note goes back to the session as one message.
+	const until = async (what: string, check: () => Promise<boolean>) => {
+		for (let i = 0; !(await check()); i++) {
+			if (i > 150) throw new Error(`timed out waiting for ${what}`);
+			await page.waitForTimeout(200);
+		}
+	};
+	const sessionOf = (id: string) => page.evaluate(async (id) => ((await window.studio.call("sessions.list")) as { id: string; status: string; reviewRequested: boolean }[]).find((s) => s.id === id)!, id);
+	const reviewed = (await page.evaluate(() =>
+		window.studio.call("sessions.create", { agentType: "gameplay-engineer", target: "project", model: "faux/echo", prompt: "write docs/design/Review Notes.md: # Review notes\n\nA doc to look over." }),
+	)) as { id: string };
+	await until("the review session to settle", async () => (await sessionOf(reviewed.id)).status === "idle");
+	const proof = `tool bash ${JSON.stringify({ command: `mkdir -p build/review && cp ${resolve("gen/workers/fixtures/concept.png")} build/review/after.png` })}`;
+	await page.evaluate(([id, text]) => window.studio.call("sessions.send", id, text), [reviewed.id, proof]);
+	await page.waitForTimeout(500);
+	await until("the proof picture", async () => (await sessionOf(reviewed.id)).status === "idle");
+	const ask = `tool request_review ${JSON.stringify({ summary: "Wrote the review notes: a first pass.", look_at: ["Open the doc: it should say what we review"], images: ["build/review/after.png", "build/review/missing.png"] })}`;
+	await page.evaluate(([id, text]) => window.studio.call("sessions.send", id, text), [reviewed.id, ask]);
+	await until("the review request", async () => {
+		const s = await sessionOf(reviewed.id);
+		return s.status === "idle" && s.reviewRequested;
+	});
+	await nav.getByRole("button", { name: "Worktrees" }).click();
+	await nav.getByTestId("review-count").waitFor();
+	const queued = page.getByTestId("review-queue-row").filter({ hasText: "Wrote the review notes" });
+	await queued.waitFor();
+	await step("82-review-queue", page);
+	await queued.getByTestId("review-queue-open").click();
+	await page.getByTestId("review-request").getByText("Wrote the review notes: a first pass.").waitFor();
+	await page.getByTestId("review-look-at").getByText("it should say what we review").waitFor();
+	const proofs = page.getByTestId("review-evidence").locator("img");
+	if ((await proofs.count()) !== 1) throw new Error("the review should show the one picture that exists");
+	await until("the proof to load", () => proofs.first().evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0));
+	const reviewCard = page.locator('[data-testid=review-card][data-path="docs/design/Review Notes.md"]');
+	await reviewCard.waitFor();
+	await reviewCard.getByTestId("review-redo").click();
+	await reviewCard.getByTestId("review-note").fill("Too thin: say what we are reviewing");
+	await page.getByTestId("review-tally").getByText("1 need work").waitFor();
+	await step("83-review-page", page);
+	await page.getByTestId("review-send").click();
+	await until("the notes to reach the session", async () =>
+		JSON.stringify(await page.evaluate((id) => window.studio.call("sessions.messages", id), reviewed.id)).includes("Review Notes.md): Too thin: say what we are reviewing"),
+	);
+	await page.getByTestId("review-tally").getByText("0 need work").waitFor();
+	await page.getByTestId("review-request").waitFor({ state: "detached", timeout: 30_000 }); // the follow-up put the work back in progress
+	await step("84-review-sent", page);
+	await page.getByTestId("review-back").click();
+	await page.getByTestId("worktrees-page").waitFor();
+	// A worktree with pictures: its models as cards with their thumbnails.
+	await page.getByTestId("worktrees-row").filter({ hasText: "generate_concept_images" }).getByTestId("worktrees-review").click();
+	await page.getByTestId("review-card").first().waitFor();
+	await page.waitForTimeout(800);
+	await step("85-review-pictures", page);
+	await page.getByTestId("review-back").click();
+
 	// A session cut off mid-work (the session host dies while its agent waits for an answer) can be resumed.
 	await nav.getByRole("button", { name: "Sessions" }).click();
 	await page.getByRole("button", { name: "+ New session" }).click();

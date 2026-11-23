@@ -2,6 +2,7 @@
 import type { HostInfo, PromptMode, StudioRequestMethod } from "./host";
 import type { AssetLinks } from "./asset-links";
 import type { SessionAssets } from "./session-assets";
+import type { WorktreeReview } from "./review";
 import type { PastedImage } from "./attachments";
 import type { ReleaseBuild, ReleaseInfo, ReleaseManifest, ReleaseTarget } from "./release";
 import type { HistoryStep } from "./history";
@@ -169,6 +170,8 @@ export interface StudioApi {
 	"music.stems"(checkout: string | null, name: string): Promise<{ track: string; ogg: Uint8Array }[]>;
 	"worktrees.discard"(id: string): Promise<void>;
 	"worktrees.changedFiles"(id: string): Promise<{ path: string; change: "added" | "modified" | "deleted" }[]>;
+	/** What a worktree changed, as the Review page shows it: a card per asset, the files read as a diff, who asked. */
+	"worktrees.review"(id: string): Promise<WorktreeReview>;
 	/** The files a session changed against its base (for warnings like "merging also brings …"). */
 	"sessions.changedFiles"(id: string): Promise<{ path: string; change: "added" | "modified" | "deleted" }[]>;
 	"sessions.raw"(id: string): Promise<string>;

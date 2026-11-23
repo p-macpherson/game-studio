@@ -59,6 +59,12 @@ export interface SessionRecord {
 	closedAt?: string;
 	outcome: "merged" | "discarded" | null;
 	reviewRequested: boolean;
+	/** What the agent said it did when it last asked for review, and when it asked. */
+	reviewSummary?: string;
+	reviewRequestedAt?: string;
+	/** With that request: what to check or try, and pictures of the change (paths in its checkout). */
+	reviewLookAt?: string[];
+	reviewImages?: string[];
 	/** Pi's JSONL transcript, relative to the session folder. Pi picks the name on first save. */
 	piSessionFile?: string;
 	/** Last error from the agent run, cleared on the next prompt. */

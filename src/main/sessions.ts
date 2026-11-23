@@ -485,7 +485,7 @@ export class SessionService {
 			"- Commit your work on this branch as you go, with clear messages. Never switch branches, rebase, push, or touch the base branch: the user reviews and merges your branch from Game Studio.",
 			"- Don't edit anything under `.studio/`; it belongs to Game Studio.",
 			"- Call `set_session_title` early with a short title for the task.",
-			"- When your work is committed and ready, call `request_review` with a summary.",
+			"- When your work is committed and ready, call `request_review` with a summary, what to look at, and pictures of the change when you can make them.",
 			"- Use `ask_user` when you need a decision from the user.",
 		];
 		const parent = r.parentId ? this.entries.get(r.parentId) : undefined;
@@ -1246,7 +1246,22 @@ export class SessionService {
 					if (w && w.record.id === r.id && w.record.label === r.title) this.worktrees.rename(w, event.params.title);
 					r.title = event.params.title;
 				}
-				else if (event.tool === "request_review") r.reviewRequested = true;
+				else if (event.tool === "request_review") {
+					r.reviewRequested = true;
+					r.reviewSummary = event.params.summary;
+					const list = (json: string | undefined): string[] => {
+						try {
+							const v: unknown = JSON.parse(json ?? "[]");
+							return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && !!x.trim()) : [];
+						} catch {
+							return [];
+						}
+					};
+					r.reviewLookAt = list(event.params.lookAt);
+					// Only pictures that exist in its checkout, as with a question's.
+					r.reviewImages = list(event.params.images).map((p) => p.replace(/^\.?\//, "")).filter((p) => /\.(png|jpe?g|webp)$/i.test(p) && existsSync(join(this.worktreePath(e), p)));
+					r.reviewRequestedAt = new Date().toISOString();
+				}
 				this.save(e);
 				break;
 			case "ask_user":
