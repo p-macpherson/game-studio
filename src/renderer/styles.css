@@ -299,6 +299,17 @@ a {
 	margin-top: 4px;
 	padding-top: 4px;
 }
+.fork-notes {
+	margin: 0;
+	padding-left: 18px;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	font-size: 12px;
+}
+.fork-notes .fork-warning {
+	color: var(--yellow);
+}
 .project-action-glyph {
 	width: 16px;
 	text-align: center;

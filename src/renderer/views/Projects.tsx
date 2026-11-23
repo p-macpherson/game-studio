@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { RecentProject } from "../../shared/types";
 import { call } from "../api";
 import { useStudio } from "../store";
+import { useShallow } from "zustand/react/shallow";
 
 async function run(action: () => Promise<unknown>) {
 	try {
@@ -51,6 +52,91 @@ function NewProjectDialog({ onClose }: { onClose(): void }) {
 					<button onClick={onClose}>Cancel</button>
 					<button className="primary" disabled={!path || !name.trim() || busy} onClick={create}>
 						{busy ? "Creating…" : "Create project"}
+					</button>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+/** Fork: a new project from the open one's main branch. Says what comes along and what doesn't before it's made. */
+function ForkProjectDialog({ project, onClose }: { project: { path: string; name: string }; onClose(): void }) {
+	const parent = project.path.slice(0, project.path.lastIndexOf("/"));
+	const [name, setName] = useState(`${project.name} 2`);
+	const slug = (n: string) => n.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "fork";
+	// The folder follows the name until the person picks or types one.
+	const [folder, setFolder] = useState<string | null>(null);
+	const path = folder ?? `${parent}/${slug(name)}`;
+	const [open, setOpen] = useState(true);
+	const [busy, setBusy] = useState(false);
+	const [unsaved, setUnsaved] = useState(0);
+	const { worktrees, working } = useStudio(
+		useShallow((s) => ({
+			worktrees: s.worktrees.filter((w) => w.target === "project" && w.status === "active").length,
+			working: s.sessions.filter((x) => x.target === "project" && (x.status === "in_progress" || x.status === "starting")).length,
+		})),
+	);
+	useEffect(() => {
+		call("git.status", "project").then((s) => setUnsaved(s.files.filter((f) => !f.path.startsWith(".studio/")).length), () => {});
+	}, []);
+	const pick = async () => {
+		const dir = await call("dialog.pickFolder", "Choose an empty folder for the fork");
+		if (dir) setFolder(dir);
+	};
+	const fork = async () => {
+		if (open && working && !window.confirm(`${working} session${working > 1 ? "s are" : " is"} still working in “${project.name}”. Opening the fork leaves this project. Fork and open it anyway?`)) return;
+		setBusy(true);
+		try {
+			const made = await call("project.fork", path, name.trim(), open);
+			if (!open) useStudio.getState().notify(`Forked “${project.name}” as “${made.name}” in ${made.path}`);
+			onClose();
+		} catch (err) {
+			useStudio.getState().showError(err);
+		} finally {
+			setBusy(false);
+		}
+	};
+	return (
+		<div className="modal-backdrop">
+			<div className="modal" data-testid="fork-dialog">
+				<h2>Fork “{project.name}”</h2>
+				<p className="muted">
+					Makes a separate project from what's on <b>main</b> now: its files, design docs, assets and history. The two are independent afterwards; nothing done in one reaches the
+					other.
+				</p>
+				<ul className="muted fork-notes" data-testid="fork-notes">
+					<li>
+						{worktrees > 0 ? `The ${worktrees} open worktree${worktrees > 1 ? "s aren't" : " isn't"} copied` : "Worktrees aren't copied"}: merge one first if the fork should have its work.
+					</li>
+					<li>Sessions and their conversations stay with this project.</li>
+					{unsaved > 0 && (
+						<li className="fork-warning">
+							{unsaved} uncommitted change{unsaved > 1 ? "s" : ""} in main {unsaved > 1 ? "aren't" : "isn't"} copied: commit {unsaved > 1 ? "them" : "it"} in Source Control first to bring {unsaved > 1 ? "them" : "it"} along.
+						</li>
+					)}
+					<li>The fork has no remote: publish it from Source Control when you want one.</li>
+				</ul>
+				<label className="field">
+					<span>Name of the new game</span>
+					<input value={name} onChange={(e) => setName(e.target.value)} autoFocus data-testid="fork-name" />
+				</label>
+				<label className="field">
+					<span>Folder (new, or empty)</span>
+					<div className="row">
+						<input className="grow" value={path} onChange={(e) => setFolder(e.target.value)} data-testid="fork-path" />
+						<button onClick={pick}>Browse…</button>
+					</div>
+				</label>
+				<label className="row" style={{ gap: 8 }}>
+					<input type="checkbox" checked={open} onChange={(e) => setOpen(e.target.checked)} data-testid="fork-open" />
+					Open the fork when it's ready
+				</label>
+				<div className="row" style={{ justifyContent: "flex-end" }}>
+					<button onClick={onClose} disabled={busy}>
+						Cancel
+					</button>
+					<button className="primary" disabled={!path.trim() || !name.trim() || busy} onClick={fork} data-testid="fork-confirm">
+						{busy ? "Forking…" : "Fork project"}
 					</button>
 				</div>
 			</div>
@@ -140,6 +226,7 @@ export function ProjectMenu() {
 	const project = useStudio((s) => s.project);
 	const [open, setOpen] = useState(false);
 	const [creating, setCreating] = useState(false);
+	const [forking, setForking] = useState(false);
 	const [recent, reload] = useRecent(open);
 	// The menu is wider than the sidebar (which clips what overflows it), so it is placed against the window.
 	const button = useRef<HTMLButtonElement>(null);
@@ -207,6 +294,14 @@ export function ProjectMenu() {
 							Open a project folder…
 						</button>
 						{project && (
+							<button className="ghost nav-item" onClick={() => act(() => setForking(true))} title="Make a separate project from this one's main branch" data-testid="project-fork">
+								<span className="project-action-glyph" aria-hidden>
+									⑂
+								</span>
+								Fork this project…
+							</button>
+						)}
+						{project && (
 							<button className="ghost nav-item" onClick={() => act(() => void run(() => call("project.close")))} data-testid="project-close">
 								<span className="project-action-glyph" aria-hidden>
 									✕
@@ -218,6 +313,7 @@ export function ProjectMenu() {
 				</div>
 			)}
 			{creating && <NewProjectDialog onClose={() => setCreating(false)} />}
+			{forking && project && <ForkProjectDialog project={project} onClose={() => setForking(false)} />}
 		</div>
 	);
 }

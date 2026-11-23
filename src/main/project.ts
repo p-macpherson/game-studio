@@ -1,5 +1,5 @@
 // Game projects: opening one, and creating one from templates/game.
-import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { addStandardDocs } from "./design-docs";
 import { basename, join } from "node:path";
 import type { ProjectInfo } from "../shared/types";
@@ -62,6 +62,67 @@ export async function createProject(opts: { path: string; name: string; template
 	await linkEngineLibs(join(path, "engine"), engineRepo);
 	await git(path, ["add", "-A"]);
 	await git(path, ["commit", "-q", "-m", `Create ${name} with Game Studio`]);
+	return { path, name };
+}
+
+/**
+ * Makes a new project from another's main branch: a clone of what is committed on `main` into `path` (which must be
+ * empty or not exist), with its own name, no remote (Publish gives it one), and none of the original's worktrees,
+ * other branches, sessions or uncommitted edits. The two projects are independent from then on.
+ */
+export async function forkProject(opts: { source: string; path: string; name: string; engineRepo: string }): Promise<ProjectInfo> {
+	const { source, path, engineRepo } = opts;
+	const name = opts.name.trim();
+	if (!name) throw new Error("Give the new project a name");
+	const original = readProject(source);
+	if (existsSync(path) && readdirSync(path).length > 0) throw new Error(`${path} is not empty`);
+	const commit = await git(source, ["rev-parse", "--verify", "-q", "refs/heads/main"]).then((s) => s.trim(), () => "");
+	if (!commit) throw new Error(`${original.name} has no main branch to copy`);
+	mkdirSync(path, { recursive: true });
+	try {
+		await git(path, ["clone", "-q", "--single-branch", "--branch", "main", "--no-tags", source, "."]);
+		// Whoever commits in the original commits in the copy (the clone doesn't carry the repo's own settings).
+		for (const key of ["user.name", "user.email"]) {
+			const value = await git(source, ["config", "--local", "--get", key]).then((s) => s.trim(), () => "");
+			if (value) await git(path, ["config", key, value]);
+		}
+		// Binary assets: the clone checked out LFS pointers (the filters are per repo); fetch main's files and put them in.
+		await git(path, ["lfs", "install", "--local"]).catch(() => {
+			throw new Error("Git LFS is required for game projects: install git-lfs, then try again");
+		});
+		await git(path, ["lfs", "fetch", "origin", "main"]);
+		await git(path, ["lfs", "checkout"]);
+		// On its own from here: no link back to the original.
+		await git(path, ["remote", "remove", "origin"]);
+		// The engine, from the local engine repo when it has the pinned commit (no network needed).
+		if (existsSync(join(path, ".gitmodules"))) {
+			await git(path, ["-c", "protocol.file.allow=always", "-c", `submodule.engine.url=${engineRepo}`, "submodule", "update", "--init", "-q"]).catch(() => git(path, ["submodule", "update", "--init", "-q"]));
+			await linkEngineLibs(join(path, "engine"), engineRepo);
+		}
+		// The original's worktrees and sessions aren't the copy's: their records go.
+		for (const dir of [".studio/worktrees", ".studio/sessions"]) {
+			rmSync(join(path, dir), { recursive: true, force: true });
+		}
+		mkdirSync(join(path, ".studio/sessions"), { recursive: true });
+		writeFileSync(join(path, ".studio/sessions/.gitkeep"), "");
+		ensureStudioIgnore(path);
+		writeFileSync(join(path, PROJECT_FILE), `${JSON.stringify({ name, formatVersion: 1, createdAt: new Date().toISOString(), forkedFrom: { name: original.name, commit } }, null, "\t")}\n`);
+		// Where the template put the game's name: the window's title and the agents' notes.
+		const retitle = (file: string, from: string, to: string) => {
+			const full = join(path, file);
+			if (!existsSync(full)) return;
+			const text = readFileSync(full, "utf8");
+			if (text.includes(from)) writeFileSync(full, text.replace(from, () => to));
+		};
+		retitle("game/main.odin", `title = ${JSON.stringify(original.name)}`, `title = ${JSON.stringify(name)}`);
+		retitle("AGENTS.md", `# ${original.name}\n`, `# ${name}\n`);
+		await git(path, ["add", "-A"]);
+		await git(path, ["commit", "-q", "-m", `Fork ${original.name} as ${name}`]);
+	} catch (err) {
+		// Nothing half-made is left behind (the folder was empty or new).
+		rmSync(path, { recursive: true, force: true });
+		throw err;
+	}
 	return { path, name };
 }
 

@@ -1543,6 +1543,28 @@ try {
 	await page.getByTestId("resumed-note").waitFor({ timeout: 30_000 });
 	await page.locator(".session-detail .status-idle").waitFor({ timeout: 30_000 });
 	await step("81-session-resumed", page);
+	// Fork: a new project from main alone. By now this one has worktrees, sessions and extra branches; none come along.
+	await page.getByTestId("project-current").click();
+	await page.getByTestId("project-fork").click();
+	await page.getByTestId("fork-notes").getByText(/open worktrees? (aren't|isn't) copied/).waitFor();
+	await page.getByTestId("fork-name").fill("E2E Fork");
+	if ((await page.getByTestId("fork-path").inputValue()) !== join(root, "e2e-fork")) throw new Error(`the fork's folder should follow its name, not be ${await page.getByTestId("fork-path").inputValue()}`);
+	await page.getByTestId("fork-open").uncheck();
+	await step("90-fork-dialog", page);
+	await page.getByTestId("fork-confirm").click();
+	await page.getByTestId("notice").getByText("Forked “E2E Game” as “E2E Fork”").waitFor({ timeout: 120_000 });
+	const forked = join(root, "e2e-fork");
+	if (JSON.parse(readFileSync(join(forked, ".studio/project.json"), "utf8")).name !== "E2E Fork") throw new Error("the fork should carry its new name");
+	if (execSync("git branch --format='%(refname:short)'", { cwd: forked }).toString().trim() !== "main") throw new Error("the fork should have only main");
+	if (existsSync(join(forked, ".studio/worktrees")) || readdirSync(join(forked, ".studio/sessions")).some((f) => f !== ".gitkeep")) throw new Error("the fork shouldn't carry worktree or session records");
+	if (execSync("git remote", { cwd: forked }).toString().trim() || execSync("git status --porcelain", { cwd: forked }).toString().trim()) throw new Error("the fork should be clean and have no remote");
+	if (!existsSync(join(forked, "engine/engine"))) throw new Error("the fork should have its engine");
+	// Still in the original; the fork is offered in the project menu.
+	await page.locator(".project-name", { hasText: "E2E Game" }).waitFor();
+	await page.getByTestId("project-current").click();
+	await page.getByTestId("project-menu").getByTestId("project-row").filter({ hasText: "E2E Fork" }).waitFor();
+	await step("91-fork-in-menu", page);
+	await page.keyboard.press("Escape");
 	console.log(`passed; screenshots in ${shots}`);
 	passed = true;
 } catch (err) {

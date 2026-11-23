@@ -43,6 +43,11 @@ export interface StudioApi {
 	/** Creates a project from the template in an empty folder or empty repo. */
 	"project.create"(path: string, name: string): Promise<ProjectInfo>;
 	"project.close"(): Promise<void>;
+	/**
+	 * Makes a new project in `path` from the open project's main branch (no worktrees, other branches, sessions, remote
+	 * or uncommitted edits come along), named `name`; `open` switches the studio to it.
+	 */
+	"project.fork"(path: string, name: string, open: boolean): Promise<ProjectInfo>;
 	/** The projects opened lately, newest first, each with its game's name and whether its folder is still a project. */
 	"project.recent"(): Promise<RecentProject[]>;
 	/** Takes a project off that list (its folder isn't touched). */

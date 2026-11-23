@@ -11,7 +11,7 @@ import { withModelSettings } from "../shared/agent-models";
 import { AssetService, MODULES } from "./assets";
 import * as g from "./git";
 import { utilityHostLink } from "./host-link";
-import { createProject, readProject, publishProject } from "./project";
+import { createProject, forkProject, readProject, publishProject } from "./project";
 import { GenService, soundfontPath } from "./gen";
 import { assetRequests, moveStep } from "./asset-move";
 import { designDocRequests } from "./design-docs";
@@ -271,6 +271,17 @@ async function main(): Promise<void> {
 		"project.create": async (path, name) => {
 			const info = await createProject({ path: projectPath(path), name, templateDir: join(appRoot, "templates/game"), engineRepo: settings.get().engineRepo });
 			setProject(info);
+			return info;
+		},
+		"project.fork": async (path, name, open) => {
+			if (!project) throw new Error("Open the project to fork first");
+			const info = await forkProject({ source: project.path, path: projectPath(path), name, engineRepo: settings.get().engineRepo });
+			if (open) setProject(info);
+			else {
+				// On the recent list, without becoming the project the studio reopens.
+				settings.rememberProject(info.path);
+				settings.rememberProject(project.path);
+			}
 			return info;
 		},
 		"project.close": async () => {

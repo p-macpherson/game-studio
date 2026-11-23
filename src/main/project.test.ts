@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createProject, publishProject, readProject } from "./project";
+import { createProject, forkProject, publishProject, readProject } from "./project";
 import { DESIGN_DOCS, docPath, parseDoc } from "../shared/design-docs";
 import { readDesignDocs } from "./design-docs";
 import { makeRepo, sh, tempDir } from "./test-helpers";
@@ -47,6 +47,58 @@ describe("createProject", () => {
 		sh(path, "commit", "-q", "-m", "texture");
 		expect(sh(path, "lfs", "ls-files", "--name-only")).toBe("assets/textures/brick.png\n");
 		expect(sh(path, "show", "HEAD:assets/textures/brick.png")).toContain("version https://git-lfs.github.com/spec/v1");
+	});
+
+	it("forks a project from its main branch alone: no worktrees, other branches, sessions, remote or uncommitted edits", async () => {
+		const root = tempDir();
+		const engineRepo = makeRepo(join(root, "engine"), { "engine/engine/app.odin": "package engine\n" });
+		const source = join(root, "cave-game");
+		mkdirSync(source);
+		sh(source, "init", "-q", "-b", "main");
+		sh(source, "config", "user.email", "test@example.com");
+		sh(source, "config", "user.name", "Test");
+		await createProject({ path: source, name: "Cave Game", templateDir, engineRepo });
+		// On main: a binary asset (LFS), and the studio's records of a worktree and a session.
+		const image = "\x89PNG real image bytes, not a pointer";
+		writeFileSync(join(source, "assets/textures/brick.png"), image);
+		mkdirSync(join(source, ".studio/worktrees"), { recursive: true });
+		writeFileSync(join(source, ".studio/worktrees/w1.json"), "{}");
+		mkdirSync(join(source, ".studio/sessions/s1"), { recursive: true });
+		writeFileSync(join(source, ".studio/sessions/s1/session.json"), "{}");
+		sh(source, "add", "-A");
+		sh(source, "commit", "-q", "-m", "a texture and some records");
+		sh(source, "remote", "add", "origin", "https://example.com/cave-game.git");
+		// Not on main: a worktree's branch, and an edit that was never committed.
+		sh(source, "branch", "studio/w1");
+		sh(source, "checkout", "-q", "studio/w1");
+		writeFileSync(join(source, "game/secret.odin"), "package game\n");
+		sh(source, "add", "-A");
+		sh(source, "commit", "-q", "-m", "worktree work");
+		sh(source, "checkout", "-q", "main");
+		writeFileSync(join(source, "game/unsaved.odin"), "package game\n");
+
+		const path = join(root, "cave-game-2");
+		const info = await forkProject({ source, path, name: "Cave Game 2", engineRepo });
+
+		expect(info).toEqual({ path, name: "Cave Game 2" });
+		expect(readProject(path).name).toBe("Cave Game 2");
+		expect(JSON.parse(readFileSync(join(path, ".studio/project.json"), "utf8")).forkedFrom.name).toBe("Cave Game");
+		expect(readFileSync(join(path, "game/main.odin"), "utf8")).toContain('title = "Cave Game 2"');
+		// Main's files, binary ones as real files, and the engine.
+		expect(readFileSync(join(path, "assets/textures/brick.png"), "utf8")).toBe(image);
+		expect(existsSync(join(path, "engine/engine/engine/app.odin"))).toBe(true);
+		// Nothing from outside main.
+		expect(sh(path, "branch", "--format=%(refname:short)")).toBe("main\n");
+		expect(sh(path, "remote")).toBe("");
+		expect(existsSync(join(path, "game/secret.odin"))).toBe(false);
+		expect(existsSync(join(path, "game/unsaved.odin"))).toBe(false);
+		expect(existsSync(join(path, ".studio/worktrees"))).toBe(false);
+		expect(existsSync(join(path, ".studio/sessions/s1"))).toBe(false);
+		expect(sh(path, "status", "--porcelain")).toBe("");
+		expect(sh(path, "log", "-1", "--format=%s")).toBe("Fork Cave Game as Cave Game 2\n");
+		// The original is untouched, and a folder that isn't empty is refused.
+		expect(sh(source, "status", "--porcelain")).toContain("game/unsaved.odin");
+		await expect(forkProject({ source, path, name: "Again", engineRepo })).rejects.toThrow("is not empty");
 	});
 
 	it("publishes a local-only project to a new remote once the engine commit it pins is on the engine's remote", async () => {
