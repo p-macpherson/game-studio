@@ -35,6 +35,8 @@ export interface StudioApi {
 	"settings.get"(): Promise<Settings>;
 	"settings.update"(patch: Partial<Settings>): Promise<Settings>;
 
+	/** Whether the studio is holding the computer's sleep off right now (agents are working). */
+	"studio.awake"(): Promise<boolean>;
 	"project.current"(): Promise<ProjectInfo | null>;
 	/** Opens a project; without a path, shows a folder picker. Null if cancelled. */
 	"project.open"(path?: string): Promise<ProjectInfo | null>;

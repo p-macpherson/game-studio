@@ -116,6 +116,29 @@ function GeneralSettings() {
 					has its own toggle under its message box, and keeps the choice made there.
 				</small>
 			</div>
+			<div className="card">
+				<h3>Power</h3>
+				<label className="row" style={{ gap: 8 }}>
+					<input
+						type="checkbox"
+						checked={settings?.keepAwake ?? true}
+						onChange={async (e) => {
+							try {
+								await call("settings.update", { keepAwake: e.target.checked });
+								await refresh();
+							} catch (err) {
+								showError(err);
+							}
+						}}
+						data-testid="settings-keep-awake"
+					/>
+					Keep the computer awake while agents are working
+				</label>
+				<small className="muted">
+					While any session is in progress the computer won't go to sleep; once they're all idle, done or waiting for your answer, it sleeps again after however long your system is set
+					to wait. The screen may still turn off and lock.
+				</small>
+			</div>
 			<UpdatesCard />
 			<AssetGeneration />
 			<div className="card">

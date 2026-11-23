@@ -1,6 +1,7 @@
 import { existsSync, type FSWatcher, readFileSync, watch } from "node:fs";
 import { basename, join, resolve, sep } from "node:path";
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, powerSaveBlocker, shell } from "electron";
+import { KeepAwake, isWorking } from "./keep-awake";
 import { leafName } from "../shared/asset-names";
 import { EditHistory } from "./edit-history";
 import type { StudioApi, StudioEvent, StudioMethod } from "../shared/ipc";
@@ -60,8 +61,13 @@ const settings = new SettingsStore(join(app.getPath("userData"), "settings.json"
 let project: ProjectInfo | null = null;
 let win: BrowserWindow | null = null;
 
+/** Holds the computer's sleep off while agents work (keep-awake.ts); `refreshAwake` re-reads whether any do. */
+const awake = new KeepAwake({ start: () => powerSaveBlocker.start("prevent-app-suspension"), stop: (id) => powerSaveBlocker.stop(id) });
+let refreshAwake: (() => void) | undefined;
+
 function emit(event: StudioEvent): void {
 	win?.webContents.send("studio:event", event);
+	if (event.type === "sessions_changed") refreshAwake?.();
 	// Assets change when an agent's tool writes files in a worktree, or a session is merged/discarded.
 	if ((event.type === "session_event" && (event.event.type === "tool_execution_end" || event.event.type === "agent_settled")) || event.type === "sessions_changed") {
 		assetsChanged();
@@ -152,6 +158,7 @@ async function main(): Promise<void> {
 		},
 	});
 
+	refreshAwake = () => awake.update(settings.get().keepAwake !== false && sessions.list().some(isWorking));
 	const runner = new RunService({ projectPath: () => project?.path ?? null, sessions, emit });
 	const checks = new ReviewCheckService({
 		head: async (id) => (await g.revParse(sessions.checkoutPath(id), "HEAD")).trim(),
@@ -237,11 +244,13 @@ async function main(): Promise<void> {
 		"settings.get": async () => settings.get(),
 		"settings.update": async (patch) => {
 			const next = settings.update(patch);
+			refreshAwake?.();
 			// Only the repos' places change which sessions there are.
 			if (("engineRepo" in patch) || ("studioRepo" in patch) || ("worktreeRoot" in patch)) sessions.load();
 			return next;
 		},
 
+		"studio.awake": async () => awake.active,
 		"project.current": async () => project,
 		"project.open": async (path) => {
 			const dir = path ?? (await pickFolder("Open game project"));

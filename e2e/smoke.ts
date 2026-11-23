@@ -1514,6 +1514,17 @@ try {
 		return s.status === "idle" && !s.reviewRequested;
 	});
 
+	// While an agent works the studio holds the computer's sleep off, and lets go once every session has stopped.
+	const sleeper = (await page.evaluate(() => window.studio.call("sessions.create", { agentType: "gameplay-engineer", target: "project", model: "faux/echo", prompt: 'tool bash {"command": "sleep 3"}' }))) as { id: string };
+	for (let i = 0; !(await page.evaluate(() => window.studio.call("studio.awake"))); i++) {
+		if (i > 40) throw new Error("the studio should hold sleep off while an agent works");
+		await page.waitForTimeout(100);
+	}
+	for (let i = 0; (await page.evaluate(() => window.studio.call("studio.awake"))) || (await sessionOf(sleeper.id)).status !== "idle"; i++) {
+		if (i > 300) throw new Error("the studio should let the computer sleep once its sessions are idle");
+		await page.waitForTimeout(100);
+	}
+
 	// A session cut off mid-work (the session host dies while its agent waits for an answer) can be resumed.
 	await nav.getByRole("button", { name: "Sessions" }).click();
 	await page.getByRole("button", { name: "+ New session" }).click();

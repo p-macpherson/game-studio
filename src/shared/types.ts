@@ -138,6 +138,8 @@ export interface Settings {
 	agentModels?: Record<string, AgentModelSettings>;
 	/** Settings → General: whether Enter sends a message in a session that hasn't chosen for itself (absent: yes). */
 	enterToSend?: boolean;
+	/** Settings → General: keep the computer from sleeping while agents are working (absent: yes). */
+	keepAwake?: boolean;
 }
 
 export interface AgentModelSettings {
