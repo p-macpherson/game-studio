@@ -359,6 +359,14 @@ a {
 	flex-direction: column;
 	gap: 2px;
 }
+/* A line between the last group (Audio) and Settings, so Settings never reads as one of its items. */
+.sidebar-bottom::before {
+	content: "";
+	display: block;
+	height: 1px;
+	margin: 8px 4px 6px;
+	background: var(--border);
+}
 .shell.collapsed {
 	grid-template-columns: 52px 1fr;
 }
