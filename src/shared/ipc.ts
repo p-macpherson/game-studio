@@ -1,5 +1,5 @@
 /** Contract between the renderer and the main process, exposed by the preload script as `window.studio`. */
-import type { HostInfo, PromptMode, StudioRequestMethod } from "./host";
+import type { HostInfo, PromptMode, QueuedMessages, StudioRequestMethod } from "./host";
 import type { AssetLinks } from "./asset-links";
 import type { SessionAssets } from "./session-assets";
 import type { ReviewChecks, StyleCheck, WorktreeReview } from "./review";
@@ -139,6 +139,8 @@ export interface StudioApi {
 	/** `images`: pasted with the message (shared/attachments.ts); the text may then be empty. */
 	"sessions.send"(id: string, text: string, mode?: PromptMode, images?: PastedImage[]): Promise<void>;
 	"sessions.abort"(id: string): Promise<void>;
+	"sessions.queued"(id: string): Promise<QueuedMessages>;
+	"sessions.unqueue"(id: string, mode: PromptMode, index: number): Promise<string | null>;
 	"sessions.setModel"(id: string, model: string): Promise<void>;
 	/** How full the session's context window is; null while its agent isn't loaded (nothing sent since the studio started). */
 	"sessions.context"(id: string): Promise<ContextUsage | null>;

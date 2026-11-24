@@ -1,6 +1,7 @@
 import { PASTE_HINT, usePastedImages } from "./PastedImages";
 import { useEffect, useRef, useState } from "react";
 import type { PromptMode } from "../../shared/host";
+import { splitAttachments } from "../../shared/attachments";
 import type { ContextUsage, SessionSummary } from "../../shared/types";
 import { findAgentType } from "../../shared/agents";
 import { call, relativeTime, studioFile } from "../api";
@@ -200,6 +201,33 @@ function QuestionCard({ sessionId, question, busy, onAnswer }: { sessionId: stri
 }
 
 /** The Sub-agents tab: the tree of sessions below this one, each with how it stands; Done ones can be hidden. */
+/** Messages sent while the agent works, until they're delivered: Pi holds them outside the conversation till then. */
+function QueuedMessages({ queued, busy, onRemove }: { queued: { steering: string[]; followUp: string[] }; busy: boolean; onRemove: (mode: PromptMode, index: number) => void }) {
+	const items = [...queued.steering.map((text, index) => ({ mode: "steer" as const, text, index })), ...queued.followUp.map((text, index) => ({ mode: "followUp" as const, text, index }))];
+	if (!items.length) return null;
+	return (
+		<div className="queued-messages" data-testid="queued-messages">
+			{items.map((m) => {
+				const { text, paths } = splitAttachments(m.text);
+				return (
+					<div key={`${m.mode}-${m.index}`} className="queued-message row">
+						<span className="badge" title={m.mode === "steer" ? "Delivered once the agent's current tool call finishes" : "Delivered once the agent finishes what it's doing"}>
+							{m.mode === "steer" ? "Steer: after this step" : "Queued: after this run"}
+						</span>
+						<span className="grow queued-text" title={text}>
+							{text || <span className="muted">(images only)</span>}
+							{paths.length > 0 && <span className="muted"> · {paths.length === 1 ? "1 image" : `${paths.length} images`}</span>}
+						</span>
+						<button className="icon" disabled={busy} title="Take it back: its words go back into the message box" onClick={() => onRemove(m.mode, m.index)}>
+							✕
+						</button>
+					</div>
+				);
+			})}
+		</div>
+	);
+}
+
 function SubAgents({ root, sessions, typeName, onOpen }: { root: SessionSummary; sessions: SessionSummary[]; typeName: (id: string) => string; onOpen: (id: string) => void }) {
 	const [showDone, setShowDone] = useState(() => localStorage.getItem("subagents-show-done") !== "0");
 	const toggleDone = () => {
@@ -351,6 +379,13 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 		setDraft("");
 		void act(() => call("sessions.send", s.id, text, mode, images.length ? images : undefined));
 	};
+	const unqueue = (mode: PromptMode, index: number) =>
+		void act(async () => {
+			const removed = await call("sessions.unqueue", s.id, mode, index);
+			if (removed === null) return;
+			const { text } = splitAttachments(removed);
+			if (text) setDraft(draft.trim() ? `${draft}\n\n${text}` : text);
+		});
 
 	const typeName = findAgentType(agentTypes, s.agentType)?.name ?? s.agentType;
 	const hasWorktree = s.worktree === "active";
@@ -536,6 +571,7 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 			{(tab === "chat" || tab === "transcript") && !s.pendingQuestion && (
 				<div className="composer">
 					{composer.grip}
+					{transcript?.queued && <QueuedMessages queued={transcript.queued} busy={busy} onRemove={unqueue} />}
 					{pasted.tray}
 					<textarea
 						data-testid="composer"

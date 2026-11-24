@@ -15,6 +15,8 @@ export interface TranscriptState<M extends Message = Message> {
 	compacting?: boolean;
 	/** A request to the model failed and the session is waiting to try it again by itself. */
 	retrying?: { attempt: number; maxAttempts: number; delayMs: number; startedAt: number; error: string };
+	/** Messages the person sent while the agent worked, not yet delivered (Pi's `queue_update`). */
+	queued?: { steering: string[]; followUp: string[] };
 }
 
 export interface SessionEvent {
@@ -27,6 +29,8 @@ const same = (a: Message, b: Message) => a.role === b.role && a.timestamp === b.
 
 /** How far back a finished message is looked for before it's added (events trail a snapshot by a few messages at most). */
 const LOOK_BACK = 24;
+
+const strings = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : []);
 
 export function applyEvent<M extends Message, T extends TranscriptState<M>>(t: T, ev: SessionEvent): T {
 	const message = ev.message as M | undefined;
@@ -55,6 +59,8 @@ export function applyEvent<M extends Message, T extends TranscriptState<M>>(t: T
 			return { ...t, retrying: { attempt: Number(ev.attempt) || 1, maxAttempts: Number(ev.maxAttempts) || 1, delayMs: Number(ev.delayMs) || 0, startedAt: Date.now(), error: String(ev.errorMessage ?? "") } };
 		case "auto_retry_end":
 			return { ...t, retrying: undefined };
+		case "queue_update":
+			return { ...t, queued: { steering: strings(ev.steering), followUp: strings(ev.followUp) } };
 		case "compaction_start":
 			return { ...t, compacting: true };
 		case "compaction_end":

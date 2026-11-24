@@ -36,6 +36,12 @@ export interface DelegateTarget {
 
 export type PromptMode = "steer" | "followUp";
 
+/** Messages sent while the agent works, waiting in Pi's queues: steering after the current tool call, follow-ups after the run. */
+export interface QueuedMessages {
+	steering: string[];
+	followUp: string[];
+}
+
 export interface HostApi {
 	info(): HostInfo;
 	providers(): ProviderInfo[];
@@ -49,6 +55,9 @@ export interface HostApi {
 	/** Starts a run (or queues into the running one) and returns immediately; progress arrives as events. */
 	/** `images`: shown to the model with the text (left out for a model that can't take images). */
 	prompt(id: string, text: string, mode?: PromptMode, images?: PastedImage[]): void;
+	queued(id: string): QueuedMessages;
+	/** Takes one message out of its queue (the others keep their order) and returns its text, or null if it was delivered meanwhile. */
+	unqueue(id: string, mode: PromptMode, index: number): Promise<string | null>;
 	abort(id: string): Promise<void>;
 	closeSession(id: string): void;
 	messages(id: string): unknown[];

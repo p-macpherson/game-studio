@@ -476,6 +476,8 @@ async function main(): Promise<void> {
 		"sessions.assets": (id) => gatherSessionAssets(id, sessions, assets, checkoutRoot),
 		"sessions.send": (id, text, mode, images) => sessions.send(id, text, mode, images),
 		"sessions.abort": (id) => sessions.abort(id),
+		"sessions.queued": (id) => sessions.queued(id),
+		"sessions.unqueue": (id, mode, index) => sessions.unqueue(id, mode, index),
 		"sessions.setModel": (id, model) => sessions.setModel(id, model),
 		"sessions.context": (id) => sessions.contextUsage(id),
 		"sessions.compact": (id) => sessions.compact(id),

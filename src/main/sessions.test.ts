@@ -89,6 +89,31 @@ describe("SessionService", () => {
 		await expect(service.send(s.id, "x", undefined, [{ data: png, mimeType: "image/gif" }])).rejects.toThrow("paste a PNG, JPEG or WebP image");
 	});
 
+	it("shows messages sent while the agent works until they're delivered, and takes one back out on request", async () => {
+		const s = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: `tool bash ${JSON.stringify({ command: "sleep 2" })}` });
+		await waitFor(() => events.some((e) => e.type === "session_event" && e.id === s.id && e.event.type === "tool_execution_start"));
+		await service.send(s.id, "first");
+		await service.send(s.id, "second");
+		await service.send(s.id, "turn left", "steer");
+		const lastQueue = () => events.filter((e) => e.type === "session_event" && e.id === s.id && e.event.type === "queue_update").at(-1);
+		await waitFor(() => (lastQueue() as { event?: { steering: string[] } } | undefined)?.event?.steering.length === 1);
+		expect(await service.queued(s.id)).toEqual({ steering: ["turn left"], followUp: ["first", "second"] });
+
+		expect(await service.unqueue(s.id, "followUp", 0)).toBe("first");
+		// The others stay queued, in order, and the page hears of it.
+		expect(await service.queued(s.id)).toEqual({ steering: ["turn left"], followUp: ["second"] });
+		expect(lastQueue()).toMatchObject({ event: { steering: ["turn left"], followUp: ["second"] } });
+
+		await settled(s.id);
+		const said = ((await service.messages(s.id)) as { role: string; content: { type: string; text?: string }[] | string }[])
+			.filter((m) => m.role === "user")
+			.map((m) => (typeof m.content === "string" ? m.content : m.content.map((c) => c.text ?? "").join("")));
+		expect(said).toContain("turn left");
+		expect(said).toContain("second");
+		expect(said).not.toContain("first");
+		expect(await service.queued(s.id)).toEqual({ steering: [], followUp: [] });
+	}, 20_000);
+
 	it("sends a failed review request back to its agent once, then leaves it for the person", async () => {
 		const s = await service.create({ agentType: "general", target: "project", model: "faux/echo", prompt: `tool request_review ${JSON.stringify({ summary: "Added the cave" })}` });
 		await settled(s.id);

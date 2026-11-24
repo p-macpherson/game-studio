@@ -64,6 +64,8 @@ export interface Transcript {
 	compacting?: boolean;
 	/** A request to the model failed and the session is waiting to try it again by itself (transcript.ts). */
 	retrying?: { attempt: number; maxAttempts: number; delayMs: number; startedAt: number; error: string };
+	/** Messages sent while the agent worked, waiting to be delivered (transcript.ts). */
+	queued?: { steering: string[]; followUp: string[] };
 }
 
 interface State {
@@ -338,8 +340,9 @@ export const useStudio = create<State>((set, get) => ({
 		const waiting = loading.get(id) ?? new Set<SessionEvent[]>();
 		loading.set(id, waiting.add(during));
 		try {
+			const queued = await call("sessions.queued", id);
 			const messages = (await call("sessions.messages", id)) as ChatMessage[];
-			set((s) => ({ transcripts: { ...s.transcripts, [id]: withSnapshot<ChatMessage, Transcript>({ ...emptyTranscript(), ...s.transcripts[id] }, messages, during) } }));
+			set((s) => ({ transcripts: { ...s.transcripts, [id]: withSnapshot<ChatMessage, Transcript>({ ...emptyTranscript(), ...s.transcripts[id], queued }, messages, during) } }));
 		} catch (err) {
 			get().showError(err);
 		} finally {

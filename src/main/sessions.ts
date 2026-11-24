@@ -8,7 +8,7 @@ import { basename, join } from "node:path";
 import { designBrief } from "../shared/design-docs";
 import { readDesignDocs } from "./design-docs";
 import { delegateModel, delegateOptions } from "../shared/agent-models";
-import type { DelegateTarget, HostEvent, PromptMode, StudioRequestMethod } from "../shared/host";
+import type { DelegateTarget, HostEvent, PromptMode, QueuedMessages, StudioRequestMethod } from "../shared/host";
 import type { StudioEvent } from "../shared/ipc";
 import { RESUME_NOTE } from "../shared/types";
 import { SCENARIO_DIR } from "../shared/scenario";
@@ -809,6 +809,19 @@ export class SessionService {
 	async contextUsage(id: string): Promise<ContextUsage | null> {
 		if (!this.live.has(id)) return null;
 		return this.deps.host.call("context", id).catch(() => null);
+	}
+
+	async queued(id: string): Promise<QueuedMessages> {
+		this.entry(id);
+		if (!this.live.has(id)) return { steering: [], followUp: [] };
+		return this.deps.host.call("queued", id);
+	}
+
+	/** Takes a message sent while the agent worked back out of its queue; returns its text (null: already delivered). */
+	async unqueue(id: string, mode: PromptMode, index: number): Promise<string | null> {
+		this.entry(id);
+		if (!this.live.has(id)) return null;
+		return this.deps.host.call("unqueue", id, mode, index);
 	}
 
 	async compact(id: string): Promise<void> {

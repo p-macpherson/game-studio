@@ -15,16 +15,22 @@ import {
 	SettingsManager,
 	VERSION,
 } from "@earendil-works/pi-coding-agent";
-import type { HostApi, HostEvent, HostInfo, PromptMode, SessionOpenSpec } from "../shared/host";
+import type { HostApi, HostEvent, HostInfo, PromptMode, QueuedMessages, SessionOpenSpec } from "../shared/host";
 import type { ContextUsage, ModelInfo, ProviderInfo } from "../shared/types";
 import { MODEL_RETRY } from "../shared/model-errors";
 import { createFaux } from "./faux";
 import { studioTools } from "./studio-tools";
 
+type PiImage = { type: "image"; data: string; mimeType: string };
+
 interface Live {
 	session: AgentSession;
 	unsubscribe: () => void;
+	/** The images of messages sent while it ran, by mode and text: Pi's queue holds only the text, and a message taken out puts the others back. */
+	queuedImages: Map<string, PiImage[]>;
 }
+
+const queueKey = (mode: PromptMode, text: string) => `${mode}\n${text}`;
 
 interface Waiter<T = string> {
 	resolve(value: T): void;
@@ -248,7 +254,7 @@ export class HostCore implements HostApi {
 			stop();
 			events.cancel();
 		};
-		this.sessions.set(spec.id, { session, unsubscribe });
+		this.sessions.set(spec.id, { session, unsubscribe, queuedImages: new Map() });
 		const file = session.sessionFile;
 		if (!file) throw new Error("Pi did not create a session file");
 		return { sessionFile: basename(file) };
@@ -268,11 +274,46 @@ export class HostCore implements HostApi {
 		const session = this.live(id);
 		this.faux?.refill();
 		// A model that can't take images gets the words only (they name where the images were saved).
-		const seen = images?.length && session.model?.input.includes("image") ? images.map((i) => ({ type: "image" as const, data: i.data, mimeType: i.mimeType })) : undefined;
-		const options = { ...(seen ? { images: seen } : {}), ...(session.isStreaming ? { streamingBehavior: mode ?? ("followUp" as const) } : {}) };
+		const seen: PiImage[] | undefined = images?.length && session.model?.input.includes("image") ? images.map((i) => ({ type: "image", data: i.data, mimeType: i.mimeType })) : undefined;
+		const queued = session.isStreaming ? (mode ?? "followUp") : undefined;
+		if (queued && seen) this.sessions.get(id)!.queuedImages.set(queueKey(queued, text), seen);
+		const options = { ...(seen ? { images: seen } : {}), ...(queued ? { streamingBehavior: queued } : {}) };
 		session.prompt(text, Object.keys(options).length ? options : undefined).catch((err: unknown) => {
 			this.opts.post({ type: "session_error", id, error: err instanceof Error ? err.message : String(err) });
 		});
+	}
+
+	queued(id: string): QueuedMessages {
+		const session = this.live(id);
+		return { steering: [...session.getSteeringMessages()], followUp: [...session.getFollowUpMessages()] };
+	}
+
+	async unqueue(id: string, mode: PromptMode, index: number): Promise<string | null> {
+		const live = this.sessions.get(id);
+		if (!live) throw new Error(`Session ${id} is not open`);
+		const { session, queuedImages } = live;
+		// Pi can only empty its queues: empty both, then put the rest back in order.
+		const { steering, followUp } = session.clearQueue();
+		const from = mode === "steer" ? steering : followUp;
+		const removed = index >= 0 && index < from.length ? from.splice(index, 1)[0] : null;
+		if (removed !== null) queuedImages.delete(queueKey(mode, removed));
+		const rest = [...steering.map((text) => ({ mode: "steer" as const, text })), ...followUp.map((text) => ({ mode: "followUp" as const, text }))];
+		let started = false;
+		for (const m of rest) {
+			const images = queuedImages.get(queueKey(m.mode, m.text));
+			if (!session.isStreaming && !started) {
+				// The run ended in the moment the queues were empty: the first one left starts the next run, as a send
+				// would, and the others queue behind it.
+				queuedImages.delete(queueKey(m.mode, m.text));
+				started = true;
+				session.prompt(m.text, images ? { images } : undefined).catch((err: unknown) => {
+					this.opts.post({ type: "session_error", id, error: err instanceof Error ? err.message : String(err) });
+				});
+				continue;
+			}
+			await (m.mode === "steer" ? session.steer(m.text, images) : session.followUp(m.text, images));
+		}
+		return removed;
 	}
 
 	async abort(id: string): Promise<void> {
