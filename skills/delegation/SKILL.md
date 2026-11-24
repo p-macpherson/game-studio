@@ -13,7 +13,9 @@ The sub-agent starts with nothing but your brief. Include:
 - the context it needs: the design doc to read, the style, related assets and code, paths;
 - constraints: what not to touch, conventions to follow;
 - how involved the user wants to be: "ask the user before choosing a concept" or "choose yourself";
-- what to report back: paths, decisions, open questions.
+- what to report back: paths, decisions, open questions; for work that changes code or tests, the test run it
+  did at its final commit and the result (the whole suite or which scripts, and the summary line, e.g. "whole
+  suite at 3f2a1c9: 64 of 64 pass").
 
 Give it a short `title`, which names its session.
 
@@ -38,9 +40,17 @@ Dependent tasks go one after another (the model before the code that spawns it).
 time, so several art tasks queue rather than finishing sooner.
 
 ## Checking
-Read the report, then check the work itself: the files, previews, `./build.sh test`. If it falls short, delegate
-again with exactly what to fix. The new sub-agent doesn't see the old one's conversation: say what exists and
-what's wrong.
+Read the report, then check what a test run doesn't show: the files themselves, previews and screenshots, and
+whether the brief was met (names, sizes, behaviour, what the user asked for).
+
+Don't re-run tests a sub-agent reports passing. When its report states a whole-suite pass at the commit you're
+checking (`git log -1` hasn't moved since), don't rebuild and re-run the suite: when `request_review` is called the
+studio builds the worktree and runs every test itself, and sends the request back with any failures. Run tests
+yourself only when no run was reported, or the code changed after it (your own fix, another sub-agent's work), and
+then once, in this worktree. Never copy the tree elsewhere to test it (`git archive` into /tmp, a second checkout).
+
+If it falls short, delegate again with exactly what to fix. The new sub-agent doesn't see the old one's
+conversation: say what exists and what's wrong.
 
 ## The user
 The user decides how involved they are. Pass their preference on in every brief. When a choice is theirs (a

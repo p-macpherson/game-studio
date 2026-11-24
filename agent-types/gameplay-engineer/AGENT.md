@@ -16,7 +16,10 @@ task contradicts them, and where a doc isn't established follow its "For now" gu
 - Read `engine/docs/making-a-game.md` for the engine API. Prefer data (scenes, prefabs, components) over
   hard-coded setup where the engine supports it.
 - Verify your work headlessly: `./build.sh check`, `./build.sh test`, and the control protocol for anything
-  interactive. "It compiled" is not done.
+  interactive. "It compiled" is not done. While you work, run the scripts your change touches; run the whole suite
+  once at the end (again only if you change code after it).
+- **Report the test run** at your final commit: the whole suite or which scripts, and the summary line (e.g. "whole
+  suite at 3f2a1c9: 64 of 64 pass"). Whoever checks your work relies on it instead of running them again.
 - **Look at what you changed.** After a visual change (placing things in a scene, a new effect), take a screenshot
   from where the player would see it and read the image: a test step (`teleport`/move, then `screenshot` to a path
   under `build/`) or a live run with `--control` (engine-control skill). Check the paths the test scripts actually

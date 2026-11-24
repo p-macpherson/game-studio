@@ -192,6 +192,20 @@ describe.skipIf(!existsSync(join(engineRepo, "third_party/lib")))("RunService", 
 		rmSync(join(project, "tests/broken.jsonl"));
 	}, 60_000);
 
+	it("runs the studio's checks side by side against one kept build, the same verdicts as build.sh test", async () => {
+		writeFileSync(join(project, "tests/broken.jsonl"), '{"cmd": "wait", "frames": 2}\n{"cmd": "assert", "entity": "Sphere", "exists": true}\n');
+		try {
+			expect((await runner.compileForChecks(null)).ok).toBe(true);
+			expect(existsSync(join(project, "build/checks/main/game"))).toBe(true);
+			const [pass, fail] = await Promise.all([runner.checkTest(null, "tests/smoke.jsonl"), runner.checkTest(null, "tests/broken.jsonl")]);
+			expect(pass).toMatchObject({ ok: true, buildOk: true, notRun: 0, screenshots: ["build/smoke.png"] });
+			expect(fail.ok).toBe(false);
+			expect(fail.steps.map((s) => s.ok)).toEqual([true, false]);
+		} finally {
+			rmSync(join(project, "tests/broken.jsonl"));
+		}
+	}, 60_000);
+
 	it("films the game after a lead-in script into a short clip for a review", async () => {
 		writeFileSync(join(project, "tests/lead.jsonl"), '{"cmd": "wait", "frames": 5}\n{"cmd": "quit"}\n');
 		const r = await runner.captureClip(null, { name: "cube spin!", script: "tests/lead.jsonl", seconds: 1, fps: 10 });

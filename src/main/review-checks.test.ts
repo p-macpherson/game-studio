@@ -33,6 +33,35 @@ describe("ReviewCheckService", () => {
 		expect(ran).toHaveLength(9);
 	});
 
+	it("runs several tests at once, the slowest last time first, and lists them in order", async () => {
+		const took: Record<string, number> = { "tests/a.jsonl": 5, "tests/b.jsonl": 40, "tests/c.jsonl": 20, "tests/d.jsonl": 10 };
+		const started: string[] = [];
+		let running = 0;
+		let most = 0;
+		let head = "aaa";
+		const svc = new ReviewCheckService({
+			head: async () => head,
+			compile: async () => ({ ok: true, diagnostics: [], output: "" }),
+			tests: () => Object.keys(took),
+			test: async (_w, script) => {
+				started.push(script);
+				most = Math.max(most, ++running);
+				await new Promise((r) => setTimeout(r, took[script]));
+				running--;
+				return report(script, { durationMs: took[script] });
+			},
+			parallel: 2,
+			changed: () => {},
+		});
+		await svc.request("w");
+		expect(most).toBe(2);
+		expect(svc.get("w")!.tests.map((t) => t.script)).toEqual(["tests/a.jsonl", "tests/b.jsonl", "tests/c.jsonl", "tests/d.jsonl"]);
+		started.length = 0;
+		head = "bbb";
+		await svc.request("w");
+		expect(started).toEqual(["tests/b.jsonl", "tests/c.jsonl", "tests/d.jsonl", "tests/a.jsonl"]);
+	});
+
 	it("stops at a build that fails, with the compiler's errors", async () => {
 		const svc = new ReviewCheckService({
 			head: async () => "aaa",

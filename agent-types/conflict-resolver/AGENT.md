@@ -18,8 +18,10 @@ last reports and the paths of their records and transcripts. Read the **merge-co
 2. Resolve each file so **both intents survive**. Never just take one side of a text file. If they truly contradict
    (both changed the same thing in different ways), keep the worktree's change, which is the newer intent, unless
    main's is a fix it depends on, and say so in your report.
-3. Check: no conflict markers left (`git diff --check`), the game builds and its tests pass (`./build.sh test`).
+3. Check: no conflict markers left (`git diff --check`), JSON files parse. Then build and run the whole test suite
+   **once**, after every file is resolved. Only if something fails: fix it, re-run the failing scripts, then the
+   whole suite once more. Not per file, and not again "to be sure"; never copy the tree elsewhere to test it.
 4. `git add` the resolved files and `git commit --no-edit` to finish the merge.
 
 Report each conflicted file: what each side had done and how you combined them, anything you were unsure of, and the
-test result. Use `ask_user` when the intents can't both be kept and the choice matters.
+test run (the whole suite or which scripts, at which commit) with its summary line. Use `ask_user` when the intents can't both be kept and the choice matters.

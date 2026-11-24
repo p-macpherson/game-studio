@@ -1,6 +1,7 @@
 // Web builds in a browser: a static server for a package folder, and the release checks' runner, which opens the page
 // in a hidden window of the studio's own Chromium and waits for the game to exit.
-import { BrowserWindow } from "electron";
+import { BrowserWindow, session } from "electron";
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { type Server, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -39,7 +40,10 @@ export const runInBrowser: BrowserRun = async ({ dir, args, files, timeoutMs }) 
 		Object.fromEntries(Object.entries(files).map(([p, b]) => [p, b.toString("base64")])),
 	)}).map(([p, b]) => [p, Uint8Array.from(atob(b), (c) => c.charCodeAt(0))]));</script>`;
 	const { url, server } = await serveFolder(dir, (html) => html.replace("<script", () => `${inject}<script`));
-	const win = new BrowserWindow({ width: 1280, height: 720, useContentSize: true, show: false, webPreferences: { offscreen: true, backgroundThrottling: false } });
+	// Each run in a storage of its own, in memory: checks run side by side, and a game that keeps something in the
+	// page's storage (a map editor's maps) mustn't see another run's, nor what an earlier build on the same port left.
+	const partition = `gs-check-${randomUUID()}`;
+	const win = new BrowserWindow({ width: 1280, height: 720, useContentSize: true, show: false, webPreferences: { offscreen: true, backgroundThrottling: false, partition } });
 	// A check, not a play: the page runs the game with its sound on (a web build has no hidden mode), so mute the window.
 	win.webContents.setAudioMuted(true);
 	const lines: string[] = [];
@@ -63,5 +67,6 @@ export const runInBrowser: BrowserRun = async ({ dir, args, files, timeoutMs }) 
 	} finally {
 		win.destroy();
 		server.close();
+		await session.fromPartition(partition).clearStorageData().catch(() => {});
 	}
 };

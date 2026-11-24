@@ -13,6 +13,10 @@ description: Building, type-checking and testing Odin code on headless-game-engi
 ./build.sh run -- ARGS        # build and run, e.g. -- --mode=hidden --control=7878
 ```
 
+The whole suite is every `tests/**/*.jsonl`. Use the project's own runner when it has one (its `AGENTS.md` or
+`tools/` says so), else one script at a time:
+`for t in tests/*.jsonl tests/*/*.jsonl; do ./build.sh test "$t" >/dev/null 2>&1 && echo "PASS $t" || echo "FAIL $t"; done`.
+
 `ENGINE_DIR=/path/to/engine/checkout ./build.sh ...` builds against another engine checkout, such as an engine
 session's worktree. The engine's native libraries (raylib, ENet, box3d) are built once by
 `engine/third_party/deps.sh`. `build.sh` does this automatically if they're missing (about 15 s).

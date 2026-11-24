@@ -148,12 +148,19 @@ export async function buildRelease(opts: {
 	target: ReleaseTarget;
 	/** Which release (default: the newest). */
 	version?: string;
+	/**
+	 * Only these test scripts (`tests/x.jsonl`; [] for none) instead of every tests/*.jsonl: a partial check, recorded
+	 * as one (`partial`) and never `ok`, for re-checking a few failing scripts quickly. Everything else still happens.
+	 */
+	tests?: string[];
 	tools?: ReleaseTools;
 	onProgress?: (step: string) => void;
 }): Promise<ReleaseBuild> {
 	const { root, target } = opts;
 	const { config, problems } = readReleaseConfig(root, opts.projectName, opts.version);
 	if (problems.length) throw new Error(`release.json: ${problems.join("; ")}`);
+	// A script that isn't there is the caller's mistake: said before anything is built, not after a long build.
+	releaseTests(root, opts.tests);
 	const started = Date.now();
 	const log: string[] = [];
 	const onProgress = (step: string) => {
@@ -217,6 +224,11 @@ async function makeRelease(opts: Parameters<typeof buildRelease>[0], config: Rel
 	const slug = releaseSlug(config.name);
 	const out = join(root, "builds", config.version, target);
 	const pkg = join(out, slug);
+	const tests = releaseTests(root, opts.tests);
+	// How long each test took last time: the longest start first, so the slowest isn't left running alone at the end.
+	// Kept beside the build's folder, so a partial check doesn't forget the times of the scripts it skipped.
+	const timesFile = join(root, "builds", config.version, `${target}-test-times.json`);
+	const previous = previousDurations(timesFile, join(out, "build.json"));
 	ignoreBuilds(root);
 	rmSync(out, { recursive: true, force: true });
 	mkdirSync(pkg, { recursive: true });
@@ -280,7 +292,14 @@ async function makeRelease(opts: Parameters<typeof buildRelease>[0], config: Rel
 		else {
 			const play = target === "web" ? webPlay(root, pkg, tools.browser!) : nativePlay(root, pkg, exe, work, runner, tools.winePrefix);
 			checks.push(await checkStarts(play, config, target === "web" ? "Runs in a browser" : "Runs from its own folder"));
-			checks.push(...(await checkTests(root, play)));
+			// Side by side: the scripts run in hidden windows and mostly wait on the CPU. Wine's start-up is shaky enough
+			// already, so a Windows build's run one at a time.
+			const parallel = target === "windows" ? 1 : RELEASE_TEST_PARALLEL;
+			if (tests.run.length || tests.partial) progress(`Running ${tests.partial ? `only ${tests.run.length} of ${tests.all.length}` : tests.run.length} test script${tests.run.length === 1 ? "" : "s"}${parallel > 1 ? `, ${parallel} at a time` : ""}`);
+			const tested = await checkTests(root, play, tests.run, parallel, previous);
+			checks.push(...tested);
+			for (const c of tested) if (c.ms !== undefined) previous.set(c.name, c.ms);
+			writeFileSync(timesFile, `${JSON.stringify(Object.fromEntries([...previous].sort(([a], [b]) => a.localeCompare(b))), null, "\t")}\n`);
 		}
 		if (target === "linux") {
 			// Without appimagetool (turned off, as in tests) there's simply no AppImage.
@@ -298,7 +317,9 @@ async function makeRelease(opts: Parameters<typeof buildRelease>[0], config: Rel
 			dir: rel(root, pkg),
 			archives: archives.map((a) => rel(root, a)),
 			checks,
-			ok: checks.every((c) => c.ok),
+			// A partial check is never the release's verdict, however it went.
+			ok: checks.every((c) => c.ok) && !tests.partial,
+			...(tests.partial ? { partial: { ran: tests.run, skipped: tests.all.filter((t) => !tests.run.includes(t)).length } } : {}),
 			files: manifest.files.length,
 			bytes: manifest.bytes,
 			builtAt: new Date().toISOString(),
@@ -356,7 +377,8 @@ function webPlay(root: string, pkg: string, browser: BrowserRun): Play {
 		const files: Record<string, Buffer> = { "/check.jsonl": Buffer.from(START_SCRIPT) };
 		if (tests) for (const f of walk(join(root, "tests"), join(root, "tests"))) files[`/tests/${f}`] = readFileSync(join(root, "tests", f));
 		// The page's flags are its query string: --fixed-dt is "fixed-dt", --script=x is "script=x".
-		return browser({ dir: pkg, args: ["dev", ...args.map((a) => a.replace(/^--/, ""))], files, timeoutMs: 300_000 });
+		// Generous: several run side by side, and a long simulation in WebAssembly took over four minutes alongside others.
+		return browser({ dir: pkg, args: ["dev", ...args.map((a) => a.replace(/^--/, ""))], files, timeoutMs: 600_000 });
 	};
 }
 
@@ -394,17 +416,80 @@ export function testFlags(script: string): string[] {
 	return flags.length ? flags : ["--mode=hidden"];
 }
 
-/** Each of the game's tests/*.jsonl, run against the packaged release build. */
-async function checkTests(root: string, play: Play): Promise<ReleaseCheck[]> {
-	// Multiplayer scripts (*.mp.jsonl) need several copies of the game talking to each other: not run against packages yet.
-	const tests = existsSync(join(root, "tests")) ? readdirSync(join(root, "tests")).filter((f) => f.endsWith(".jsonl") && !f.endsWith(".mp.jsonl")).sort() : [];
-	const checks: ReleaseCheck[] = [];
-	for (const t of tests) {
-		const res = await play([...testFlags(readFileSync(join(root, "tests", t), "utf8")), "--fixed-dt", `--script=tests/${t}`], true);
-		const failed = res.output.split("\n").filter((l) => l.includes('"ok":false'));
-		checks.push({ name: `tests/${t}`, ok: res.code === 0, detail: res.code === 0 ? "passed" : failed.slice(0, 5).join("\n") || res.output.slice(-800) });
+/** How many test scripts run against a package at once: on Pat's machine 4 was the sweet spot (8 was no faster). */
+export const RELEASE_TEST_PARALLEL = 4;
+
+/**
+ * The test scripts a release check runs, project-relative: every tests/*.jsonl but the multiplayer ones (`*.mp.jsonl`
+ * need several copies of the game talking to each other: not run against packages yet), or with `only`, just those
+ * (any tests/**.jsonl; [] for none). `partial` unless `only` covers every one. Throws for a script that isn't there.
+ */
+export function releaseTests(root: string, only?: string[]): { run: string[]; all: string[]; partial: boolean } {
+	const dir = join(root, "tests");
+	const all = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(".jsonl") && !f.endsWith(".mp.jsonl")).sort().map((f) => `tests/${f}`) : [];
+	if (!only) return { run: all, all, partial: false };
+	const run: string[] = [];
+	const bad: string[] = [];
+	for (const given of only) {
+		const p = String(given).trim().replace(/^\.\//, "");
+		const path = p.startsWith("tests/") ? p : `tests/${p}`;
+		const fine = path.endsWith(".jsonl") && !path.endsWith(".mp.jsonl") && !path.split("/").includes("..") && existsSync(join(root, path)) && statSync(join(root, path)).isFile();
+		if (!fine) bad.push(given);
+		else if (!run.includes(path)) run.push(path);
 	}
-	return checks;
+	if (bad.length) throw new Error(`No such test script${bad.length === 1 ? "" : "s"} to check the package with: ${bad.join(", ")} (give tests/<name>.jsonl paths; multiplayer *.mp.jsonl scripts aren't run against packages)`);
+	run.sort();
+	return { run, all, partial: !all.every((t) => run.includes(t)) };
+}
+
+/** How long each test script's check took, by script: from the times file, else the last build's record (build.json). */
+function previousDurations(times: string, record: string): Map<string, number> {
+	try {
+		return new Map(Object.entries(JSON.parse(readFileSync(times, "utf8")) as Record<string, number>).filter(([, ms]) => typeof ms === "number"));
+	} catch {
+		// none kept yet
+	}
+	try {
+		const b = JSON.parse(readFileSync(record, "utf8")) as ReleaseBuild;
+		return new Map(b.checks.filter((c) => typeof c.ms === "number").map((c) => [c.name, c.ms!]));
+	} catch {
+		return new Map();
+	}
+}
+
+/**
+ * `items` through `work`, up to `parallel` at a time, in the order given; the results in the same order. The longest
+ * jobs should come first (`longestFirst`), or one started last runs on alone after the rest are done.
+ */
+export async function inParallel<T, R>(items: T[], parallel: number, work: (item: T) => Promise<R>): Promise<R[]> {
+	const results = new Array<R>(items.length);
+	let next = 0;
+	const worker = async () => {
+		while (next < items.length) {
+			const i = next++;
+			results[i] = await work(items[i]);
+		}
+	};
+	await Promise.all(Array.from({ length: Math.max(1, Math.min(parallel, items.length)) }, worker));
+	return results;
+}
+
+/** `scripts` with the ones that took longest last time first; ones never timed (new) before them, as they may be long. */
+export function longestFirst(scripts: string[], took: (script: string) => number | undefined): string[] {
+	const key = (s: string) => took(s) ?? Number.POSITIVE_INFINITY;
+	return [...scripts].sort((a, b) => key(b) - key(a) || a.localeCompare(b));
+}
+
+/** The given test scripts, run against the packaged release build, `parallel` at a time; the checks in script order. */
+async function checkTests(root: string, play: Play, scripts: string[], parallel: number, previous: Map<string, number>): Promise<ReleaseCheck[]> {
+	const order = longestFirst(scripts, (s) => previous.get(s));
+	const checks = await inParallel(order, parallel, async (t): Promise<ReleaseCheck> => {
+		const started = Date.now();
+		const res = await play([...testFlags(readFileSync(join(root, t), "utf8")), "--fixed-dt", `--script=${t}`], true);
+		const failed = res.output.split("\n").filter((l) => l.includes('"ok":false'));
+		return { name: t, ok: res.code === 0, detail: res.code === 0 ? "passed" : failed.slice(0, 5).join("\n") || res.output.slice(-800), ms: Date.now() - started };
+	});
+	return checks.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 async function appImage(root: string, config: ReleaseConfig, pkg: string, exe: string, image: string, work: string, tool: string): Promise<ReleaseCheck> {

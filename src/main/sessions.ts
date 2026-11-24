@@ -1009,7 +1009,7 @@ export class SessionService {
 			lines.push(`- ${r.title} (${r.agentType}${r.parentId ? ", a sub-agent" : ""}, ${r.status}): ${join(this.sessionDir(e), "session.json")}`);
 			if (report) lines.push(`  Last report: ${report.length > 1200 ? `${report.slice(0, 1200)}…` : report}`);
 		}
-		lines.push("", "Resolve every conflict keeping both sides' intent (read the merge-conflicts skill), check the game builds and its tests pass, then commit the merge.");
+		lines.push("", "Resolve every conflict keeping both sides' intent (read the merge-conflicts skill), check the game builds and its whole test suite passes (once, after everything is resolved), then commit the merge.");
 		return lines.join("\n");
 	}
 

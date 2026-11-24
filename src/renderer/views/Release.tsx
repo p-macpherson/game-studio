@@ -32,13 +32,14 @@ function duration(seconds: number): string {
 type Tab = ReleaseTarget | "files";
 type Mode = { kind: "view" } | { kind: "new" } | { kind: "edit"; version: string };
 /** How a release's build for a platform stands. */
-type Standing = "none" | "building" | "ok" | "checks" | "failed";
+type Standing = "none" | "building" | "ok" | "checks" | "partial" | "failed";
 
 const MARK: Record<Standing, { text: string; cls: string; title: string }> = {
 	none: { text: "–", cls: "muted", title: "not built" },
 	building: { text: "…", cls: "release-mark-building", title: "building now" },
 	ok: { text: "✓", cls: "ok-mark", title: "built, every check passed" },
 	checks: { text: "!", cls: "release-mark-warn", title: "built, with failed checks" },
+	partial: { text: "~", cls: "release-mark-warn", title: "built, but only some of its tests were checked" },
 	failed: { text: "✗", cls: "bad-mark", title: "the build failed" },
 };
 
@@ -95,7 +96,7 @@ export function Release() {
 	const standing = (v: string, t: ReleaseTarget): Standing => {
 		if (buildingHere(v, t)) return "building";
 		const b = buildOf(v, t);
-		return !b ? "none" : b.error ? "failed" : b.ok ? "ok" : "checks";
+		return !b ? "none" : b.error ? "failed" : b.ok ? "ok" : b.partial && b.checks.every((c) => c.ok) ? "partial" : "checks";
 	};
 
 	/** release.json changes are a person's edit in a worktree (a new one when main is shown), undoable and saved there. */
@@ -389,12 +390,21 @@ function PlatformTab(p: {
 
 	const failedChecks = build.checks.filter((c) => !c.ok);
 	const tone = build.error ? "failed" : build.ok ? "ok" : "checks";
+	// An agent's quick re-check of a few tests (build_release with `tests`): never the release's verdict.
+	const partial = build.partial ? `partial check: ${build.partial.ran.length} of ${build.partial.ran.length + build.partial.skipped} test scripts` : null;
+	const failedText = `${failedChecks.length === 1 ? "1 check" : `${failedChecks.length} checks`} failed`;
 	return (
 		<div className="release-pane col" data-testid="release-built" data-standing={tone}>
 			<div className={`release-state ${tone}`}>
 				<div className="row">
 					<strong className="grow" data-testid="release-status">
-						{build.error ? `The ${name} build failed` : build.ok ? `${name} build: every check passed` : `${name} build: ${failedChecks.length === 1 ? "1 check" : `${failedChecks.length} checks`} failed`}
+						{build.error
+							? `The ${name} build failed`
+							: build.ok
+								? `${name} build: every check passed`
+								: partial
+									? `${name} build: ${partial}${failedChecks.length ? `, ${failedText}` : ", all passed"}`
+									: `${name} build: ${failedText}`}
 					</strong>
 					{!build.error && (
 						<>
@@ -404,7 +414,7 @@ function PlatformTab(p: {
 							<button onClick={() => p.onReveal(build)} data-testid="release-reveal">
 								Open folder
 							</button>
-							<button className="primary" data-testid="release-publish" disabled={!build.ok} title={build.ok ? undefined : "Only a build whose checks passed can be published"} onClick={() => p.onPublish(build)}>
+							<button className="primary" data-testid="release-publish" disabled={!build.ok} title={build.ok ? undefined : partial ? "Only some of its tests were checked: Rebuild for the full check before publishing" : "Only a build whose checks passed can be published"} onClick={() => p.onPublish(build)}>
 								Publish to itch.io
 							</button>
 						</>
@@ -427,9 +437,11 @@ function PlatformTab(p: {
 									: "No package was made."
 								: build.investigation
 									? "A session is looking into the failed checks."
-									: "The package was made, but it isn't ready to publish."}
+									: partial
+										? "An agent checked only some of the tests against this package. Rebuild for the full check before publishing."
+										: "The package was made, but it isn't ready to publish."}
 						</span>
-						{session(build.investigation, "Have a session investigate")}
+						{(!partial || failedChecks.length > 0 || build.investigation) && session(build.investigation, "Have a session investigate")}
 					</div>
 				)}
 				{notes}

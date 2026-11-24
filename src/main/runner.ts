@@ -2,7 +2,7 @@
 // worktree. A run is driven over the engine's control protocol: frames are streamed into the studio (hidden
 // mode), and the inspector, input and console are plain control commands.
 import { type ChildProcess, execFile, spawn, type SpawnOptions } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
 import type { StudioEvent } from "../shared/ipc";
@@ -31,6 +31,7 @@ import { normalizeSceneFile, shaderProblems } from "./scenes";
 import { readScreen } from "./ui";
 import { screenInterface } from "../shared/ui-screen";
 import { EngineClient, freePort } from "./engine-client";
+import { testFlags } from "./release";
 import type { SessionService } from "./sessions";
 
 // The live view streams JPEG screenshots. The engine encodes them off the main loop, but each takes about
@@ -40,6 +41,8 @@ const FRAME_INTERVAL_MS = 1000 / 30;
 const FRAMES_IN_FLIGHT = 4;
 const FRAME_REQUEST = { inline: true, format: "jpeg", quality: 80 };
 const TEST_TIMEOUT_MS = 180_000;
+/** The studio's checks run scripts side by side, so a long one takes longer than alone. */
+const CHECK_TEST_TIMEOUT_MS = 300_000;
 /** A build takes a second or two; one still going after this is stuck, and everything queued behind it in its checkout waits. */
 const BUILD_TIMEOUT_MS = 10 * 60_000;
 
@@ -917,7 +920,7 @@ export class RunService {
 		return { clip, frames, seconds: frames / fps, first: frame(0), last: frame(frames - 1), problems };
 	}
 
-	/** Runs one control script headlessly via `build.sh test`. Tests run one at a time. */
+	/** Runs one control script headlessly via `build.sh test`. Tests run one at a time (the studio's checks use `checkTest`). */
 	test(sessionId: CheckoutId, script: string): Promise<TestReport> {
 		const next = this.testQueue.then(() => this.runTest(sessionId, script));
 		this.testQueue = next.catch(() => {});
@@ -929,7 +932,48 @@ export class RunService {
 		const text = readFileSync(safeJoin(co.cwd, script), "utf8");
 		const started = Date.now();
 		const r = isMultiplayerTest(script) ? await this.multiplayerTest(co, script) : await this.exec(co, ["test", script], undefined, TEST_TIMEOUT_MS);
-		const buildOk = /^>> built /m.test(r.stdout);
+		return this.testReport(sessionId, co, script, text, r, /^>> built /m.test(r.stdout), started);
+	}
+
+	/**
+	 * The studio's checks: builds the checkout (as `compile`) and keeps a copy of the game it made for `checkTest`, so
+	 * several scripts can run against it side by side without `build.sh test` rebuilding it for each, and a Play & Test
+	 * build meanwhile doesn't swap it out from under them.
+	 */
+	async compileForChecks(sessionId: CheckoutId): Promise<{ ok: boolean; diagnostics: Diagnostic[]; output: string }> {
+		const built = await this.compile(sessionId);
+		const co = this.checkout(sessionId);
+		const copy = this.checkBinary(sessionId, co);
+		rmSync(copy, { force: true });
+		if (built.ok && existsSync(join(co.cwd, "build/game"))) {
+			mkdirSync(join(copy, ".."), { recursive: true });
+			copyFileSync(join(co.cwd, "build/game"), copy);
+		}
+		return built;
+	}
+
+	/**
+	 * One script for the studio's checks, against the game `compileForChecks` kept: started directly, the way
+	 * `build.sh test` does (a hidden window and a fixed time step, plus the flags on the script's first line, as the
+	 * release checks read them). Not queued behind other tests: the checks run several at once. Multiplayer scripts,
+	 * or with no kept build, it runs the usual way.
+	 */
+	async checkTest(sessionId: CheckoutId, script: string): Promise<TestReport> {
+		const co = this.checkout(sessionId);
+		const binary = this.checkBinary(sessionId, co);
+		if (isMultiplayerTest(script) || !existsSync(binary)) return this.test(sessionId, script);
+		const text = readFileSync(safeJoin(co.cwd, script), "utf8");
+		const started = Date.now();
+		const r = await this.spawnTool(binary, [...testFlags(text), "--fixed-dt", `--script=${script}`], co.cwd, CHECK_TEST_TIMEOUT_MS);
+		return this.testReport(sessionId, co, script, text, r, true, started);
+	}
+
+	/** Where the checks keep their copy of a checkout's game: one per worktree (an engine worktree builds in the project's folder). */
+	private checkBinary(sessionId: CheckoutId, co: CheckoutInfo): string {
+		return join(co.cwd, "build/checks", sessionId ?? "main", "game");
+	}
+
+	private testReport(sessionId: CheckoutId, co: CheckoutInfo, script: string, text: string, r: ExecResult, buildOk: boolean, started: number): TestReport {
 		const { steps, notRun } = buildOk ? pairReplies(text, r.stdout) : { steps: [], notRun: scriptCommands(text).length };
 		const screenshots = steps.flatMap((s) => {
 			const path = s.ok && (s.result as { path?: unknown } | undefined)?.path;
