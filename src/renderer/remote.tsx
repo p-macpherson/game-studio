@@ -4,7 +4,7 @@ import "./remote-bridge";
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { useShallow } from "zustand/react/shallow";
-import type { SessionSummary } from "../shared/types";
+import type { PlayBuild, SessionSummary } from "../shared/types";
 import { call, onEvent, relativeTime } from "./api";
 import { applyAppearance, loadAppearance } from "./appearance";
 import { onReconnect } from "./remote-bridge";
@@ -64,9 +64,47 @@ function SessionList() {
 	);
 }
 
+/** A checkout's web build: build it, follow the build, then play it in a new tab. */
+function PlayControls({ checkout }: { checkout: string }) {
+	const showError = useStudio((st) => st.showError);
+	const [build, setBuild] = useState<PlayBuild | null>(null);
+	useEffect(() => {
+		void call("play.status", checkout).then(setBuild, () => {});
+		return onEvent((e) => {
+			if (e.type === "play_build" && e.build.checkout === checkout) setBuild(e.build);
+		});
+	}, [checkout]);
+	const start = () => void call("play.build", checkout).catch(showError);
+	if (!build) return null;
+	if (build.state === "building") return <span className="muted remote-play">Building for the web: {build.step}…</span>;
+	return (
+		<span className="col remote-play" data-testid="remote-play">
+			{build.state === "failed" && (
+				<span className="msg error" title={build.error}>
+					The build failed: {build.error?.split("\n")[0]}
+				</span>
+			)}
+			{build.state === "ready" && (
+				<span className="muted">
+					Built {relativeTime(build.builtAt!)}
+					{build.commit && build.head && build.commit !== build.head ? " · there's newer work since: rebuild to play it" : ""}
+				</span>
+			)}
+			<span className="row remote-actions">
+				<button onClick={start}>{build.state === "none" ? "Build to play" : build.state === "failed" ? "Try again" : "Rebuild"}</button>
+				{build.state === "ready" && (
+					<a className="button primary" href={`/play/${encodeURIComponent(checkout)}/`} target="_blank" rel="noreferrer" data-testid="remote-play-open">
+						▶ Play
+					</a>
+				)}
+			</span>
+		</span>
+	);
+}
+
 function WorktreeList() {
-	const { worktrees, sessions, openMerge, refreshWorktrees, showError, notify } = useStudio(
-		useShallow((st) => ({ worktrees: st.worktrees, sessions: st.sessions, openMerge: st.openMerge, refreshWorktrees: st.refreshWorktrees, showError: st.showError, notify: st.notify })),
+	const { project, worktrees, sessions, openMerge, refreshWorktrees, showError, notify } = useStudio(
+		useShallow((st) => ({ project: st.project, worktrees: st.worktrees, sessions: st.sessions, openMerge: st.openMerge, refreshWorktrees: st.refreshWorktrees, showError: st.showError, notify: st.notify })),
 	);
 	const [busy, setBusy] = useState<string | null>(null);
 	const open = worktrees.filter(isOpenWorktree).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -84,6 +122,13 @@ function WorktreeList() {
 	};
 	return (
 		<div className="remote-list">
+			{project && (
+				<div className="remote-row" data-testid="remote-main">
+					<span className="remote-title">main</span>
+					<span className="muted remote-meta">What's merged: the game as it stands</span>
+					<PlayControls checkout="main" />
+				</div>
+			)}
 			{open.length === 0 && <div className="muted remote-empty">No open worktrees: everything is merged.</div>}
 			{open.map((w) => {
 				const its = sessions.filter((s) => s.worktreeId === w.id);
@@ -106,6 +151,7 @@ function WorktreeList() {
 								Merge…
 							</button>
 						</span>
+						{w.target === "project" && <PlayControls checkout={w.id} />}
 					</div>
 				);
 			})}

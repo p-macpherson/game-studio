@@ -154,6 +154,20 @@ export interface RemoteAccessSettings {
 
 export const REMOTE_DEFAULT_PORT = 7477;
 
+/** A checkout's web build to play remotely (`play-builds.ts`), served at `/play/<checkout>/`. */
+export interface PlayBuild {
+	/** "main" or a worktree's id. */
+	checkout: string;
+	state: "none" | "building" | "ready" | "failed";
+	/** While building: the step it's on. */
+	step?: string;
+	error?: string;
+	builtAt?: string;
+	/** The commit it was built from, and the checkout's commit now: different means there's newer work to build. */
+	commit?: string;
+	head?: string;
+}
+
 /** Whether the remote server is up, and who was last turned away (to add to the logins). */
 export interface RemoteStatus {
 	running: boolean;

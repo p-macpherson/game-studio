@@ -27,6 +27,7 @@ import type {
 	Target,
 	UpdateStatus,
 	RemoteStatus,
+	PlayBuild,
 	WorktreeSummary,
 } from "./types";
 
@@ -231,6 +232,10 @@ export interface StudioApi {
 	/** The stable install's version and the newer pushed commits (none for a development checkout). */
 	"updates.status"(): Promise<UpdateStatus>;
 	"remote.status"(): Promise<RemoteStatus>;
+	/** A checkout's web build to play remotely ("main" or a worktree id). */
+	"play.status"(checkout: string): Promise<PlayBuild>;
+	/** Starts one and returns at once; progress arrives as `play_build` events. */
+	"play.build"(checkout: string): Promise<void>;
 	"updates.check"(): Promise<UpdateStatus>;
 	/** Builds and tests the newest version beside this one (progress as update_status events). */
 	"updates.prepare"(): Promise<UpdateStatus>;
@@ -246,6 +251,7 @@ export type StudioMethod = keyof StudioApi;
 /** Pushed from main to the renderer. */
 export type StudioEvent =
 	| { type: "sessions_changed" }
+	| { type: "play_build"; build: PlayBuild }
 	| { type: "review_checks"; worktreeId: string }
 	| { type: "session_event"; id: string; event: { type: string; [k: string]: unknown } }
 	| { type: "project_changed" }

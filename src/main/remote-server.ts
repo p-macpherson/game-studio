@@ -44,6 +44,9 @@ export const REMOTE_METHODS: ReadonlySet<StudioMethod> = new Set<StudioMethod>([
 	"worktrees.save",
 	"worktrees.merge",
 	"worktrees.update",
+	// Playing a checkout's web build.
+	"play.status",
+	"play.build",
 ]);
 
 /** Pictures, sounds and clips the chat shows; the same set the desktop's studio-file:// serves. */
@@ -81,6 +84,8 @@ export interface RemoteServerOptions {
 	pageDir: string;
 	/** A file inside a checkout ("main" or a worktree/session id), or an error if it's outside it. */
 	fileOf: (checkout: string, path: string) => string;
+	/** The folder of a checkout's web build to play (`play-builds.ts`), served at /play/<checkout>/. */
+	playDir?: (checkout: string) => string;
 	/**
 	 * Who may use it: the Tailscale logins allowed (empty: anyone `tailscale serve` vouches for). A request without
 	 * Tailscale's identity header didn't come through `tailscale serve` and is refused, unless `allowLocal`.
@@ -116,6 +121,13 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
 	const sendFile = (res: ServerResponse, file: string, cache: string) => {
 		res.writeHead(200, { "content-type": TYPES[extname(file).toLowerCase()] ?? "application/octet-stream", "content-length": statSync(file).size, "cache-control": cache });
 		createReadStream(file).pipe(res);
+	};
+
+	/** A file under `dir` (never outside it). */
+	const serveFrom = (res: ServerResponse, dir: string, rel: string, cache: string) => {
+		const full = join(dir, normalize(rel).replace(/^[/\\]+/, ""));
+		if (!full.startsWith(dir + sep) || !existsSync(full) || !statSync(full).isFile()) return fail(res, 404, "Not found");
+		return sendFile(res, full, cache);
 	};
 
 	const readBody = (req: IncomingMessage) =>
@@ -191,11 +203,19 @@ export function startRemoteServer(opts: RemoteServerOptions): Promise<RemoteServ
 				if (!existsSync(full) || !statSync(full).isFile()) return fail(res, 404, "Not found");
 				return sendFile(res, full, "no-cache");
 			}
+			// /play/<checkout>/: a checkout's web build (the game's page loads its files relative to it, hence the slash).
+			const play = /^\/play\/([^/]+)(\/.*)?$/.exec(path);
+			if (play && opts.playDir) {
+				if (!play[2]) {
+					res.writeHead(302, { location: `/play/${encodeURIComponent(play[1])}/` });
+					return res.end();
+				}
+				// Rebuilt in place: never cached, so a new build is what the next load plays.
+				return serveFrom(res, opts.playDir(play[1]), play[2] === "/" ? "index.html" : play[2], "no-store");
+			}
 			// The page itself and its scripts, styles and fonts.
-			const rel = path === "/" ? "remote.html" : normalize(path).replace(/^[/\\]+/, "");
-			const full = join(opts.pageDir, rel);
-			if (!full.startsWith(opts.pageDir + sep) || !existsSync(full) || !statSync(full).isFile()) return fail(res, 404, "Not found");
-			return sendFile(res, full, rel === "remote.html" ? "no-cache" : "max-age=3600");
+			const rel = path === "/" ? "remote.html" : path;
+			return serveFrom(res, opts.pageDir, rel, rel === "remote.html" ? "no-cache" : "max-age=3600");
 		} catch (err) {
 			return fail(res, 400, err instanceof Error ? err.message : String(err));
 		}

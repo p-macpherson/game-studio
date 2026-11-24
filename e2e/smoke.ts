@@ -1395,6 +1395,38 @@ try {
 		await step("62-release-web", page);
 		await page.getByTestId("release-status").getByText("Web build: every check passed").waitFor({ timeout: 5_000 });
 		await page.getByTestId("release-built").getByText("e2e-game-1.0.0-web.zip").waitFor();
+
+		// Remote access's Play: a web build of main from the phone's page, then the game itself at /play/main/.
+		await page.evaluate(() => window.studio.call("settings.update", { remoteAccess: { enabled: true, port: 17477, logins: ["e2e@tailnet"] } }));
+		await app.evaluate(async ({ BrowserWindow }) => {
+			const w = new BrowserWindow({ show: false, width: 390, height: 844, webPreferences: { partition: "remote-e2e" } });
+			await w.loadURL("http://127.0.0.1:17477/");
+		});
+		const phone = app.windows().find((w) => w.url().startsWith("http://127.0.0.1:17477"))!;
+		await phone.getByRole("button", { name: "Worktrees" }).click();
+		await phone.getByTestId("remote-main").getByRole("button", { name: "Build to play" }).click();
+		await phone.getByTestId("remote-main").getByTestId("remote-play-open").waitFor({ timeout: 240_000 });
+		await step("98-remote-play-built", phone);
+		const said: string[] = [];
+		phone.on("console", (m) => said.push(`${m.type()}: ${m.text()}`));
+		phone.on("pageerror", (e) => said.push(`pageerror: ${e.message}`));
+		await phone.goto("http://127.0.0.1:17477/play/main/");
+		// The engine's page hides its "Loading…" status once the game's runtime has started, and says so in the console
+		// if the game stops. Polled from here (an in-page wait can resolve early: see the vault's notes).
+		const state = () => phone.evaluate(() => ({ status: document.getElementById("status")?.style.display ?? "?", text: document.getElementById("status")?.textContent ?? "", log: ((window as unknown as { gameLog?: string[] }).gameLog ?? []).slice(-8) }));
+		const until = Date.now() + 90_000;
+		let now = await state();
+		while (now.status !== "none" && Date.now() < until) {
+			await new Promise((r) => setTimeout(r, 500));
+			now = await state();
+		}
+		await new Promise((r) => setTimeout(r, 3000)); // a few seconds of frames: a game that crashes at its first frame says so
+		if (now.status !== "none" || said.some((l) => l.includes("game stopped") || l.startsWith("pageerror"))) {
+			throw new Error(`the game at /play/main/ didn't start: status "${now.text}", log ${JSON.stringify(now.log)}, console ${JSON.stringify(said.slice(-10))}`);
+		}
+		await step("99-remote-play-game", phone);
+		await phone.close();
+		await page.evaluate(() => window.studio.call("settings.update", { remoteAccess: { enabled: false } }));
 	}
 	// Deleting the release takes its builds with it (the confirm dialog is accepted by the test).
 	await page.getByTestId("release-delete").click();

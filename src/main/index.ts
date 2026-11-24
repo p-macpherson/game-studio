@@ -42,6 +42,7 @@ import { SessionService } from "./sessions";
 import { SettingsStore, projectPath } from "./settings";
 import { registerStudioFileScheme, serveStudioFiles } from "./studio-files";
 import { type RemoteServer, startRemoteServer } from "./remote-server";
+import { PlayBuildService } from "./play-builds";
 import { openTerminal } from "./terminal";
 
 // A separate user-data dir lets a second studio instance (tests, studio-engineer sessions) run alongside.
@@ -214,6 +215,7 @@ async function main(): Promise<void> {
 					dispatch: async (method, args) => (handlers[method] as (...a: unknown[]) => unknown)(...args),
 					pageDir: join(import.meta.dirname, "../renderer"),
 					fileOf: (checkout, path) => safeJoin(checkoutRoot(checkout), path),
+					playDir: (checkout) => playBuilds.dirOf(checkout),
 					logins: () => settings.get().remoteAccess?.logins ?? [],
 					refused: (who) => (remoteStatus.lastRefused = { who, at: new Date().toISOString() }),
 				});
@@ -223,6 +225,13 @@ async function main(): Promise<void> {
 			}
 		}));
 	const updates = new UpdateService(appRoot, emit);
+	const playBuilds = new PlayBuildService({
+		dataDir: join(app.getPath("userData"), "play"),
+		checkoutRoot,
+		projectName: () => project?.name ?? "Game",
+		engineRepo: () => settings.get().engineRepo,
+		emit,
+	});
 	/** Web builds a person has opened: each package folder stays served until the studio quits. */
 	const webServers = new Map<string, string>();
 	const release = new ReleaseService({
@@ -294,6 +303,8 @@ async function main(): Promise<void> {
 
 		"settings.get": async () => settings.get(),
 		"remote.status": async () => remoteStatus,
+		"play.status": async (checkout) => playBuilds.status(checkout),
+		"play.build": async (checkout) => playBuilds.build(checkout),
 		"settings.update": async (patch) => {
 			const next = settings.update(patch);
 			refreshAwake?.();

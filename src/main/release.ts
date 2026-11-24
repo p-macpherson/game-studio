@@ -1,7 +1,7 @@
 // Release builds for players (Release section; see the vault's M13 Shipping Builds): which files ship, the build
 // itself (the engine's tools/release.sh), the package folder and its archives, and checks run on the package.
 import { execFileSync, spawn } from "node:child_process";
-import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -173,6 +173,38 @@ export async function buildRelease(opts: {
 		// The build itself failed: nothing to run, but the section shows what happened (and a session looks into it).
 		record({ target, version: config.version, dir: "", archives: [], checks: [], ok: false, error: (err as Error).message, log, seconds: Math.round((Date.now() - started) / 1000), files: 0, bytes: 0, builtAt: new Date().toISOString() });
 		throw err;
+	}
+}
+
+/**
+ * A web build to play now (remote access's Play): the newest release's name and files (or the defaults with no
+ * release.json), compiled into `out` as a page folder. Not a release: no version folder in the game, no archive, no
+ * checks, and the game's debug code stays in (no RELEASE define).
+ */
+export async function buildPlayable(opts: { root: string; projectName: string; engineRepo?: string; out: string; onProgress?: (step: string) => void }): Promise<void> {
+	const { root, out } = opts;
+	const progress = opts.onProgress ?? (() => {});
+	const { config } = readReleaseConfig(root, opts.projectName);
+	if (opts.engineRepo) await linkEngineLibs(join(root, "engine"), opts.engineRepo);
+	const script = join(root, "engine/tools/web.sh");
+	if (!existsSync(script)) throw new Error("the game's engine can't build for the web yet (no tools/web.sh): update the engine first");
+	const work = mkdtempSync(join(tmpdir(), "gs-play-"));
+	try {
+		progress("Choosing files");
+		const manifest = releaseManifest(root, config);
+		mkdirSync(join(work, "assets"));
+		for (const f of manifest.files) cpSync(join(root, f.path), join(work, f.path));
+		progress("Compiling for the web");
+		// Built beside the old one, then swapped in: a page being played isn't pulled out from under it until it's ready.
+		const next = `${out}.next`;
+		rmSync(next, { recursive: true, force: true });
+		mkdirSync(next, { recursive: true });
+		const built = await run(script, ["game", next, join(work, "assets")], { cwd: root, env: { WEB_TITLE: config.name } });
+		if (built.code !== 0) throw new Error(`the web build failed:\n${built.output.slice(-3000)}`);
+		rmSync(out, { recursive: true, force: true });
+		renameSync(next, out);
+	} finally {
+		rmSync(work, { recursive: true, force: true });
 	}
 }
 
