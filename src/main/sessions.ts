@@ -506,6 +506,7 @@ export class SessionService {
 			lines.push("- If you create a new asset (a design doc, model, track…), call `open_in_studio` with its path once it exists.");
 		}
 		lines.push("- When you mention an asset or file of the game to the user, write its repo path (`assets/models/barrel/model.json`): Game Studio turns it into a link with a preview, and lists what each turn made or changed under your reply.");
+		lines.push("- To show the user a picture in your message, embed it in markdown with its repo path: `![what it shows](build/review/shot.png)`. Only files in this checkout show (png, jpg, webp).");
 		lines.push("- To move or rename an asset (or a folder of them), use `move_asset`, not mv: it rewrites every reference to it.");
 		const project = this.deps.projectPath();
 		if (r.target === "engine" && project) {

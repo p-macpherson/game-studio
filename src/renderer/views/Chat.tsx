@@ -8,6 +8,7 @@ import { RESUME_NOTE } from "../../shared/types";
 import { CHECKS_FAILED_NOTE } from "../../shared/review";
 import { RETRY_NOTE, describeModelError, retryLine } from "../../shared/model-errors";
 import type { SessionAssets } from "../../shared/session-assets";
+import { chatImagePath } from "../../shared/chat-images";
 import { studioFile } from "../api";
 import { type Chip, Markdown } from "./Markdown";
 import { AssetStrip, openCard, useChipPreview, useChips } from "./SessionAssets";
@@ -86,14 +87,31 @@ const UserMessage = memo(function UserMessage({ m, brief }: { m: ChatMessage; br
 interface Links {
 	chips?: Record<string, Chip>;
 	open(path: string): void;
+	/** Where a picture the agent embeds (`![caption](path)`) loads from: its file in the session's checkout. */
+	image?(src: string): string;
+}
+/** The checkout a session's pictures load from: its worktree (`id`), or main once that's gone (merged or discarded). */
+export interface ChatCheckout {
+	id: string;
+	root: string;
+}
+/** Where a picture in an agent's markdown loads from. A path outside the checkout is left as written (it won't load): studio-file serves only the checkout. */
+export function chatImageSrc({ id, root }: ChatCheckout): (src: string) => string {
+	return (src) => {
+		const p = chatImagePath(src, root);
+		return p ? studioFile(id, p) : src;
+	};
 }
 const plainLinks: Links = { open: (path) => useStudio.getState().showAsset({ path }) };
-function useLinks(assets: SessionAssets | undefined): Links {
+function useLinks(assets: SessionAssets | undefined, checkout: ChatCheckout | undefined): Links {
 	const chips = useChips(assets);
+	const id = checkout?.id;
+	const root = checkout?.root;
 	return useMemo(() => {
-		if (!assets || !chips) return plainLinks;
-		return { chips, open: (path) => (assets.mentions[path] ? openCard(assets.mentions[path]) : plainLinks.open(path)) };
-	}, [assets, chips]);
+		const image = id && root ? chatImageSrc({ id, root }) : undefined;
+		if (!assets || !chips) return image ? { ...plainLinks, image } : plainLinks;
+		return { chips, image, open: (path) => (assets.mentions[path] ? openCard(assets.mentions[path]) : plainLinks.open(path)) };
+	}, [assets, chips, id, root]);
 }
 
 // Memoised: while a reply streams, only the streaming message changes; the finished ones above it are left alone.
@@ -101,7 +119,7 @@ const Assistant = memo(function Assistant({ m, results, running, links }: { m: C
 	return (
 		<div className="msg assistant">
 			{blocksOf(m).map((b, i) => {
-				if (b.type === "text") return b.text ? <Markdown key={i} text={b.text} onLink={links.open} chips={links.chips} /> : null;
+				if (b.type === "text") return b.text ? <Markdown key={i} text={b.text} onLink={links.open} chips={links.chips} imageSrc={links.image} /> : null;
 				if (b.type === "thinking") return b.thinking ? <div key={i} className="thinking">{b.thinking}</div> : null;
 				if (b.type === "toolCall") return <ToolCall key={i} block={b} result={results.get(b.id)} running={b.id in running} />;
 				return null;
@@ -153,7 +171,7 @@ const Reply = memo(function Reply({ m, links }: { m: ChatMessage; links: Links }
 	if (!said.trim() && m.stopReason !== "error" && m.stopReason !== "aborted") return null;
 	return (
 		<div className="msg assistant">
-			{said.trim() && <Markdown text={said} onLink={links.open} chips={links.chips} />}
+			{said.trim() && <Markdown text={said} onLink={links.open} chips={links.chips} imageSrc={links.image} />}
 			<Ending m={m} />
 		</div>
 	);
@@ -301,8 +319,8 @@ function conversation(messages: ChatMessage[], retryingNow = false): { items: It
  * The chat: the person's messages and the agent's replies. `working`: the agent is running, so its current work
  * shows in a panel at the end (what it last said, the tools running now); once done, that work is one folded line.
  */
-export function Chat({ transcript, working, onShowTranscript, assets, sessionId }: { transcript: Transcript; working: boolean; onShowTranscript: () => void; assets?: SessionAssets; sessionId?: string }) {
-	const links = useLinks(assets);
+export function Chat({ transcript, working, onShowTranscript, assets, sessionId, checkout }: { transcript: Transcript; working: boolean; onShowTranscript: () => void; assets?: SessionAssets; sessionId?: string; checkout?: ChatCheckout }) {
+	const links = useLinks(assets, checkout);
 	const hover = useChipPreview();
 	// Turn n is what follows the person's nth message; its cards go at its end (before their next message).
 	let turn = 0;
@@ -345,7 +363,7 @@ export function Chat({ transcript, working, onShowTranscript, assets, sessionId 
 						<div key={i} className="col chat-question" data-testid="chat-question">
 							<div className="msg assistant asked">
 								<span className="asked-label">The agent asked</span>
-								<Markdown text={it.question} onLink={links.open} chips={links.chips} />
+								<Markdown text={it.question} onLink={links.open} chips={links.chips} imageSrc={links.image} />
 								{shots.length > 0 && (
 									<div className="msg-images asked-images">
 										{shots.map((s, j) => (
@@ -415,8 +433,8 @@ export function Chat({ transcript, working, onShowTranscript, assets, sessionId 
 }
 
 /** Everything in the session: thinking, tool calls and their output, as it happened. */
-export function FullTranscript({ transcript, assets }: { transcript: Transcript; assets?: SessionAssets }) {
-	const links = useLinks(assets);
+export function FullTranscript({ transcript, assets, checkout }: { transcript: Transcript; assets?: SessionAssets; checkout?: ChatCheckout }) {
+	const links = useLinks(assets, checkout);
 	const results = useMemo(() => new Map(transcript.messages.filter((m) => m.role === "toolResult").map((m) => [m.toolCallId!, m])), [transcript.messages]);
 	const shown = transcript.streaming ? [...transcript.messages, transcript.streaming] : transcript.messages;
 	return (

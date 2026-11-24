@@ -3981,6 +3981,21 @@ input.bad {
 	border: 1px solid var(--border);
 }
 
+/* Pictures in a message (the agent's `![caption](path)`): a click enlarges one. */
+.msg .markdown img,
+.question-text img {
+	display: block;
+	max-width: min(100%, 480px);
+	max-height: 320px;
+	margin: 8px 0 2px;
+	border-radius: 6px;
+	background: var(--bg);
+	cursor: zoom-in;
+}
+.doc-view .markdown img {
+	cursor: zoom-in;
+}
+
 .markdown .md-caption {
 	display: block;
 	margin-bottom: 10px;

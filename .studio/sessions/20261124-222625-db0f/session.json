@@ -1,0 +1,24 @@
+{
+	"id": "20261124-222625-db0f",
+	"title": "Cut repeated test runs: build_release subset, Chief re-verification",
+	"agentType": "studio-engineer",
+	"target": "studio",
+	"status": "done",
+	"worktreeId": "20261124-222625-db0f",
+	"model": "anthropic/claude-opus-5-5",
+	"thinking": "high",
+	"createdAt": "2026-11-24T11:26:25.834Z",
+	"updatedAt": "2026-11-24T12:36:53.310Z",
+	"outcome": null,
+	"reviewRequested": false,
+	"piSessionFile": "2026-11-24T11-26-25-895Z_01a20d4e-9e67-709e-a16a-2e8c448ff69a.jsonl",
+	"closedAt": "2026-11-24T12:36:53.310Z",
+	"reviewSummary": "Two changes that cut repeated test runs in agent sessions, plus faster checks.\n\n1. build_release takes `tests`. Only the named scripts run against the package, and `[]` runs none. The build, packaging and start-up check still happen. The result is a PARTIAL check: `partial: {ran, skipped}` is in the result and in build.json, the note starts \"PARTIAL CHECK\", the build is never `ok` and can't be published. The Release section shows it as \"partial check: N of M test scripts\" and asks for a Rebuild. Builds started from the section still run everything. A script name that doesn't exist is refused before anything is built.\n2. Faster full checks. Release test scripts run 4 at a time (Windows stays at 1), the longest last time first. Each web run gets its own in-memory storage. On the party game the web check went from 891 s to 229 s, with the same 3 failures. The studio's review checks also run 4 at a time now: they build once, keep a copy of the game in build/checks/<worktree>/game and run scripts against it directly. Measured on the party game: 9.0 min down to about 2.6 min.\n3. Prompts. The delegation skill (Briefs, Checking), Chief Director, Gameplay Engineer, Conflict Resolver, merge-conflicts and odin-build now say: report the test run you did; don't re-run a suite that was reported passing at the current commit; never test a copy of the tree in /tmp; conflict resolvers run the suite once.\n\nTests: typecheck clean, npm test 225 passed. The engine-backed tests (runner + release: Linux, web and Windows under Wine, partial checks) pass with GAME_STUDIO_TEST_ENGINE=~/Projects/headless-game-engine. npm run e2e passed; its \"read ECONNRESET\" banner shows from the shader step on, before anything this change touches.",
+	"reviewLookAt": [
+		"src/session-host/studio-tools.ts: build_release's new description and `tests` parameter",
+		"skills/delegation/SKILL.md: Briefs and Checking",
+		"Release section: a build made by an agent with `tests` shows as a partial check (~ mark) and Publish is disabled"
+	],
+	"reviewImages": [],
+	"reviewRequestedAt": "2026-11-24T12:31:27.684Z"
+}

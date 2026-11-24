@@ -1,6 +1,7 @@
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { useMemo } from "react";
+import { useStudio } from "../store";
 
 /** A path in the text that names an asset: shown as a link with the asset's icon and name. */
 export interface Chip {
@@ -88,7 +89,14 @@ export function Markdown({ text, onLink, imageSrc, chips, className = "" }: { te
 			// biome-ignore lint/security/noDangerouslySetInnerHtml: sanitised above
 			dangerouslySetInnerHTML={{ __html: html }}
 			onClick={(e) => {
-				const a = (e.target as HTMLElement).closest("a");
+				// A picture (not inside a link) opens in the image viewer, with this text's other pictures beside it.
+				const target = e.target as HTMLElement;
+				if (target instanceof HTMLImageElement && !target.closest("a")) {
+					const imgs = [...e.currentTarget.querySelectorAll("img")].filter((i) => !i.closest("a"));
+					useStudio.getState().showImages(imgs.map((i) => ({ src: i.src, label: i.alt || i.getAttribute("src") || "" })), imgs.indexOf(target));
+					return;
+				}
+				const a = target.closest("a");
 				const href = a?.getAttribute("href");
 				if (!href) return;
 				e.preventDefault();

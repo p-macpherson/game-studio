@@ -1475,6 +1475,20 @@ try {
 	const recorded = page.getByTestId("chat-question").filter({ hasText: "Is the cave layout right?" });
 	await recorded.getByTestId("chat-answer").getByText("Yes", { exact: true }).waitFor();
 	if (!(await recorded.locator("img").first().evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0))) throw new Error("the recorded question should keep its picture");
+	// A picture the agent embeds in its words (the faux model repeats the message) loads from its worktree.
+	await page.getByTestId("composer").fill("Here it is: ![the cave](build/review/cave.png)");
+	await page.getByTestId("composer").press("Enter");
+	const embedded = page.locator(".msg.assistant img[title='the cave']");
+	await embedded.waitFor({ timeout: 30_000 });
+	for (let i = 0; !(await embedded.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)); i++) {
+		if (i > 50) throw new Error("the picture in the agent's message didn't load");
+		await page.waitForTimeout(100);
+	}
+	await step("64b-chat-embedded-image", page);
+	await embedded.click();
+	await page.getByTestId("image-viewer").getByText("the cave").waitFor();
+	await page.keyboard.press("Escape");
+	await page.getByTestId("image-viewer").waitFor({ state: "detached" });
 	await step("64e-question-recorded-with-image", page);
 	await nav.getByRole("button", { name: "Settings" }).click();
 
