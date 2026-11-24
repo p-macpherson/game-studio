@@ -59,6 +59,13 @@ export function NewSessionDialog({ preset }: { preset: NewSessionPreset }) {
 	};
 
 	const pasted = usePastedImages("new-session");
+	/** Closes the dialog, asking first when the person has written or pasted something (a section's prefilled brief doesn't count). */
+	const close = () => {
+		const written = prompt.trim() !== (preset.prompt ?? "").trim() || pasted.images.length > 0;
+		if (written && !window.confirm("Discard what you've written for this session?")) return false;
+		openNewSession(null);
+		return true;
+	};
 	const start = async () => {
 		if (!type || !target || !model) return;
 		setBusy(true);
@@ -78,8 +85,9 @@ export function NewSessionDialog({ preset }: { preset: NewSessionPreset }) {
 	};
 
 	return (
-		<div className="modal-backdrop" onClick={() => openNewSession(null)}>
-			<div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: choosing && layout === "graph" ? "min(1040px, 94vw)" : 680 }}>
+		// No closing on a click outside: a drag that resizes the prompt and ends outside the dialog counts as one.
+		<div className="modal-backdrop from-top">
+			<div className="modal" style={{ width: choosing && layout === "graph" ? "min(1040px, 94vw)" : 680 }}>
 				<h2>New session</h2>
 				{!choosing ? (
 					<div className="col">
@@ -163,7 +171,7 @@ export function NewSessionDialog({ preset }: { preset: NewSessionPreset }) {
 				{models.length === 0 && (
 					<div className="msg error">
 						No models available. Sign in to an AI account first:{" "}
-						<button className="link" onClick={() => (openNewSession(null), openSettings("accounts"))}>
+						<button className="link" onClick={() => close() && openSettings("accounts")}>
 							Settings → Accounts
 						</button>
 					</div>
@@ -173,6 +181,7 @@ export function NewSessionDialog({ preset }: { preset: NewSessionPreset }) {
 					<span>{preset.context ? <code>{preset.context}</code> : "What should the agent do?"}</span>
 					{pasted.tray}
 					<textarea
+						className="new-session-prompt"
 						data-testid="new-session-prompt"
 						title={PASTE_HINT}
 						{...pasted.handlers}
@@ -190,7 +199,7 @@ export function NewSessionDialog({ preset }: { preset: NewSessionPreset }) {
 					<span className="muted grow" style={{ fontSize: 12 }} data-testid="new-session-worktree">
 						{currentWorktree ? `Works in worktree “${currentWorktree.label}”.` : "Starts a new worktree for it, named after the task."} Ctrl+Enter to start.
 					</span>
-					<button onClick={() => openNewSession(null)}>Cancel</button>
+					<button onClick={() => close()}>Cancel</button>
 					<button className="primary" disabled={busy || (!prompt.trim() && !pasted.images.length) || !target || !model} onClick={start}>
 						{busy ? "Starting…" : "Start session"}
 					</button>

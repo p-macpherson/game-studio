@@ -129,6 +129,25 @@ try {
 	// The dialog shows the type it starts with; "Change…" opens the full chooser.
 	await page.getByTestId("new-session-type").filter({ hasText: "Chief Director" }).waitFor();
 	await step("01a-new-session", page);
+	// Resizing the prompt grows the dialog downwards just as fast, so its edge stays under the pointer.
+	const prompt = page.getByTestId("new-session-prompt");
+	const dialogBottom = async () => (await page.locator(".modal").boundingBox())!.y + (await page.locator(".modal").boundingBox())!.height;
+	const bottomBefore = await dialogBottom();
+	await prompt.evaluate((el) => (el.style.height = `${el.getBoundingClientRect().height + 150}px`));
+	const grew = (await dialogBottom()) - bottomBefore;
+	if (Math.abs(grew - 150) > 1) throw new Error(`the New Session dialog should grow 150 px with its prompt, not ${grew}`);
+	// A click outside doesn't close it; Cancel asks first once something is written, and keeps it on "no".
+	await prompt.fill("half a thought");
+	await page.mouse.click(5, 5);
+	let asked = "";
+	nextDialog = (d) => {
+		asked = d.message();
+		void d.dismiss();
+	};
+	await page.getByRole("button", { name: "Cancel" }).click();
+	if (!asked.includes("Discard")) throw new Error(`Cancel with a written prompt should ask first, asked: "${asked}"`);
+	if ((await prompt.inputValue()) !== "half a thought") throw new Error("the prompt should survive an outside click and a declined Cancel");
+	await prompt.fill("");
 	await page.getByTestId("new-session-change-type").click();
 	await page.getByTestId("new-session-layout-graph").click();
 	await page.getByTestId("agent-node").filter({ hasText: "Auditor" }).hover();

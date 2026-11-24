@@ -1301,6 +1301,18 @@ a {
 	flex-direction: column;
 	gap: 12px;
 }
+/* Anchored at the top, so a dialog that grows (a prompt resized by dragging) grows downwards at the drag's own rate,
+   keeping its edge under the pointer; a centred one would grow half as fast and slip out from under it. */
+.modal-backdrop.from-top {
+	align-items: flex-start;
+	padding-top: 6vh;
+}
+textarea.new-session-prompt {
+	resize: vertical;
+	min-height: 80px;
+	/* Leaves room for the rest of the dialog inside its max-height, so it never has to scroll while the prompt grows. */
+	max-height: 50vh;
+}
 label.field {
 	display: flex;
 	flex-direction: column;
