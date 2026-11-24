@@ -128,7 +128,7 @@ export class ReleaseService {
 		}
 		const build = listBuilds(root).find((b) => b.version === version && b.target === target);
 		if (!build) throw new Error(`There's no ${target} build of ${version} to look into`);
-		if (build.ok) throw new Error("That build has nothing wrong with it");
+		if (build.ok || (!build.error && build.checks.every((c) => c.ok))) throw new Error("That build has nothing wrong with it");
 		if (build.investigation) return build.investigation;
 		const id = await this.o.investigate(checkout, `${RELEASE_TARGET_LABEL[target]} build of ${version}: ${build.error ? "failed" : "failed checks"}`, investigationBrief(name, build, null));
 		attachInvestigation(root, version, target, id);
@@ -145,13 +145,14 @@ export class ReleaseService {
 	}
 
 	/** A build in any checkout folder (the section's, or an agent's worktree for build_release). */
-	async buildAt(root: string, target: ReleaseTarget, progress: (text: string) => void = () => {}, version?: string): Promise<ReleaseBuild> {
+	async buildAt(root: string, target: ReleaseTarget, progress: (text: string) => void = () => {}, version?: string, tests?: string[]): Promise<ReleaseBuild> {
 		const appimagetool = target === "linux" ? await this.tool("appimagetool", progress) : undefined;
 		return buildRelease({
 			root,
 			projectName: this.o.projectName(),
 			target,
 			version,
+			tests,
 			engineRepo: this.o.engineRepo(),
 			tools: { appimagetool, wine: which("wine") ?? undefined, winePrefix: join(this.o.dataDir, "wine"), browser: this.o.browser },
 			onProgress: progress,
@@ -185,6 +186,7 @@ export class ReleaseService {
 		if (!existsSync(this.credsFile)) throw new Error("Add your itch.io API key under Settings → Accounts first");
 		const build = listBuilds(root).find((b) => b.version === version && b.target === target);
 		if (!build) throw new Error(`There's no ${target} build of ${version}`);
+		if (build.partial) throw new Error(`The ${target} build of ${version} was only partly checked (some of its tests); build it again for the full check before publishing`);
 		if (!build.ok) throw new Error(`The ${target} build of ${version} has failed checks; fix them and build again before publishing`);
 		const progress = (text: string) => this.o.emit({ type: "release_progress", checkout: checkout ?? "main", version, target, text });
 		const butler = await this.tool("butler", progress);
@@ -300,7 +302,7 @@ export function investigationBrief(name: string, build: ReleaseBuild | null, run
 	const b = build ?? running!;
 	const what = `the ${RELEASE_TARGET_LABEL[b.target]} build of ${name} ${b.version}`;
 	const log = (lines: string[] | undefined) => (lines?.length ? `Its steps so far:\n${lines.map((l) => `- ${l}`).join("\n")}` : "");
-	const confirm = `When you have fixed it, confirm with the build_release tool ({"target": "${b.target}", "version": "${b.version}"}): it must end with every check passing.`;
+	const confirm = `When you have fixed it, confirm with the build_release tool ({"target": "${b.target}", "version": "${b.version}"}): it must end with every check passing. A full check runs every test script against the package and takes a while; while you fix a few failing scripts, re-check only those (\`tests\`: ["tests/<name>.jsonl", …]), then finish with one full run.`;
 	const report = "Then report what was wrong and what you changed. If the cause is outside the game (the engine, the studio's build steps, a tool missing on this machine), say so plainly rather than working around it in the game.";
 	if (running) {
 		const minutes = Math.max(1, Math.round((Date.now() - Date.parse(running.startedAt)) / 60_000));
@@ -360,12 +362,29 @@ export function releaseRequests(service: () => ReleaseService, projectName: () =
 			},
 			(p) => ({ label: `Delete release ${p.version}`, scopes: [{ path: RELEASE_FILE }] }),
 		),
-		build_release: handler<{ target?: ReleaseTarget; version?: string }>(async (ctx, p) => {
+		build_release: handler<{ target?: ReleaseTarget; version?: string; tests?: string[] }>(async (ctx, p) => {
 			const target = p.target ?? "linux";
-			const b = await service().buildAt(ctx.cwd, target, ctx.progress, p.version);
-			return { ...b, note: b.ok ? "Every check passed." : "Some checks failed: read each check's detail." };
+			if (p.tests !== undefined && !(Array.isArray(p.tests) && p.tests.every((t) => typeof t === "string"))) throw new Error('`tests` is a list of test scripts, e.g. ["tests/smoke.jsonl"], or [] for none');
+			const b = await service().buildAt(ctx.cwd, target, ctx.progress, p.version, p.tests);
+			return { ...b, note: buildNote(b) };
 		}),
 	};
+}
+
+/** What an agent's build_release says about its result, above the checks: a partial check says so first. */
+export function buildNote(b: ReleaseBuild): string {
+	const failed = b.checks.filter((c) => !c.ok);
+	const failing = failed.length ? `${failed.length} check${failed.length === 1 ? "" : "s"} failed: ${failed.map((c) => c.name).join(", ")}. Read each one's detail.` : "";
+	if (b.partial) {
+		const ran = b.partial.ran.length ? `only ${b.partial.ran.length} test script${b.partial.ran.length === 1 ? "" : "s"} (${b.partial.ran.join(", ")})` : "no test scripts";
+		return [
+			`PARTIAL CHECK: ${ran} ran against the package; ${b.partial.skipped} other${b.partial.skipped === 1 ? " was" : "s were"} skipped. This is not the release's verdict (the Release section shows it as partial, and it can't be published).`,
+			failing || "Everything that ran passed.",
+			"When the scripts you're fixing pass, finish with one full check: build_release without `tests`.",
+		].join(" ");
+	}
+	if (b.ok) return "Every check passed (the full check: every test script ran against the package).";
+	return `${failing || "Some checks failed: read each check's detail."} After a fix, re-check only the failing scripts (\`tests\`: their paths), which is much faster, then finish with one full run.`;
 }
 
 function which(cmd: string): string | null {

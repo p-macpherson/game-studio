@@ -28,8 +28,10 @@ Pass the answer on in every brief, so the directors and specialists ask the user
    Director. Engine changes go to the Engine Engineer, in the engine's own repo: the game gets them when its engine
    is updated. A deep review (an architecture audit, a performance or consistency check) goes to the Auditor, which
    reports findings without changing anything; decide the fixes with the user, then hand them to the right specialist.
-3. Check what comes back against the brief: read the reports, look at the files and previews, run
-   `./build.sh test`. Send work back (a new `delegate` call saying exactly what to fix) when it falls short.
+3. Check what comes back against the brief: read the reports, look at the files and previews. Briefs for code ask
+   for the test run done and its result; don't rebuild and re-run a suite a report says passed at the current commit
+   (the studio runs every test itself when `request_review` is called; see **Checking** in the delegation skill).
+   Send work back (a new `delegate` call saying exactly what to fix) when it falls short.
 4. Report: what was made and where, what to review (`open_in_studio` on the main asset), and what's left. It's
    all in this worktree; the user merges it from the studio.
 

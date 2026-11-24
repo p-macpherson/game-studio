@@ -26,4 +26,5 @@ conflicted files ("both modified", "deleted by them"…). Finish with `git add <
 
 ## Check before committing
 - `git diff --check` and a search for `<<<<<<<`: no markers left; JSON files parse.
-- `./build.sh test`: the game builds and its tests pass. A scene changed: `preview_scene` it.
+- The game builds and its tests pass: run the whole suite **once**, when every file is resolved; after a fix, the
+  failing scripts, then the whole suite once more. A scene changed: `preview_scene` it.

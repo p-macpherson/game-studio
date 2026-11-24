@@ -2,13 +2,17 @@
 // session asks for review (and on request from the Review page), once per commit; the result is kept in memory.
 import type { ReviewChecks } from "../shared/review";
 import type { Diagnostic, TestReport } from "../shared/run";
+import { inParallel, longestFirst } from "./release";
 
 export interface ReviewCheckDeps {
 	/** The worktree's HEAD commit. */
 	head(worktreeId: string): Promise<string>;
 	compile(worktreeId: string): Promise<{ ok: boolean; diagnostics: Diagnostic[]; output: string }>;
 	tests(worktreeId: string): string[];
+	/** One script against what `compile` built; with `parallel`, several at once. */
 	test(worktreeId: string, script: string): Promise<TestReport>;
+	/** How many scripts run at once (default 1). */
+	parallel?: number;
 	changed(worktreeId: string): void;
 }
 
@@ -46,6 +50,7 @@ export class ReviewCheckService {
 	}
 
 	private async run(worktreeId: string, commit: string): Promise<void> {
+		const previous = this.results.get(worktreeId);
 		const result: ReviewChecks = { worktreeId, state: "running", commit, startedAt: new Date().toISOString(), doing: "Building…", tests: [] };
 		const publish = () => {
 			this.results.set(worktreeId, { ...result, tests: [...result.tests] });
@@ -58,14 +63,19 @@ export class ReviewCheckService {
 			result.build = { ok: built.ok, errors: built.ok ? [] : errors.length ? errors.slice(0, 20) : [built.output.trim().split("\n").slice(-8).join("\n") || "The build failed"] };
 			if (built.ok) {
 				const scripts = this.deps.tests(worktreeId);
-				for (const [i, script] of scripts.entries()) {
-					result.doing = `Running test ${i + 1} of ${scripts.length}…`;
-					publish();
+				// The longest last time first, so the slowest doesn't run on alone at the end.
+				const took = new Map((previous?.tests ?? []).map((t) => [t.script, t.durationMs]));
+				result.doing = `Running ${scripts.length} test${scripts.length === 1 ? "" : "s"}…`;
+				publish();
+				await inParallel(longestFirst(scripts, (s) => took.get(s)), this.deps.parallel ?? 1, async (script) => {
 					const r = await this.deps.test(worktreeId, script);
 					const failed = r.steps.find((s) => !s.ok);
 					const problem = r.ok ? undefined : !r.buildOk ? "It didn't build" : failed ? `Line ${failed.line} (${failed.command}): ${failed.error ?? "failed"}` : r.notRun ? `${r.notRun} command${r.notRun === 1 ? "" : "s"} never ran: the game stopped early` : `The game exited with code ${r.exitCode}`;
 					result.tests.push({ script, ok: r.ok, durationMs: r.durationMs, ...(problem ? { problem } : {}) });
-				}
+					result.tests.sort((a, b) => a.script.localeCompare(b.script));
+					result.doing = `Running tests: ${result.tests.length} of ${scripts.length} done…`;
+					publish();
+				});
 			}
 		} catch (err) {
 			result.build ??= { ok: false, errors: [err instanceof Error ? err.message : String(err)] };

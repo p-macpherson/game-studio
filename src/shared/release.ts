@@ -203,6 +203,8 @@ export interface ReleaseCheck {
 	name: string;
 	ok: boolean;
 	detail: string;
+	/** How long a test script's check took (the next build starts the longest first). */
+	ms?: number;
 }
 export interface ReleaseBuild {
 	target: ReleaseTarget;
@@ -212,8 +214,13 @@ export interface ReleaseBuild {
 	/** Archives (and the AppImage), project-relative. */
 	archives: string[];
 	checks: ReleaseCheck[];
-	/** A package was made and every check passed. */
+	/** A package was made, every check passed, and the check was a full one (not `partial`). */
 	ok: boolean;
+	/**
+	 * Only some test scripts were run against the package (an agent re-checking a few that failed): which, and how many
+	 * of the others were skipped. Never the release's verdict: it isn't `ok` and can't be published.
+	 */
+	partial?: { ran: string[]; skipped: number };
 	/** The build itself failed (it didn't compile, a tool is missing…): there is no package, only this. */
 	error?: string;
 	/** The steps it went through. */

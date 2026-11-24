@@ -463,8 +463,13 @@ export function studioTools(ctx: StudioToolContext) {
 				"Build the game for players as the Release section does: an optimised release build for 'linux' (default; runs on glibc 2.29+), " +
 				"'windows' (cross-compiled) or 'web' (WebAssembly and WebGL 2: a folder with index.html, zipped for itch.io), packaged with only the asset files the game uses into builds/<version>/<target>/ (never committed), then " +
 				"checked: the package started from another folder (release build, the release's version, no warnings in its log), every tests/*.jsonl " +
-				"run against the packaged binary (with the game flags on a test's first line, `// flags: --mode=none --seed=3`, else in a hidden window), and for Linux an AppImage that starts. Windows checks run under Wine, web checks in a hidden browser window. A web build has no multiplayer or saved files yet. Takes a minute or two. Returns " +
-				"each check with its detail, the archives, and how many files ship; a build that fails outright throws with the error. Use it to confirm a change survives packaging (a file loaded by a " +
+				"run against the packaged binary, several side by side (with the game flags on a test's first line, `// flags: --mode=none --seed=3`, else in a hidden window), and for Linux an AppImage that starts. Windows checks run under Wine, web checks in hidden browser windows. A web build has no multiplayer or saved files yet. " +
+				"The build takes a minute or two; the full check adds several minutes for a big test suite (most in a browser). Returns " +
+				"each check with its detail, the archives, and how many files ship; a build that fails outright throws with the error. " +
+				"`tests` limits the check to the scripts you name: a PARTIAL check (the result's `partial` lists what ran and how many were skipped; it is never `ok` and can't be published), " +
+				"for re-checking a few failing scripts in a minute or two instead of re-running them all. The pattern: run the full check once; fix what failed; re-check only those scripts " +
+				"with `tests`; when they pass, finish with one full run (no `tests`), which is the release's verdict. `tests: []` runs no scripts (build, package and start-up check only). " +
+				"Use it to confirm a change survives packaging (a file loaded by a " +
 				"computed path needs the release's include). Publishing to itch.io is the user's, from the Release section. The settings are release.json at " +
 				"the project root, a list of releases with the newest first: {\"releases\": [{\"name\": \"Game Name\", \"version\": \"1.0.0\", \"icon\": \"ui/art/icons/app/app.png\" (a PNG under assets/: the window and .exe " +
 				"icon), \"include\"/\"exclude\": [asset globs like \"sounds/extra/*\"], \"itch\": {\"target\": \"user/game\"}}]}. `version` picks the release (default: the newest); " +
@@ -472,6 +477,11 @@ export function studioTools(ctx: StudioToolContext) {
 			parameters: Type.Object({
 				target: Type.Optional(Type.Union([Type.Literal("linux"), Type.Literal("windows"), Type.Literal("web")])),
 				version: Type.Optional(Type.String({ description: "Which release in release.json; default: the newest" })),
+				tests: Type.Optional(
+					Type.Array(Type.String(), {
+						description: 'Only these test scripts, e.g. ["tests/koth_game.jsonl"] ([] for none): a partial check, for re-checking the ones that failed. Default: every tests/*.jsonl, the full check',
+					}),
+				),
 			}),
 			async execute(_id, params, signal, onUpdate) {
 				return ok(JSON.stringify(await ctx.request("build_release", params, signal, progressTo(onUpdate)), null, 2));
@@ -626,7 +636,8 @@ export function studioTools(ctx: StudioToolContext) {
 				"(screenshots or renders you made of the change, before and after when you have both; build/ paths are fine). When the change is somewhere a player takes time to " +
 				"reach, give `start_here`: a play scenario (scenarios/<name>.json, see the scenarios skill: best when it's worth keeping) or a control script you committed " +
 				"(one JSON command per line, like a test, e.g. tests/review/cave-door.jsonl) that takes the game from its start to that moment; the user's Play button " +
-				"starts the game that way and then they play on. State test results in the summary.",
+				"starts the game that way and then they play on. State test results in the summary. When you call it, the studio builds the worktree and runs every test " +
+				"script itself, and sends the request back to you with any failures.",
 			parameters: Type.Object({
 				summary: Type.String(),
 				look_at: Type.Optional(Type.Array(Type.String(), { description: "What to check or try, one line each" })),

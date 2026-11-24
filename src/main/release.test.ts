@@ -5,7 +5,8 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { notRuntime, parseReleaseConfig } from "../shared/release";
 import { createProject } from "./project";
-import { testFlags, buildRelease, releaseManifest } from "./release";
+import { testFlags, buildRelease, inParallel, longestFirst, releaseManifest, releaseTests } from "./release";
+import { buildNote } from "./release-service";
 import { sh, tempDir } from "./test-helpers";
 
 function project(files: Record<string, string>): string {
@@ -113,11 +114,15 @@ describe.skipIf(!haveEngine)("buildRelease", () => {
 
 	it("packages a Linux build that passes its checks from its own folder", async () => {
 		const root = await game();
+		writeFileSync(join(root, "tests/second.jsonl"), '{"cmd": "wait", "frames": 2}\n');
 		const build = await buildRelease({ root, projectName: "Ship Test", target: "linux", engineRepo });
 		expect(build.checks.filter((c) => c.name !== "AppImage")).toEqual([
 			{ name: "Runs from its own folder", ok: true, detail: "version 1.2.3, no warnings" },
-			{ name: "tests/smoke.jsonl", ok: true, detail: "passed" },
+			{ name: "tests/second.jsonl", ok: true, detail: "passed", ms: expect.any(Number) },
+			{ name: "tests/smoke.jsonl", ok: true, detail: "passed", ms: expect.any(Number) },
 		]);
+		expect(build.ok).toBe(true);
+		expect(build.partial).toBeUndefined();
 		const pkg = join(root, build.dir);
 		expect(build.dir).toBe("builds/1.2.3/linux/ship-test");
 		expect(existsSync(join(pkg, "ship-test"))).toBe(true);
@@ -126,6 +131,21 @@ describe.skipIf(!haveEngine)("buildRelease", () => {
 		expect(existsSync(join(pkg, "assets/sounds/beep/takes"))).toBe(false);
 		expect(build.archives).toContain("builds/1.2.3/linux/ship-test-1.2.3-linux-x86_64.tar.gz");
 		expect(sh(root, "status", "--porcelain")).not.toContain("builds");
+
+		// An agent re-checking one script: a partial check, recorded as one and never ok.
+		const quick = await buildRelease({ root, projectName: "Ship Test", target: "linux", engineRepo, tests: ["tests/smoke.jsonl"] });
+		expect(quick.checks.filter((c) => c.name.startsWith("tests/")).map((c) => [c.name, c.ok])).toEqual([["tests/smoke.jsonl", true]]);
+		expect(quick).toMatchObject({ ok: false, partial: { ran: ["tests/smoke.jsonl"], skipped: 1 } });
+		expect(JSON.parse(readFileSync(join(root, "builds/1.2.3/linux/build.json"), "utf8")).partial).toEqual({ ran: ["tests/smoke.jsonl"], skipped: 1 });
+		expect(buildNote(quick)).toMatch(/^PARTIAL CHECK: only 1 test script \(tests\/smoke.jsonl\) ran against the package; 1 other was skipped\./);
+		// None at all: built, packaged and started, nothing else.
+		const none = await buildRelease({ root, projectName: "Ship Test", target: "linux", engineRepo, tests: [], tools: {} });
+		expect(none.checks.map((c) => c.name)).toEqual(["Runs from its own folder"]);
+		expect(none).toMatchObject({ ok: false, partial: { ran: [], skipped: 2 } });
+		// Each script's time is kept through partial checks, so the next full one starts the longest first.
+		expect(Object.keys(JSON.parse(readFileSync(join(root, "builds/1.2.3/linux-test-times.json"), "utf8")))).toEqual(["tests/second.jsonl", "tests/smoke.jsonl"]);
+		// A script that isn't there is refused before anything is built.
+		await expect(buildRelease({ root, projectName: "Ship Test", target: "linux", engineRepo, tests: ["tests/nope.jsonl"] })).rejects.toThrow("No such test script to check the package with: tests/nope.jsonl");
 	}, 300_000);
 
 	// No browser outside the studio: the package is made and the check says it couldn't run (the e2e runs it for real).
@@ -158,6 +178,53 @@ describe.skipIf(!haveEngine)("buildRelease", () => {
 		expect(build.archives).toEqual(["builds/1.2.3/windows/ship-test-1.2.3-windows-x86_64.zip"]);
 		expect(existsSync(join(root, build.dir, "ship-test.exe"))).toBe(true);
 	}, 600_000);
+});
+
+describe("releaseTests", () => {
+	const root = project({ "tests/a.jsonl": "{}", "tests/b.jsonl": "{}", "tests/duel.mp.jsonl": "{}", "tests/review/c.jsonl": "{}" });
+
+	it("is every tests/*.jsonl but multiplayer ones, or only those named", () => {
+		expect(releaseTests(root)).toEqual({ run: ["tests/a.jsonl", "tests/b.jsonl"], all: ["tests/a.jsonl", "tests/b.jsonl"], partial: false });
+		expect(releaseTests(root, ["b.jsonl", "./tests/review/c.jsonl", "tests/b.jsonl"])).toMatchObject({ run: ["tests/b.jsonl", "tests/review/c.jsonl"], partial: true });
+		expect(releaseTests(root, [])).toMatchObject({ run: [], partial: true });
+		// Naming every one is the full check.
+		expect(releaseTests(root, ["tests/b.jsonl", "tests/a.jsonl"]).partial).toBe(false);
+	});
+
+	it("refuses scripts that aren't there, multiplayer ones and paths out of tests/", () => {
+		expect(() => releaseTests(root, ["tests/a.jsonl", "tests/zzz.jsonl", "tests/duel.mp.jsonl", "tests/../release.json"])).toThrow(
+			"No such test scripts to check the package with: tests/zzz.jsonl, tests/duel.mp.jsonl, tests/../release.json",
+		);
+	});
+});
+
+describe("running checks side by side", () => {
+	it("starts the longest first (never-timed ones before them) and keeps at most `parallel` running", async () => {
+		const took: Record<string, number> = { a: 5, b: 50, c: 20 };
+		expect(longestFirst(["a", "b", "c", "new"], (s) => took[s])).toEqual(["new", "b", "c", "a"]);
+		let running = 0;
+		let most = 0;
+		const out = await inParallel([30, 10, 20, 5, 15], 2, async (ms) => {
+			most = Math.max(most, ++running);
+			await new Promise((r) => setTimeout(r, ms));
+			running--;
+			return ms * 2;
+		});
+		expect(out).toEqual([60, 20, 40, 10, 30]);
+		expect(most).toBe(2);
+	});
+
+	it("says what a build's result means to the agent that asked", () => {
+		const base = { target: "web" as const, version: "1.0.0", dir: "d", archives: [], files: 1, bytes: 1, builtAt: "" };
+		const pass = { name: "tests/a.jsonl", ok: true, detail: "passed" };
+		const fail = { name: "tests/b.jsonl", ok: false, detail: "line 3" };
+		expect(buildNote({ ...base, checks: [pass], ok: true })).toMatch(/^Every check passed \(the full check/);
+		expect(buildNote({ ...base, checks: [pass, fail], ok: false })).toMatch(/^1 check failed: tests\/b.jsonl\..*re-check only the failing scripts/);
+		expect(buildNote({ ...base, checks: [fail], ok: false, partial: { ran: ["tests/b.jsonl"], skipped: 40 } })).toMatch(
+			/^PARTIAL CHECK: only 1 test script \(tests\/b.jsonl\) ran against the package; 40 others were skipped\. .* 1 check failed: tests\/b.jsonl\..* finish with one full check/,
+		);
+		expect(buildNote({ ...base, checks: [], ok: false, partial: { ran: [], skipped: 2 } })).toMatch(/^PARTIAL CHECK: no test scripts ran .* Everything that ran passed\./);
+	});
 });
 
 describe("testFlags", () => {
