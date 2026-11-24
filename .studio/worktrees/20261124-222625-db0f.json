@@ -1,0 +1,12 @@
+{
+	"id": "20261124-222625-db0f",
+	"label": "Cut repeated test runs: build_release subset, Chief re-verification",
+	"target": "studio",
+	"branch": "studio/20261124-222625-db0f",
+	"baseBranch": "main",
+	"baseCommit": "9b38c92187eeaadbe1f26707e9bfa403db53d4dc",
+	"status": "merged",
+	"checkout": "removed",
+	"createdAt": "2026-11-24T11:26:25.842Z",
+	"updatedAt": "2026-11-24T12:48:27.670Z"
+}
