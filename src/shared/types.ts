@@ -166,6 +166,8 @@ export interface PlayBuild {
 	/** The commit it was built from, and the checkout's commit now: different means there's newer work to build. */
 	commit?: string;
 	head?: string;
+	/** A failed build: the session started to fix it ("Fix it"). */
+	investigation?: string;
 }
 
 /** Whether the remote server is up, and who was last turned away (to add to the logins). */

@@ -16,6 +16,11 @@ export interface PlayBuildDeps {
 	projectName(): string;
 	engineRepo(): string;
 	emit(event: StudioEvent): void;
+	/**
+	 * Starts a session to fix a failed build: in `checkout`'s worktree, or with null (main) in a new one from main. Its id.
+	 * Without it nothing is investigated.
+	 */
+	investigate?(checkout: string | null, title: string, prompt: string): Promise<string>;
 	/** Stand-in for the real build (tests). */
 	build?: typeof buildPlayable;
 }
@@ -31,6 +36,8 @@ const headOf = (root: string) => {
 export class PlayBuildService {
 	private readonly current = new Map<string, PlayBuild>();
 	private building: string | null = null;
+	/** The step each checkout's last build was on: where a failure happened. */
+	private readonly lastStep = new Map<string, string>();
 
 	constructor(private readonly d: PlayBuildDeps) {}
 
@@ -59,8 +66,12 @@ export class PlayBuildService {
 			this.current.set(checkout, b);
 			this.d.emit({ type: "play_build", build: { ...b, head: commit } });
 		};
-		set({ checkout, state: "building", step: "Starting" });
-		(this.d.build ?? buildPlayable)({ root, projectName: this.d.projectName(), engineRepo: this.d.engineRepo(), out, onProgress: (step) => set({ checkout, state: "building", step }) })
+		const step = (s: string) => {
+			this.lastStep.set(checkout, s);
+			set({ checkout, state: "building", step: s });
+		};
+		step("Starting");
+		(this.d.build ?? buildPlayable)({ root, projectName: this.d.projectName(), engineRepo: this.d.engineRepo(), out, onProgress: step })
 			.then(() => {
 				const builtAt = new Date().toISOString();
 				writeFileSync(join(out, "play.json"), `${JSON.stringify({ builtAt, commit })}\n`);
@@ -71,4 +82,39 @@ export class PlayBuildService {
 				this.building = null;
 			});
 	}
+
+	/**
+	 * Starts a session to fix a failed build, so a failure seen away from the desk isn't a dead end. Once per failure:
+	 * asked again, it's the same session. Building again forgets it.
+	 */
+	async investigate(checkout: string): Promise<string> {
+		if (!this.d.investigate) throw new Error("Sessions can't be started from here");
+		const failed = this.current.get(checkout);
+		if (failed?.state !== "failed") throw new Error("There's no failed build to look into");
+		if (failed.investigation) return failed.investigation;
+		const where = checkout === "main" ? "main" : "this worktree";
+		const id = await this.d.investigate(checkout === "main" ? null : checkout, checkout === "main" ? "Fix main's web build" : "Fix the web build", playBrief(this.d.projectName(), where, this.lastStep.get(checkout), failed.error ?? ""));
+		const now = this.current.get(checkout);
+		// A build started meanwhile replaced the failure: the session still runs, but it's no longer this build's.
+		if (now === failed) {
+			const b = { ...failed, investigation: id };
+			this.current.set(checkout, b);
+			this.d.emit({ type: "play_build", build: { ...b, head: headOf(this.d.checkoutRoot(checkout)) } });
+		}
+		return id;
+	}
+}
+
+/** What a session is told about a failed play build. */
+export function playBrief(name: string, where: "main" | "this worktree", step: string | undefined, error: string): string {
+	return [
+		`The remote page's Play remotely built ${name} for the web from ${where}, and the build failed: there's nothing to play.`,
+		step ? `It failed at the step "${step}".` : "",
+		`The error:\n${error}`,
+		"How it's built: the studio links the engine, copies the files the newest release in release.json ships (or the defaults without one) into an assets folder, then runs `engine/tools/web.sh game <out> <assets>` (Odin for wasm, Emscripten, WebGL 2). It's a test build: no version, archive or checks.",
+		`Find the cause and fix it in this worktree${where === "main" ? " (it reaches main when merged)" : ""}. To confirm, build it the same way from the worktree's root, which must finish without errors: \`out=$(mktemp -d); engine/tools/web.sh game "$out" assets; rm -rf "$out"\`.`,
+		"Then report what was wrong and what you changed. If the cause is outside the game (the engine, the studio's build steps, a tool missing on this machine), say so plainly rather than working around it in the game.",
+	]
+		.filter(Boolean)
+		.join("\n\n");
 }

@@ -225,12 +225,17 @@ async function main(): Promise<void> {
 			}
 		}));
 	const updates = new UpdateService(appRoot, emit);
+	// A failed build is looked into by the Gameplay Engineer (the game's code, tests and build): in the build's worktree,
+	// or from main in one of its own.
+	const investigateBuild = async (checkout: string | null, title: string, prompt: string) =>
+		(await sessions.create({ agentType: "gameplay-engineer", target: "project", prompt, title, ...(checkout ? { worktreeId: checkout } : { worktreeLabel: title }) } as NewSessionRequest)).id;
 	const playBuilds = new PlayBuildService({
 		dataDir: join(app.getPath("userData"), "play"),
 		checkoutRoot,
 		projectName: () => project?.name ?? "Game",
 		engineRepo: () => settings.get().engineRepo,
 		emit,
+		investigate: investigateBuild,
 	});
 	/** Web builds a person has opened: each package folder stays served until the studio quits. */
 	const webServers = new Map<string, string>();
@@ -247,9 +252,7 @@ async function main(): Promise<void> {
 		emit,
 		butler: process.env.GAME_STUDIO_BUTLER,
 		appimagetool: process.env.GAME_STUDIO_APPIMAGETOOL,
-		// The Gameplay Engineer (the game's code, tests and build): in the build's worktree, or from main in one of its own.
-		investigate: async (checkout, title, prompt) =>
-			(await sessions.create({ agentType: "gameplay-engineer", target: "project", prompt, title, ...(checkout ? { worktreeId: checkout } : { worktreeLabel: title }) } as NewSessionRequest)).id,
+		investigate: investigateBuild,
 	});
 	const assets = new AssetService(checkoutRoot, sessions);
 	const style = new StyleCheckService({
@@ -305,6 +308,7 @@ async function main(): Promise<void> {
 		"remote.status": async () => remoteStatus,
 		"play.status": async (checkout) => playBuilds.status(checkout),
 		"play.build": async (checkout) => playBuilds.build(checkout),
+		"play.investigate": (checkout) => playBuilds.investigate(checkout),
 		"settings.update": async (patch) => {
 			const next = settings.update(patch);
 			refreshAwake?.();

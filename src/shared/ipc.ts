@@ -236,6 +236,8 @@ export interface StudioApi {
 	"play.status"(checkout: string): Promise<PlayBuild>;
 	/** Starts one and returns at once; progress arrives as `play_build` events. */
 	"play.build"(checkout: string): Promise<void>;
+	/** Starts a session to fix a checkout's failed web build (or returns the one already on it): its id. */
+	"play.investigate"(checkout: string): Promise<string>;
 	"updates.check"(): Promise<UpdateStatus>;
 	/** Builds and tests the newest version beside this one (progress as update_status events). */
 	"updates.prepare"(): Promise<UpdateStatus>;

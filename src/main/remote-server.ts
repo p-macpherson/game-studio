@@ -47,6 +47,7 @@ export const REMOTE_METHODS: ReadonlySet<StudioMethod> = new Set<StudioMethod>([
 	// Playing a checkout's web build.
 	"play.status",
 	"play.build",
+	"play.investigate",
 ]);
 
 /** Pictures, sounds and clips the chat shows; the same set the desktop's studio-file:// serves. */

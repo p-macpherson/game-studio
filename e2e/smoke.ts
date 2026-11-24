@@ -1425,6 +1425,19 @@ try {
 			throw new Error(`the game at /play/main/ didn't start: status "${now.text}", log ${JSON.stringify(now.log)}, console ${JSON.stringify(said.slice(-10))}`);
 		}
 		await step("99-remote-play-game", phone);
+		// A build that fails away from the desk isn't a dead end: an agent is asked to fix it, and its session opens.
+		writeFileSync(join(releasePath, "game/zz_broken.odin"), "package game\n\nthis is not odin\n");
+		await phone.goto("http://127.0.0.1:17477/");
+		await phone.getByRole("button", { name: "Worktrees" }).click();
+		const releaseRow = phone.getByTestId("remote-worktree").filter({ hasText: "Release 1.0.0" });
+		await releaseRow.getByRole("button", { name: "Build to play" }).click();
+		await releaseRow.getByTestId("remote-play-fix").waitFor({ timeout: 120_000 });
+		rmSync(join(releasePath, "game/zz_broken.odin"));
+		await releaseRow.getByText("The build failed").waitFor();
+		await step("99a-remote-play-failed", phone);
+		await releaseRow.getByTestId("remote-play-fix").click();
+		await phone.getByTestId("chat").getByText("the build failed: there's nothing to play").waitFor({ timeout: 30_000 });
+		await step("99b-remote-play-fix", phone);
 		await phone.close();
 		await page.evaluate(() => window.studio.call("settings.update", { remoteAccess: { enabled: false } }));
 	}

@@ -64,10 +64,17 @@ function SessionList() {
 	);
 }
 
+/** The line of a failed build's output that says what went wrong: the compiler's error, else its first line. */
+function errorLine(error: string): string {
+	const lines = error.split("\n").map((l) => l.trim()).filter(Boolean);
+	return lines.slice(1).find((l) => /error/i.test(l)) ?? lines[0] ?? "";
+}
+
 /** A checkout's web build: build it, follow the build, then play it in a new tab. */
 function PlayControls({ checkout }: { checkout: string }) {
-	const showError = useStudio((st) => st.showError);
+	const { showError, selectSession, refreshSessions } = useStudio(useShallow((st) => ({ showError: st.showError, selectSession: st.selectSession, refreshSessions: st.refreshSessions })));
 	const [build, setBuild] = useState<PlayBuild | null>(null);
+	const [starting, setStarting] = useState(false);
 	useEffect(() => {
 		void call("play.status", checkout).then(setBuild, () => {});
 		return onEvent((e) => {
@@ -75,13 +82,26 @@ function PlayControls({ checkout }: { checkout: string }) {
 		});
 	}, [checkout]);
 	const start = () => void call("play.build", checkout).catch(showError);
+	// Away from the desk a failed build would be a dead end: an agent looks into it, and its session opens.
+	const fix = async () => {
+		setStarting(true);
+		try {
+			const id = await call("play.investigate", checkout);
+			await refreshSessions();
+			selectSession(id);
+		} catch (err) {
+			showError(err);
+		} finally {
+			setStarting(false);
+		}
+	};
 	if (!build) return null;
 	if (build.state === "building") return <span className="muted remote-play">Building for the web: {build.step}…</span>;
 	return (
 		<span className="col remote-play" data-testid="remote-play">
 			{build.state === "failed" && (
 				<span className="msg error" title={build.error}>
-					The build failed: {build.error?.split("\n")[0]}
+					The build failed: {errorLine(build.error ?? "")}
 				</span>
 			)}
 			{build.state === "ready" && (
@@ -92,6 +112,11 @@ function PlayControls({ checkout }: { checkout: string }) {
 			)}
 			<span className="row remote-actions">
 				<button onClick={start}>{build.state === "none" ? "Build to play" : build.state === "failed" ? "Try again" : "Rebuild"}</button>
+				{build.state === "failed" && (
+					<button className="primary" disabled={starting} onClick={fix} data-testid="remote-play-fix">
+						{build.investigation ? "Open the fix session" : starting ? "Starting…" : "Ask an agent to fix it"}
+					</button>
+				)}
 				{build.state === "ready" && (
 					<a className="button primary" href={`/play/${encodeURIComponent(checkout)}/`} target="_blank" rel="noreferrer" data-testid="remote-play-open">
 						▶ Play

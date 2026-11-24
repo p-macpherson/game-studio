@@ -52,3 +52,42 @@ it("builds a checkout to play, one at a time, and the remote page serves it unde
 	expect((await fetch(`${server.url}play/main/index.wasm`)).headers.get("content-type")).toBe("application/wasm");
 	expect((await fetch(`${server.url}play/main/..%2F..%2Fgame%2F.git%2Fconfig`)).status).toBe(404);
 });
+
+it("starts one session to fix a failed build, told the step and the error; building again forgets it", async () => {
+	const root = tempDir();
+	const repo = makeRepo(join(root, "game"));
+	const asked: { checkout: string | null; prompt: string }[] = [];
+	let fail = true;
+	const plays = new PlayBuildService({
+		dataDir: join(root, "play"),
+		checkoutRoot: () => repo,
+		projectName: () => "Game",
+		engineRepo: () => "",
+		emit: () => {},
+		investigate: async (checkout, _title, prompt) => {
+			asked.push({ checkout, prompt });
+			return `s${asked.length}`;
+		},
+		build: async ({ out, onProgress }) => {
+			onProgress?.("Compiling for the web");
+			if (fail) throw new Error("the web build failed:\nError: undefined symbol: foo");
+			mkdirSync(out, { recursive: true });
+		},
+	});
+	await expect(plays.investigate("main")).rejects.toThrow("no failed build");
+	plays.build("main");
+	await waitFor(() => plays.status("main").state === "failed");
+
+	expect(await plays.investigate("main")).toBe("s1");
+	expect(await plays.investigate("main")).toBe("s1"); // the same session, not a second
+	expect(plays.status("main").investigation).toBe("s1");
+	expect(asked).toHaveLength(1);
+	expect(asked[0].checkout).toBeNull(); // main is fixed in a worktree of its own
+	expect(asked[0].prompt).toContain('"Compiling for the web"');
+	expect(asked[0].prompt).toContain("undefined symbol: foo");
+
+	fail = false;
+	plays.build("main");
+	await waitFor(() => plays.status("main").state === "ready");
+	expect(plays.status("main").investigation).toBeUndefined();
+});
