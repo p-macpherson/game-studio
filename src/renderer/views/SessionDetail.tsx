@@ -1,12 +1,12 @@
 import { PASTE_HINT, usePastedImages } from "./PastedImages";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { PromptMode } from "../../shared/host";
 import { splitAttachments } from "../../shared/attachments";
 import type { ContextUsage, SessionSummary } from "../../shared/types";
 import { findAgentType } from "../../shared/agents";
 import { call, isRemote, relativeTime, studioFile } from "../api";
 import { useStudio } from "../store";
-import { Chat, FullTranscript, ModelErrorText } from "./Chat";
+import { Chat, type ChatCheckout, chatImageSrc, FullTranscript, ModelErrorText } from "./Chat";
 import { Markdown } from "./Markdown";
 import { loadDraft, saveDraft } from "../drafts";
 import { sendHint, sendsMessage, sessionEnterToSend, setSessionEnterToSend } from "../enter-to-send";
@@ -102,7 +102,7 @@ function standing(c: SessionSummary): { label: string; tone: "working" | "waitin
  * answer box, where it can be reworded, and what's in the box is what "Send answer" sends. The answer being written
  * is kept like any unsent message.
  */
-function QuestionCard({ sessionId, question, busy, onAnswer }: { sessionId: string; question: NonNullable<SessionSummary["pendingQuestion"]>; busy: boolean; onAnswer: (answer: string) => void }) {
+function QuestionCard({ sessionId, checkout, question, busy, onAnswer }: { sessionId: string; checkout: ChatCheckout; question: NonNullable<SessionSummary["pendingQuestion"]>; busy: boolean; onAnswer: (answer: string) => void }) {
 	const draftKey = `${sessionId}:answer:${question.questionId}`;
 	const [answer, setAnswerText] = useState(() => loadDraft(draftKey));
 	const setAnswer = (text: string) => {
@@ -125,7 +125,7 @@ function QuestionCard({ sessionId, question, busy, onAnswer }: { sessionId: stri
 					<span className="dot" />
 					The agent is waiting for your answer
 				</div>
-				<Markdown className="question-text" text={question.question} />
+				<Markdown className="question-text" text={question.question} imageSrc={chatImageSrc(checkout)} />
 				{!!question.images?.length && (
 					<div className="question-images" data-testid="question-images">
 						{question.images.map((p, i) => (
@@ -332,6 +332,8 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 	const messageCount = transcript?.messages.length ?? 0;
 	// Its asset cards and links: read again a moment after the conversation, its worktree or the assets change.
 	const assets = useStudio((st) => st.sessionAssets[s.id]);
+	// Pictures the agent embeds in its messages load from its worktree, or from main once that's gone.
+	const checkout = useMemo(() => ({ id: s.worktree === "active" ? s.id : "main", root: s.worktreePath }), [s.id, s.worktree, s.worktreePath]);
 	const assetsVersion = useStudio((st) => st.assetsVersion);
 	useEffect(() => {
 		const t = setTimeout(() => void useStudio.getState().loadSessionAssets(s.id), 300);
@@ -536,8 +538,8 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 					))}
 			</div>
 			<div className={`tab-body ${tab === "chat" || tab === "transcript" ? "fill" : ""}`}>
-				{tab === "chat" && transcript && <Chat transcript={transcript} working={running} onShowTranscript={() => setTab("transcript")} assets={assets} sessionId={s.id} />}
-				{tab === "transcript" && transcript && <FullTranscript transcript={transcript} assets={assets} />}
+				{tab === "chat" && transcript && <Chat transcript={transcript} working={running} onShowTranscript={() => setTab("transcript")} assets={assets} sessionId={s.id} checkout={checkout} />}
+				{tab === "transcript" && transcript && <FullTranscript transcript={transcript} assets={assets} checkout={checkout} />}
 				{tab === "subagents" && <SubAgents root={s} sessions={sessions} typeName={(id) => findAgentType(agentTypes, id)?.name ?? id} onOpen={selectSession} />}
 				{tab === "raw" && (
 					<div className="col" style={{ padding: 12 }}>
@@ -563,6 +565,7 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 				<QuestionCard
 					key={s.pendingQuestion.questionId}
 					sessionId={s.id}
+					checkout={checkout}
 					question={s.pendingQuestion}
 					busy={busy}
 					onAnswer={(answer) => act(() => call("sessions.answer", s.id, s.pendingQuestion!.questionId, answer))}
