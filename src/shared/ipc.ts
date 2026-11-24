@@ -26,6 +26,7 @@ import type {
 	Settings,
 	Target,
 	UpdateStatus,
+	RemoteStatus,
 	WorktreeSummary,
 } from "./types";
 
@@ -229,6 +230,7 @@ export interface StudioApi {
 	"release.itchStatus"(checkout: string | null): Promise<string>;
 	/** The stable install's version and the newer pushed commits (none for a development checkout). */
 	"updates.status"(): Promise<UpdateStatus>;
+	"remote.status"(): Promise<RemoteStatus>;
 	"updates.check"(): Promise<UpdateStatus>;
 	/** Builds and tests the newest version beside this one (progress as update_status events). */
 	"updates.prepare"(): Promise<UpdateStatus>;

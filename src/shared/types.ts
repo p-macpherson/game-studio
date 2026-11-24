@@ -140,6 +140,26 @@ export interface Settings {
 	enterToSend?: boolean;
 	/** Settings → General: keep the computer from sleeping while agents are working (absent: yes). */
 	keepAwake?: boolean;
+	/** Settings → General → Remote access: the studio served to Pat's tailnet (`remote-server.ts`). Off when absent. */
+	remoteAccess?: RemoteAccessSettings;
+}
+
+export interface RemoteAccessSettings {
+	enabled: boolean;
+	/** On 127.0.0.1; `tailscale serve` publishes it (absent: REMOTE_DEFAULT_PORT). */
+	port?: number;
+	/** Tailscale logins allowed in (empty or absent: anyone `tailscale serve` vouches for). */
+	logins?: string[];
+}
+
+export const REMOTE_DEFAULT_PORT = 7477;
+
+/** Whether the remote server is up, and who was last turned away (to add to the logins). */
+export interface RemoteStatus {
+	running: boolean;
+	port: number;
+	error?: string;
+	lastRefused?: { who: string; at: string };
 }
 
 export interface AgentModelSettings {

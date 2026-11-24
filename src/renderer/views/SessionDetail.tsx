@@ -4,7 +4,7 @@ import type { PromptMode } from "../../shared/host";
 import { splitAttachments } from "../../shared/attachments";
 import type { ContextUsage, SessionSummary } from "../../shared/types";
 import { findAgentType } from "../../shared/agents";
-import { call, relativeTime, studioFile } from "../api";
+import { call, isRemote, relativeTime, studioFile } from "../api";
 import { useStudio } from "../store";
 import { Chat, FullTranscript, ModelErrorText } from "./Chat";
 import { Markdown } from "./Markdown";
@@ -439,12 +439,12 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 					<StatusBadge s={s} />
 					<TargetBadge target={s.target} />
 					<span className="badge">{typeName}</span>
-					{s.reviewRequested && (
+					{s.reviewRequested && !isRemote() && (
 						<button className="chip badge badge-green" onClick={() => useStudio.getState().openReview(s.worktreeId)} title="Review what its worktree changed: look, listen, and send your notes back" data-testid="session-review">
 							Ready for review ›
 						</button>
 					)}
-					{hasWorktree && (
+					{hasWorktree && !isRemote() && (
 						<button className="chip" onClick={() => useStudio.getState().openChanges(s.worktreeId)} title="Read what its worktree changed (Worktrees → View changes)" data-testid="session-changes">
 							Changes ›
 						</button>
@@ -545,7 +545,7 @@ export function SessionDetail({ session: s }: { session: SessionSummary }) {
 							<span className="muted grow">
 								The underlying Pi session ({s.piSessionFile ?? "no transcript yet"}). Open it in the Pi CLI to use Pi directly.
 							</span>
-							<button disabled={busy || running} onClick={() => act(() => call("sessions.openTerminal", s.id))}>
+							<button hidden={isRemote()} disabled={busy || running} onClick={() => act(() => call("sessions.openTerminal", s.id))}>
 								Open in terminal
 							</button>
 						</div>

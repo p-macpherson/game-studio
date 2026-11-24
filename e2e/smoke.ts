@@ -167,6 +167,37 @@ try {
 	await page.getByTestId("chat").getByText("Noted: add a note").waitFor();
 	await step("02-session-idle", page);
 
+	// Remote access: the same session from a phone-sized browser elsewhere on the tailnet. Played here by a hidden window
+	// in a separate browser session (no preload: it talks HTTP like a phone) whose requests carry the identity
+	// `tailscale serve` would add.
+	await page.evaluate(() => window.studio.call("settings.update", { remoteAccess: { enabled: true, port: 17477, logins: ["e2e@tailnet"] } }));
+	await app.evaluate(async ({ BrowserWindow, session }) => {
+		const phone = session.fromPartition("remote-e2e");
+		phone.webRequest.onBeforeSendHeaders((d, done) => done({ requestHeaders: { ...d.requestHeaders, "Tailscale-User-Login": "e2e@tailnet" } }));
+		const w = new BrowserWindow({ show: false, width: 390, height: 844, webPreferences: { partition: "remote-e2e" } });
+		await w.loadURL("http://127.0.0.1:17477/");
+	});
+	const remote = app.windows().find((w) => w.url().startsWith("http://127.0.0.1:17477"))!;
+	await remote.setViewportSize({ width: 390, height: 844 });
+	await remote.getByTestId("remote-session").filter({ hasText: "add a note" }).first().click();
+	await remote.getByTestId("chat").getByText("Noted: add a note").waitFor();
+	await step("96-remote-session", remote);
+	// A message from the phone reaches the agent; the answer streams back to both pages. ("fail 0" makes the faux model
+	// answer without writing a file: the steps below count this worktree's changes.)
+	await remote.getByTestId("composer").fill("fail 0 from my phone");
+	await remote.getByRole("button", { name: "Send" }).click();
+	await remote.getByTestId("chat").getByText("Got through after 0 failed tries").waitFor({ timeout: 30_000 });
+	await page.getByTestId("chat").getByText("Got through after 0 failed tries").waitFor();
+	// What isn't on the remote allow-list is refused by the studio, whatever the page asks.
+	const refused = await remote.evaluate(() => window.studio.call("sessions.openTerminal", "x").then(() => "ran", (e: Error) => e.message));
+	if (!refused.includes("isn't available remotely")) throw new Error(`sessions.openTerminal should be refused remotely, got: ${refused}`);
+	await remote.getByTestId("remote-back").click();
+	await remote.getByRole("button", { name: "Worktrees" }).click();
+	await remote.getByTestId("remote-worktree").first().waitFor();
+	await step("97-remote-worktrees", remote);
+	await remote.close();
+	await page.evaluate(() => window.studio.call("settings.update", { remoteAccess: { enabled: false } }));
+
 	// What its worktree changed is read on the Worktrees page: the files by section, the picked one's lines.
 	await page.getByTestId("session-changes").click();
 	await page.getByTestId("changes-summary").filter({ hasText: /1 file · 1 new · 1 line added, 0 removed/ }).waitFor();

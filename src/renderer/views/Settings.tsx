@@ -7,6 +7,7 @@ import { AgentTypes } from "./AgentTypes";
 import { AppearanceSettings } from "./Appearance";
 import { AssetGeneration } from "./Generation";
 import { UpdatesCard } from "./Updates";
+import { RemoteAccessCard } from "./RemoteAccess";
 import { useShallow } from "zustand/react/shallow";
 
 const TABS: { id: SettingsTab; label: string }[] = [
@@ -139,6 +140,7 @@ function GeneralSettings() {
 					to wait. The screen may still turn off and lock.
 				</small>
 			</div>
+			<RemoteAccessCard />
 			<UpdatesCard />
 			<AssetGeneration />
 			<div className="card">

@@ -6,10 +6,10 @@ import { quitWarning } from "./quit-warning";
 import { leafName } from "../shared/asset-names";
 import { EditHistory } from "./edit-history";
 import type { StudioApi, StudioEvent, StudioMethod } from "../shared/ipc";
-import type { NewSessionRequest, ProjectInfo, Target } from "../shared/types";
+import { REMOTE_DEFAULT_PORT, type NewSessionRequest, type ProjectInfo, type RemoteStatus, type Target } from "../shared/types";
 import { agentTypeCache } from "./agent-types";
 import { withModelSettings } from "../shared/agent-models";
-import { AssetService, MODULES } from "./assets";
+import { AssetService, MODULES, safeJoin } from "./assets";
 import * as g from "./git";
 import { utilityHostLink } from "./host-link";
 import { createProject, forkProject, readProject, publishProject } from "./project";
@@ -41,6 +41,7 @@ import { RunService, type SceneView } from "./runner";
 import { SessionService } from "./sessions";
 import { SettingsStore, projectPath } from "./settings";
 import { registerStudioFileScheme, serveStudioFiles } from "./studio-files";
+import { type RemoteServer, startRemoteServer } from "./remote-server";
 import { openTerminal } from "./terminal";
 
 // A separate user-data dir lets a second studio instance (tests, studio-engineer sessions) run alongside.
@@ -70,8 +71,12 @@ let sessionsWarning: (() => ReturnType<typeof quitWarning>) | undefined;
 /** Set when a close has been agreed to already. */
 let closeUnasked = false;
 
+/** The remote page's server while remote access is on (`remote-server.ts`). */
+let remote: RemoteServer | undefined;
+
 function emit(event: StudioEvent): void {
 	win?.webContents.send("studio:event", event);
+	remote?.broadcast(event);
 	if (event.type === "sessions_changed") refreshAwake?.();
 	// Assets change when an agent's tool writes files in a worktree, or a session is merged/discarded.
 	if ((event.type === "session_event" && (event.event.type === "tool_execution_end" || event.event.type === "agent_settled")) || event.type === "sessions_changed") {
@@ -82,7 +87,10 @@ function emit(event: StudioEvent): void {
 let assetsTimer: NodeJS.Timeout | undefined;
 function assetsChanged(): void {
 	clearTimeout(assetsTimer);
-	assetsTimer = setTimeout(() => win?.webContents.send("studio:event", { type: "assets_changed" } satisfies StudioEvent), 250);
+	assetsTimer = setTimeout(() => {
+		win?.webContents.send("studio:event", { type: "assets_changed" } satisfies StudioEvent);
+		remote?.broadcast({ type: "assets_changed" });
+	}, 250);
 }
 
 /** Watches every module's asset folders in the open project's main checkout. */
@@ -182,6 +190,38 @@ async function main(): Promise<void> {
 		return sessions.checkoutPath(checkout);
 	};
 	serveStudioFiles(checkoutRoot);
+
+	// Remote access: started, stopped or moved to another port as its setting changes, one change at a time.
+	let remoteStatus: RemoteStatus = { running: false, port: REMOTE_DEFAULT_PORT };
+	let remoteTurn = Promise.resolve();
+	const applyRemote = () =>
+		(remoteTurn = remoteTurn.then(async () => {
+			const want = settings.get().remoteAccess;
+			const port = want?.port ?? REMOTE_DEFAULT_PORT;
+			if (remote && (!want?.enabled || remoteStatus.port !== port)) {
+				await remote.close();
+				remote = undefined;
+			}
+			remoteStatus = { ...remoteStatus, running: false, port, error: undefined };
+			if (!want?.enabled) return;
+			if (remote) {
+				remoteStatus.running = true;
+				return;
+			}
+			try {
+				remote = await startRemoteServer({
+					port,
+					dispatch: async (method, args) => (handlers[method] as (...a: unknown[]) => unknown)(...args),
+					pageDir: join(import.meta.dirname, "../renderer"),
+					fileOf: (checkout, path) => safeJoin(checkoutRoot(checkout), path),
+					logins: () => settings.get().remoteAccess?.logins ?? [],
+					refused: (who) => (remoteStatus.lastRefused = { who, at: new Date().toISOString() }),
+				});
+				remoteStatus.running = true;
+			} catch (err) {
+				remoteStatus.error = err instanceof Error ? err.message : String(err);
+			}
+		}));
 	const updates = new UpdateService(appRoot, emit);
 	/** Web builds a person has opened: each package folder stays served until the studio quits. */
 	const webServers = new Map<string, string>();
@@ -253,11 +293,13 @@ async function main(): Promise<void> {
 		"host.info": () => host.call("info"),
 
 		"settings.get": async () => settings.get(),
+		"remote.status": async () => remoteStatus,
 		"settings.update": async (patch) => {
 			const next = settings.update(patch);
 			refreshAwake?.();
 			// Only the repos' places change which sessions there are.
 			if (("engineRepo" in patch) || ("studioRepo" in patch) || ("worktreeRoot" in patch)) sessions.load();
+			if ("remoteAccess" in patch) await applyRemote();
 			return next;
 		},
 
@@ -535,10 +577,12 @@ async function main(): Promise<void> {
 	setMenu();
 	createWindow();
 	updates.start();
+	void applyRemote();
 
 	app.on("window-all-closed", () => {
 		runner.dispose();
 		updates.dispose();
+		void remote?.close();
 		sessions.dispose();
 		audio.dispose();
 		host.kill();

@@ -3,6 +3,7 @@ import type { StudioApi, StudioBridge, StudioMethod } from "../shared/ipc";
 declare global {
 	interface Window {
 		studio: StudioBridge;
+		studioRemote?: boolean;
 	}
 }
 
@@ -33,7 +34,11 @@ export async function sha1(text: string): Promise<string> {
 	return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/** The page is the remote one (`remote.tsx`), in a browser on another device, not the desktop window. */
+export const isRemote = () => window.studioRemote === true;
+
 export function studioFile(checkout: string | null | undefined, path: string, version?: string): string {
-	const url = `studio-file://${checkout || "main"}/${path.split("/").map(encodeURIComponent).join("/")}`;
+	const rest = `${checkout || "main"}/${path.split("/").map(encodeURIComponent).join("/")}`;
+	const url = isRemote() ? `/file/${rest}` : `studio-file://${rest}`;
 	return version ? `${url}?v=${encodeURIComponent(version)}` : url;
 }

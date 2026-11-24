@@ -24,7 +24,8 @@ export default defineConfig({
 		build: {
 			// Local desktop app: readable stack traces beat a smaller bundle.
 			minify: false,
-			rollupOptions: { input: { index: resolve("src/renderer/index.html") } },
+			// remote.html: the page remote access serves to a browser on Pat's tailnet (src/main/remote-server.ts).
+			rollupOptions: { input: { index: resolve("src/renderer/index.html"), remote: resolve("src/renderer/remote.html") } },
 		},
 		plugins: [react()],
 	},
