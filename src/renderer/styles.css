@@ -4689,3 +4689,56 @@ a.button.primary {
 	max-width: calc(100vw - 16px);
 	padding: 14px;
 }
+
+/* Sound Effects: "Try live effects" */
+.live-effects summary {
+	display: flex;
+	align-items: baseline;
+	gap: 10px;
+	cursor: pointer;
+}
+.live-effects summary h3 {
+	margin: 0;
+}
+.live-effects > .col {
+	gap: 10px;
+	margin-top: 10px;
+}
+.live-presets,
+.live-play {
+	gap: 8px;
+	flex-wrap: wrap;
+	align-items: center;
+}
+.live-variable {
+	width: 7em;
+}
+.live-amount {
+	width: 3em;
+	text-align: right;
+}
+.live-table {
+	border-collapse: collapse;
+	width: fit-content;
+}
+.live-table th {
+	text-align: left;
+	font-weight: normal;
+	color: var(--muted);
+	padding: 0 8px 4px 0;
+}
+.live-table td {
+	padding: 2px 8px 2px 0;
+}
+.live-table input {
+	width: 7em;
+}
+.live-code {
+	margin: 0;
+	padding: 8px 10px;
+	background: var(--sunken);
+	border-radius: 6px;
+	font-family: var(--mono);
+	font-size: 12px;
+	white-space: pre-wrap;
+}

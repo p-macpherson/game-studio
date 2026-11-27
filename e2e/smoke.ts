@@ -1035,6 +1035,22 @@ try {
 	await page.getByTestId("variant-row").nth(1).waitFor({ timeout: 30_000 });
 	await page.locator("[data-testid=sound-detail] [data-testid=render-status][data-state=current]").waitFor({ timeout: 30_000 });
 	await step("29-sound-variants", page);
+	// Try live effects: the engine's per-sound effects between two ends, heard through its ported DSP (an AudioWorklet
+	// loaded from the packaged app), with the game code that does the same.
+	const live = page.getByTestId("live-effects");
+	await live.locator("summary").click();
+	await live.getByRole("button", { name: "Hollow (overheating)" }).click();
+	await live.getByTestId("live-code").getByText("comb_mix = heat * 0.6").waitFor();
+	await live.getByTestId("live-play").click();
+	await live.locator("[data-testid=live-play][data-state=playing]").waitFor({ timeout: 10_000 });
+	await live.getByTestId("live-amount").fill("0.9");
+	await live.getByTestId("live-comb_mix-1").fill("0.8");
+	await live.getByTestId("live-code").getByText("comb_mix = heat * 0.8").waitFor();
+	if (await live.locator(".msg.error").count()) throw new Error(`live effects: ${await live.locator(".msg.error").innerText()}`);
+	await step("29b-sound-live-effects", page);
+	await live.getByTestId("live-play").click();
+	await live.locator("[data-testid=live-play][data-state=stopped]").waitFor();
+	await live.locator("summary").click();
 	// Merging is the worktree's, from the sidebar (saving the section's edits first); the sound then shows as in the game.
 	await page.getByTestId("worktree-merge").click();
 	await page.getByTestId("merge-confirm").filter({ hasText: "Save and merge" }).click();
