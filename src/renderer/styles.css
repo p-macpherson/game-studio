@@ -1514,7 +1514,12 @@ button.agent-type-card.on,
 	background: none;
 	padding: 0;
 }
+/* A table scrolls sideways rather than squeezing a column narrower than its longest word: "anywhere" above
+   would let a column shrink to one letter, so cells break only words that can't fit at all. */
 .markdown table {
+	display: block;
+	max-width: 100%;
+	overflow-x: auto;
 	border-collapse: collapse;
 	margin: 0 0 12px;
 }
@@ -1523,6 +1528,8 @@ button.agent-type-card.on,
 	border: 1px solid var(--border);
 	padding: 4px 10px;
 	text-align: left;
+	overflow-wrap: normal;
+	min-width: 4em;
 }
 .markdown th {
 	background: var(--panel-2);
