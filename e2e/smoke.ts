@@ -1047,9 +1047,20 @@ try {
 	await live.getByTestId("live-comb_mix-1").fill("0.8");
 	await live.getByTestId("live-code").getByText("comb_mix = heat * 0.8").waitFor();
 	if (await live.locator(".msg.error").count()) throw new Error(`live effects: ${await live.locator(".msg.error").innerText()}`);
+	await live.locator("[data-testid=live-saved][data-state=unsaved]").waitFor();
 	await step("29b-sound-live-effects", page);
 	await live.getByTestId("live-play").click();
 	await live.locator("[data-testid=live-play][data-state=stopped]").waitFor();
+	// Saved into sound.json (what the Sound Designer, render_sound and the game code follow): rendered, then the card
+	// reads it back as saved.
+	await live.getByTestId("live-save").click();
+	await live.locator("[data-testid=live-saved][data-state=saved]").waitFor({ timeout: 30_000 });
+	const chimeJson = await page.evaluate(async () => {
+		const w = ((await window.studio.call("worktrees.list")) as { path: string; status: string; label: string }[]).filter((x) => x.status === "active");
+		return w.map((x) => x.path);
+	});
+	const liveSaved = chimeJson.map((d) => join(d, "assets/sounds/e2e-chime/sound.json")).filter((f) => existsSync(f)).map((f) => JSON.parse(readFileSync(f, "utf8")).live).find(Boolean);
+	if (liveSaved?.value !== "heat" || liveSaved?.at1?.comb_mix !== 0.8 || liveSaved?.at0?.comb_ms !== 4) throw new Error(`sound.json's live: ${JSON.stringify(liveSaved)}`);
 	await live.locator("summary").click();
 	// Merging is the worktree's, from the sidebar (saving the section's edits first); the sound then shows as in the game.
 	await page.getByTestId("worktree-merge").click();

@@ -5,7 +5,8 @@
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Layer, Processing } from "../shared/sound";
-import { type Audio, decodeWav, encodeWav, fromDb, type Measurements, measure, mix, normalizePeak, RATE, resample, synth, trimSilence } from "./audio-dsp";
+import { fxProcess, fxState, type SoundEffects } from "../shared/sound-fx";
+import { type Audio, decodeWav, encodeWav, fromDb, type Measurements, measure, mix, normalizePeak, pitchShift, RATE, resample, synth, trimSilence } from "./audio-dsp";
 import { loopFromPasses, readWav, sliceFrames, writeWav } from "./music";
 import { encodeFloatWav, StemBus } from "./music-mix";
 import { processSound } from "./sounds";
@@ -59,6 +60,19 @@ export const JOBS = {
 		const audio = processSound(a.processing, mix(parts));
 		writeFileSync(a.out, encodeWav(audio));
 		return measure(audio);
+	},
+
+	/**
+	 * A rendered variant as the game plays it with live effects: pitch as playback speed, then the engine's effects
+	 * (src/shared/sound-fx.ts, its port), in stereo. No tail is added: the engine stops a sound's effects with it.
+	 */
+	liveVariant(a: { file: string; pitch: number; effects: SoundEffects; out: string }): Measurements {
+		const { audio, rate } = decodeWav(readFileSync(a.file));
+		const pitched = pitchShift(resample(audio, rate), 12 * Math.log2(a.pitch));
+		const stereo = pitched.length === 1 ? [pitched[0].slice(), pitched[0].slice()] : pitched.map((c) => c.slice());
+		fxProcess(fxState(a.effects), stereo, RATE);
+		writeFileSync(a.out, encodeWav(stereo));
+		return measure(stereo);
 	},
 
 	/** What an agent reads instead of listening to a take. */

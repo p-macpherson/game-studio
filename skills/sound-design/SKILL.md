@@ -1,6 +1,6 @@
 ---
 name: sound-design
-description: Game Studio's sound effect format (assets/sounds/<name>/sound.json), generating takes with Stable Audio Open Small, judging them without listening, variants, loops, synth layers and levels. Use whenever making or changing a sound effect.
+description: Game Studio's sound effect format (assets/sounds/<name>/sound.json), generating takes with Stable Audio Open Small, judging them without listening, variants, loops, synth layers, levels, and live effects (sounds the game changes as it plays). Use whenever making or changing a sound effect.
 ---
 # Sound effects
 
@@ -38,6 +38,7 @@ validates and renders it.
 | `peak` | dBFS after processing (default -1). Every variant is levelled to this; balance sounds in the game with `volume` |
 | `fade` | `{in, out}` seconds (default 0.005 and 0.05); not for loops |
 | `notes` | What it's for and how the game plays it |
+| `live` | How the game changes it while it plays (see "Live effects"): not rendered into the files |
 
 The processing fields (`trim` to `crossfade`) on the sound apply to every variant; the same field on a variant
 overrides it for that variant. Each variant renders: layers levelled and mixed, then trim, length, pitch, filters,
@@ -85,8 +86,49 @@ For tones and accents: a coin's sparkle is two sines a fifth apart (e.g. 1568 an
 `decay` 0.4); a UI tick is a square at 1200 Hz for 0.03 s. A UI sound can be synth layers only. Over a generated
 take, keep a synth layer quiet (-10 dB or lower): it is levelled like the take, so 0 dB is as loud as the take.
 
+## Live effects
+A sound that should change with the game's state (a gun that rises and goes hollow as it heats, an engine hum that
+opens up with speed, a voice muffled behind a wall, a radio) is **one dry sound** plus the change, written as
+`"live"`: the engine applies pitch and the effects while it plays, between two ends of a 0..1 value in the game.
+Don't render a variant per state.
+
+```json
+"live": {"value": "heat",
+  "at0": {"bandpass": 1200, "resonance": 1, "comb_ms": 4},
+  "at1": {"pitch": 1.3, "bandpass": 2700, "resonance": 4, "comb_ms": 4, "comb_feedback": 0.7, "comb_mix": 0.6}}
+```
+
+| Field | Meaning |
+|---|---|
+| `value` | The game's 0..1 value, as named in its code (`heat`, `speed`, `damage`) |
+| `at0`, `at1` | The settings at 0 and at 1; each field goes straight between them. Missing is off (pitch 1) |
+| `pitch` | Playback speed (0.05-4): 2 is an octave up and half as long |
+| `lowpass`, `highpass` | Hz: muffled (behind a wall, underwater: 300-800) / thin (a small speaker: 300-600) |
+| `bandpass` | Hz: keep only around it: radio, boxy, tinny |
+| `resonance` | 0.1-20: the filters' peak at their frequency; 2-5 sounds resonant, more whistles |
+| `comb_ms` | 0.5-20 ms: the hollow, tube-like ring; it rings at 1000/`comb_ms` Hz and its multiples |
+| `comb_feedback` | -0.95 to 0.95: how long and strong it rings (negative: odd harmonics only, hollower) |
+| `comb_mix` | 0-1: how much of the ring is heard |
+
+- A filter that should come in gradually needs **both ends**: `"lowpass"` 20000 at 0 and 800 at 1 (missing at one
+  end means 0, off, and the straight line from 0 is not what you want).
+- Keep `comb_ms` the same at both ends unless the ring's note should slide; fade the ring in with `comb_mix` and
+  `comb_feedback`.
+- The ring and filters stop when the sound ends (no tail). If it should ring on, leave quiet room at the end
+  (a longer `length`, a slower `fade.out`).
+- `render_sound` previews the first variant at 0, 0.5 and 1 (`live.previews`: measured, and below the variants
+  in the picture) and returns the game code (`live.code`). Check the change shows (brightness falling as a
+  low-pass closes, peaks appearing for a ring) and give the code to whoever writes the game code.
+- The user can try it in the Sound Effects section (Try live effects): sliders, the same effects, and they can
+  save their changes into `"live"`.
+- At most 32 sounds have effects at once in the game (16 in a web build); after that a sound plays dry. Fine for a
+  weapon or an engine, not for every footstep.
+
 ## In the game
 `engine.play_sound("sounds/<name>/<name>.ogg", volume = 0.5, pitch = 1)` (pick a variant at random and jitter the
 pitch by a few percent for repeated sounds); `engine.play_sound_at(path, position)` for sounds in the world; an
 `Audio_Source` with `loop` and `autoplay` for an ambience. Tests run with audio off but the engine logs every
-sound: `{"cmd": "assert", "sound": "chest-open", "frames": 5}`.
+sound: `{"cmd": "assert", "sound": "chest-open", "frames": 5}`. With `"live"`: `play_sound(path, pitch = …, effects = {…})`, and for
+a sound that keeps playing `set_voice_effects(id, {…})` / `set_voice_pitch(id, …)` every frame, or an `Audio_Source`'s
+`effects` (`live.code` from `render_sound` has it written out; the engine's `docs/making-a-game.md`, "Sound effects:
+filters and ring").

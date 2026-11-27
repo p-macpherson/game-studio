@@ -1,12 +1,14 @@
 // "Try live effects": the sound played through the engine's per-sound effects (pitch, filters, the comb's hollow ring)
 // as the game can change them while it runs, between two ends (at 0 and at 1 of something in the game: heat, speed),
 // with a slider for that value and the Odin that does the same. Plays through an AudioWorklet running the engine's
-// effects, ported (src/shared/sound-fx.ts), so it sounds as the game will. Kept per sound in localStorage.
+// effects, ported (src/shared/sound-fx.ts), so it sounds as the game will. Starts from the sound's `"live"` in
+// sound.json (what the Sound Designer and the game code follow) and saves back to it; unsaved edits are kept per sound in
+// localStorage.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SoundEffects } from "../../shared/sound-fx";
 import { ac, decode, takeOverPlayback } from "./audio";
 import workletUrl from "./fx-worklet.ts?worker&url";
-import { emptyEnds, LIVE_FIELDS, LIVE_PRESETS, type LiveEnds, type LiveField, liveAt, liveCode } from "./live";
+import { emptyEnds, endsOfLive, LIVE_FIELDS, LIVE_PRESETS, type LiveEnds, type LiveField, liveAt, liveCode, liveOfEnds, type SoundLive } from "../../shared/live-effects";
 
 const LABELS: Record<LiveField, [string, string]> = {
 	pitch: ["Pitch", "Playback speed: 2 is an octave up and twice as fast. Blank: 1"],
@@ -28,14 +30,18 @@ interface Saved {
 	amount: number;
 }
 
-function load(key: string): Saved {
+const fromSound = (live: SoundLive | undefined, amount = 0.5): Saved => ({ ends: live ? endsOfLive(live) : emptyEnds(), variable: live?.value ?? "heat", amount });
+const same = (a: SoundLive | null | undefined, b: SoundLive | null | undefined) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+/** Unsaved edits kept for this sound, else what sound.json says. */
+function load(key: string, live: SoundLive | undefined): Saved {
 	try {
 		const s = JSON.parse(localStorage.getItem(key) ?? "null") as Saved | null;
 		if (s?.ends) return { ...s, ends: { ...emptyEnds(), ...s.ends } };
 	} catch {
 		// nothing kept, or storage unavailable
 	}
-	return { ends: emptyEnds(), variable: "heat", amount: 0.5 };
+	return fromSound(live);
 }
 
 /** One shot (or the loop) playing through its own effects node. */
@@ -44,10 +50,34 @@ interface Shot {
 	node: AudioWorkletNode;
 }
 
-export function LiveEffects({ files, assetPath, gamePath, loop }: { files: string[]; assetPath: string; gamePath: string; loop: boolean }) {
+export function LiveEffects(props: { files: string[]; assetPath: string; gamePath: string; loop: boolean; live?: SoundLive; busy: boolean; onSave(live: SoundLive | null): void }) {
+	const { files, assetPath, gamePath, loop, live } = props;
 	const key = `live-fx:${assetPath}`;
-	const [saved, setSaved] = useState<Saved>(() => load(key));
+	const [saved, setSaved] = useState<Saved>(() => load(key, live));
 	const { ends, variable, amount } = saved;
+	// What sound.json says, normalised the way the card writes it, so "unsaved" means a real difference.
+	const inSound = useMemo(() => (live ? liveOfEnds(endsOfLive(live), live.value) : null), [live]);
+	const draft = useMemo(() => liveOfEnds(ends, variable), [ends, variable]);
+	const unsaved = !same(draft, inSound);
+	// sound.json changed (an agent's edit, a save) with nothing unsaved here: follow it.
+	const liveText = JSON.stringify(live ?? null);
+	useEffect(() => {
+		let kept = false;
+		try {
+			kept = localStorage.getItem(key) !== null;
+		} catch {
+			// storage unavailable: nothing kept
+		}
+		if (!kept) setSaved((s) => fromSound(live, s.amount));
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [liveText, key]);
+	const forget = () => {
+		try {
+			localStorage.removeItem(key);
+		} catch {
+			// nothing to forget
+		}
+	};
 	const [playing, setPlaying] = useState(false);
 	/** Heard: the worklet loaded and the first shot started ("playing" alone is only the button pressed). */
 	const [heard, setHeard] = useState(false);
@@ -67,12 +97,22 @@ export function LiveEffects({ files, assetPath, gamePath, loop }: { files: strin
 		setSaved((s) => {
 			const merged = { ...s, ...next };
 			try {
-				localStorage.setItem(key, JSON.stringify(merged));
+				// Kept only while it differs from sound.json (the slider's position aside).
+				if (same(liveOfEnds(merged.ends, merged.variable), inSound)) localStorage.removeItem(key);
+				else localStorage.setItem(key, JSON.stringify(merged));
 			} catch {
 				// not kept: fine
 			}
 			return merged;
 		});
+	const save = () => {
+		forget();
+		props.onSave(draft);
+	};
+	const revert = () => {
+		forget();
+		setSaved((s) => fromSound(live, s.amount));
+	};
 
 	// While playing, changes are heard at once: pitch now, effects gliding (as set_voice_pitch / set_voice_effects).
 	useEffect(() => {
@@ -224,6 +264,25 @@ export function LiveEffects({ files, assetPath, gamePath, loop }: { files: strin
 						))}
 					</tbody>
 				</table>
+				<div className="row live-saved" data-testid="live-saved" data-state={unsaved ? "unsaved" : live ? "saved" : "none"}>
+					<span className="grow muted small">
+						{unsaved
+							? "Not in sound.json yet: save it so the Sound Designer, render_sound and whoever writes the game code work from it."
+							: live
+								? "As in sound.json: the Sound Designer and the game code follow it."
+								: "None in sound.json."}
+					</span>
+					{unsaved && live && (
+						<button className="small ghost" onClick={revert} disabled={props.busy}>
+							Revert
+						</button>
+					)}
+					{unsaved && (
+						<button className="small primary" onClick={save} disabled={props.busy} data-testid="live-save">
+							{draft ? "Save to sound.json" : "Remove from sound.json"}
+						</button>
+					)}
+				</div>
 				<div className="row">
 					<span className="grow muted small">In the game:</span>
 					<button className="small" onClick={copy} data-testid="live-copy">

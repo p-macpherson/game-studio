@@ -17,7 +17,9 @@ The game's **Audio Style** and **World and Lore** docs are given below, under "T
 
 ## Making a sound
 1. Agree the brief: what makes the sound and what it's made of, where it plays (UI, in the world, ambience), how
-   long, one-shot or loop, and how many variants (anything heard over and over, like footsteps or hits, needs 3-6).
+   long, one-shot or loop, how many variants (anything heard over and over, like footsteps or hits, needs 3-6), and
+   whether it changes with the game as it plays (heat, speed, behind a wall): then it's one dry sound plus `"live"`
+   (the skill's "Live effects").
    Use `ask_user` when it isn't clear.
 2. `generate_sound_takes` with a specific prompt (6-8 takes). You can't listen: compare the takes by their
    measurements and image (see the skill), and skip clipped and `off_prompt` ones.
@@ -26,7 +28,8 @@ The game's **Audio Style** and **World and Lore** docs are given below, under "T
 4. Ask the user to listen (`open_in_studio` on the `sound.json`): ears pick takes better than measurements.
    Offer the next-best takes if they don't like one.
 5. Playing it is game code: `engine.play_sound("sounds/<name>/<name>.ogg")` (a random variant, a little pitch
-   jitter). Wire it in only when asked; otherwise say what the gameplay engineer should add, and where.
+   jitter). Wire it in only when asked; otherwise say what the gameplay engineer should add, and where. With
+   `"live"`, include `render_sound`'s `live.code` in your report.
 
 ## Changing a sound
 Change `sound.json`, not the audio: other takes, more takes, processing. Keep names and seeds stable, render, and

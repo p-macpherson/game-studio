@@ -103,6 +103,34 @@ describe.skipIf(!has("ffmpeg"))("SoundPipeline", () => {
 		expect(Math.abs(left[0] - left[left.length - 1])).toBeLessThanOrEqual(Math.max(...steps) * 1.2);
 	});
 
+	it("previews live effects on the first variant at the value's 0, 0.5 and 1, and gives the game code", async () => {
+		const cwd = tempDir();
+		const sounds = new SoundPipeline({ gen: fakeGen() });
+		writeSound(cwd, "laser", {
+			variants: [{ layers: [{ synth: { wave: "noise", seconds: 0.4 } }] }],
+			live: { value: "heat", at0: { lowpass: 20000 }, at1: { pitch: 1.5, lowpass: 600 } },
+		});
+		const r = await sounds.render({ cwd }, { name: "laser" });
+		expect(r.variants).toHaveLength(1); // the game's files don't change: it applies live effects itself
+		expect(r.live?.value).toBe("heat");
+		expect(r.live?.previews.map((p) => [p.at, p.pitch, p.effects.lowpass])).toEqual([
+			[0, 1, 20000],
+			[0.5, 1.25, 10300],
+			[1, 1.5, 600],
+		]);
+		const [cool, , hot] = r.live!.previews;
+		expect(hot.brightness_hz).toBeLessThan(cool.brightness_hz / 3); // the low-pass closing is heard
+		expect(hot.seconds).toBeCloseTo(cool.seconds / 1.5, 1); // pitch is playback speed
+		expect(r.live?.code).toContain('engine.play_sound("sounds/laser/laser.ogg", pitch = 1 + heat * 0.5, effects = {');
+		expect(r.live?.code).toContain("lowpass = 20000 - heat * 19400,");
+
+		writeSound(cwd, "laser", { variants: [{ layers: [{ synth: { wave: "noise", seconds: 0.4 } }] }], live: { value: "Heat!", at1: { comb_mix: 2, wobble: 1 } } });
+		const err = await sounds.render({ cwd }, { name: "laser" }).catch((e) => e);
+		expect(err.message).toContain('live.value: The game value it follows, a name like "heat" or "speed"');
+		expect(err.message).toContain("live.at1.comb_mix: A number from 0 to 1 (or 0: off)");
+		expect(err.message).toContain("live.at1.wobble: Unknown field");
+	});
+
 	it("refuses a broken sound with every problem listed", async () => {
 		const cwd = tempDir();
 		const sounds = new SoundPipeline({ gen: fakeGen() });

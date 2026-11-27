@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emptyEnds, LIVE_PRESETS, type LiveEnds, liveAt, liveCode } from "./live";
+import { emptyEnds, LIVE_PRESETS, type LiveEnds, liveAt, liveCode } from "./live-effects";
 
 const ends = (set: Partial<Record<keyof LiveEnds, [string, string]>>): LiveEnds => ({ ...emptyEnds(), ...set });
 

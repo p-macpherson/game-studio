@@ -10,6 +10,7 @@
  * same validation errors.
  */
 
+import { type SoundLive, validateLive } from "./live-effects";
 import { compact } from "./scene";
 
 /** Processing, applied to each variant's mix in this order: trim, length, pitch, filters, reverb, loop, level, fades. */
@@ -40,6 +41,11 @@ export interface Sound extends Processing {
 	loop?: boolean;
 	/** The files the game plays, in order: `<name>.ogg`, `<name>-2.ogg`… */
 	variants: Variant[];
+	/**
+	 * How the game changes it while it plays (the engine's pitch and per-sound effects, between two ends of a game
+	 * value): not rendered into the files; render_sound previews it and gives the game code.
+	 */
+	live?: SoundLive;
 }
 
 /** One file the game plays: its layers mixed, then the sound's processing with this variant's overrides. */
@@ -164,12 +170,13 @@ export function validateSound(json: unknown): SoundProblem[] {
 		}
 	};
 	const s = json as Record<string, unknown>;
-	const known = ["notes", "loop", "variants", ...PROCESSING];
+	const known = ["notes", "loop", "variants", "live", ...PROCESSING];
 	for (const k of Object.keys(s)) {
 		if (k === "layers") bad(k, "Layers belong to variants now: \"variants\": [{\"layers\": [{\"take\": \"main-123\"}]}]");
 		else if (!known.includes(k)) bad(k, `Unknown field (fields: ${known.join(", ")})`);
 	}
 	processing("", s);
+	if (s.live !== undefined) out.push(...validateLive(s.live));
 	if (!Array.isArray(s.variants) || s.variants.length === 0) {
 		bad("variants", "At least one variant: {\"layers\": [{\"take\": \"<take id>\"}]} (generate_sound_takes lists take ids)");
 		return out;

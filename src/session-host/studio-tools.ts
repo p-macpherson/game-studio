@@ -329,10 +329,16 @@ export function studioTools(ctx: StudioToolContext) {
 				"Validate assets/sounds/<name>/sound.json (see the sound-design skill) and render each variant: its layers (each levelled first) mixed, then " +
 				"trimmed, cut, pitched, filtered, reverbed, levelled and faded (or crossfaded into a seamless loop) into <name>.ogg, <name>-2.ogg…. The game plays them with " +
 				"engine.play_sound(\"sounds/<name>/<name>.ogg\"). On a problem it lists every one with where it is. On success it measures each variant and " +
-				"shows them (waveform over spectrogram): check them against what you meant, since you can't listen. Render after every edit.",
+				"shows them (waveform over spectrogram): check them against what you meant, since you can't listen. Render after every edit. " +
+				"With \"live\" in sound.json (effects the game changes while it plays, e.g. with heat: see the sound-design skill), it also previews the first " +
+				"variant as the game will play it at the value's 0, 0.5 and 1 (measured, and below the variants in the picture) and returns the game code (live.code).",
 			parameters: Type.Object({ name: Type.String({ description: "The sound's folder name under assets/sounds/" }) }),
 			async execute(_id, params, signal, onUpdate) {
-				return pictured(await ctx.request("render_sound", params, signal, progressTo(onUpdate)), "sheet", "Each variant, top to bottom (waveform over spectrogram):");
+				return pictured(
+					await ctx.request("render_sound", params, signal, progressTo(onUpdate)),
+					"sheet",
+					"Each variant, top to bottom (waveform over spectrogram), then, with live effects, the first variant at the value's 0, 0.5 and 1:",
+				);
 			},
 		}),
 		defineTool({

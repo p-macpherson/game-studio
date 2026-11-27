@@ -5,6 +5,8 @@
 //   render.json     which sound.json the OGGs were rendered from, so a stale render shows
 // Takes come from Stable Audio Open Small on the GPU (the generation service's "sound" job); mixing and
 // processing are ours (audio-dsp.ts, on the CPU); ffmpeg encodes the OGGs and draws waveforms and spectrograms.
+import { endsOfLive, liveAt, liveCode } from "../shared/live-effects";
+import type { SoundEffects } from "../shared/sound-fx";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -68,8 +70,10 @@ export interface SoundRenderInfo {
 export interface SoundRenderResult {
 	loop: boolean;
 	variants: ({ file: string } & Measurements)[];
-	/** Waveform over spectrogram of every variant, top to bottom (a PNG data URL). */
+	/** Waveform over spectrogram of every variant, top to bottom, then the live previews (a PNG data URL). */
 	sheet?: string;
+	/** With `"live"` in sound.json: the first variant as the game will play it at the value's 0, 0.5 and 1, and the game code. */
+	live?: { value: string; code: string; previews: ({ at: number; pitch: number; effects: SoundEffects } & Measurements)[] };
 }
 
 export class SoundError extends Error {
@@ -81,8 +85,8 @@ export class SoundError extends Error {
 export const soundHash = (text: string) => createHash("sha1").update(text).digest("hex");
 
 /** The processing fields the section edits directly. */
-export type SoundEdits = { [K in "notes" | "length" | "pitch" | "highpass" | "lowpass" | "reverb" | "peak" | "loop" | "fade"]?: Sound[K] | null };
-const EDITABLE: (keyof SoundEdits)[] = ["notes", "length", "pitch", "highpass", "lowpass", "reverb", "peak", "loop", "fade"];
+export type SoundEdits = { [K in "notes" | "length" | "pitch" | "highpass" | "lowpass" | "reverb" | "peak" | "loop" | "fade" | "live"]?: Sound[K] | null };
+const EDITABLE: (keyof SoundEdits)[] = ["notes", "length", "pitch", "highpass", "lowpass", "reverb", "peak", "loop", "fade", "live"];
 
 export interface SoundUsage {
 	path: string;
@@ -237,9 +241,24 @@ export class SoundPipeline {
 				const m = new RegExp(`^${leafName(p.name)}-(\\d+)\\.ogg$`).exec(f);
 				if (m && Number(m[1]) > sound.variants.length) rmSync(join(dir, f));
 			}
+			// Live effects aren't in the files: the game applies them. Previewed on the first variant at 0, ½ and 1.
+			let live: SoundRenderResult["live"];
+			if (sound.live && wavs.length) {
+				const ends = endsOfLive(sound.live);
+				const previews: NonNullable<SoundRenderResult["live"]>["previews"] = [];
+				for (const t of [0, 0.5, 1]) {
+					ctx.progress?.(`Previewing live effects at ${sound.live.value} = ${t}`);
+					const { pitch, effects } = liveAt(ends, t);
+					const out = join(tmp, `live-${t}.wav`);
+					previews.push({ at: t, pitch: Number(pitch.toFixed(3)), effects, ...(await this.audio("liveVariant", { file: wavs[0], pitch, effects, out })) });
+					wavs.push(out);
+				}
+				const gamePath = `sounds/${p.name}/${variantFile(leafName(p.name), 0)}`;
+				live = { value: sound.live.value, code: liveCode(ends, gamePath, sound.live.value, !!sound.loop), previews };
+			}
 			const info: SoundRenderInfo = { sound: soundHash(text), files: variants.map((v) => v.file.split("/").pop()!), renderedAt: new Date().toISOString() };
 			writeFileSync(join(dir, "render.json"), `${JSON.stringify(info, null, "\t")}\n`);
-			return { loop: !!sound.loop, variants, sheet: await this.sheet(wavs) };
+			return { loop: !!sound.loop, variants, sheet: await this.sheet(wavs), ...(live ? { live } : {}) };
 		} finally {
 			rmSync(tmp, { recursive: true, force: true });
 		}

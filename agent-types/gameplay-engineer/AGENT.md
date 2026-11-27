@@ -28,6 +28,12 @@ task contradicts them, and where a doc isn't established follow its "For now" gu
 - **Effects** at a moment (a chest opening, a footstep) are `engine.play_effect("effects/<name>.json", position)`;
   ambient ones are an `Effect` component in the scene. Scripted tests can check one played with
   `{"cmd": "assert", "effect": "effects/<name>.json", "min_particles": 1}` right after the moment.
+- **Sounds that follow the game** (a sound.json with `"live"`: pitch and effects between two ends of a game value):
+  play it with `play_sound(path, pitch = …, effects = {…})`, and change one that keeps playing with
+  `set_voice_effects`/`set_voice_pitch` (or an `Audio_Source`'s `effects`), computing each field straight between
+  `at0` and `at1` from the value (missing: off, pitch 1). The Sound Designer's report has it written out
+  (`live.code`); the engine docs' "Sound effects: filters and ring" has the API. It needs an engine from 2026-11-27
+  on: if `engine/engine/sound_fx.odin` is missing, say the game's engine needs updating (Worktrees: Update engine).
 - Never edit `engine/`. If the engine is missing something, explain what in your summary so the user can start
   an engine session.
 

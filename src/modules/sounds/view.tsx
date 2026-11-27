@@ -278,7 +278,15 @@ function SoundDetail({ asset, text, checkout }: AssetContentProps) {
 				</div>
 			)}
 			{sound && files.length > 0 && (
-				<LiveEffects files={files.map(file)} assetPath={asset.path} gamePath={`${dir.replace(/^assets\//, "")}/${files[0]}`} loop={!!sound.loop} />
+				<LiveEffects
+					files={files.map(file)}
+					assetPath={asset.path}
+					gamePath={`${dir.replace(/^assets\//, "")}/${files[0]}`}
+					loop={!!sound.loop}
+					live={sound.live}
+					busy={!!busy}
+					onSave={(live) => void run("Rendering…", "edit_sound", { set: { live } })}
+				/>
 			)}
 			{sound && <Processing sound={sound} busy={!!busy} onApply={(set) => void run("Rendering…", "edit_sound", { set })} />}
 			<div className="card col" data-testid="usages">
