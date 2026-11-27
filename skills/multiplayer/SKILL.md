@@ -83,5 +83,5 @@ side by side, the first hosting; the user clicks a view to play that player. Tel
 change needs a person's eyes.
 
 **Live, yourself**: two games with their own control ports, each driven with `engine/tools/enginectl.py --port`:
-`build/game --mode=hidden --host=7790 --control=7891 &` and `build/game --mode=hidden --join=127.0.0.1:7790 --control=7892 &`.
+`timeout 30m build/game --mode=hidden --fps=60 --host=7790 --control=7891 &` and `timeout 30m build/game --mode=hidden --fps=60 --join=127.0.0.1:7790 --control=7892 &`.
 The `net` command shows the role, the local peer id and the players. Quit both when done.

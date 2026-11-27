@@ -9,7 +9,7 @@ The engine's full reference is `docs/control-protocol.md` in the engine (`engine
 ## Live session
 
 ```sh
-./build.sh run -- --mode=hidden --control=7878 &       # in a game project
+timeout 30m ./build.sh run -- --mode=hidden --fps=60 --control=7878 &   # in a game project
 CTL=engine/tools/enginectl.py                          # tools/enginectl.py in the engine repo
 $CTL info
 $CTL entities component=Rigid_Body
@@ -21,7 +21,9 @@ $CTL screenshot path=build/now.png                     # then look at the image
 $CTL quit
 ```
 
-Pick a free port if 7878 is taken, and always `quit` (or kill) the game when you're done.
+Pick a free port if 7878 is taken, and always `quit` (or kill) the game when you're done. A game left running in
+the background takes the GPU from everything else on the machine: start it under `timeout` and with `--fps=60` as
+above (engines from 2026-11-28 also quit a hidden game by themselves 10 minutes after the last client disconnects).
 
 ## Scripted tests
 
