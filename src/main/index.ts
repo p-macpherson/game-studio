@@ -66,6 +66,10 @@ let win: BrowserWindow | null = null;
 
 /** Holds the computer's sleep off while agents work (keep-awake.ts); `refreshAwake` re-reads whether any do. */
 const awake = new KeepAwake({ start: () => powerSaveBlocker.start("prevent-app-suspension"), stop: (id) => powerSaveBlocker.stop(id) });
+// While a game runs from Play & Test the screen doesn't dim: a gamepad isn't activity to the desktop, so it dimmed
+// mid-play. A game in its own window also asks for itself (engines from 2026-11-28); this covers Run in studio (the game
+// is hidden and streamed here) and games on older engines.
+const screenAwake = new KeepAwake({ start: () => powerSaveBlocker.start("prevent-display-sleep"), stop: (id) => powerSaveBlocker.stop(id) });
 let refreshAwake: (() => void) | undefined;
 /** What to warn about before the window closes (sessions still in progress), once the sessions are loaded. */
 let sessionsWarning: (() => ReturnType<typeof quitWarning>) | undefined;
@@ -79,6 +83,7 @@ function emit(event: StudioEvent): void {
 	win?.webContents.send("studio:event", event);
 	remote?.broadcast(event);
 	if (event.type === "sessions_changed") refreshAwake?.();
+	if (event.type === "run_changed") screenAwake.update(event.run.state === "running");
 	// Assets change when an agent's tool writes files in a worktree, or a session is merged/discarded.
 	if ((event.type === "session_event" && (event.event.type === "tool_execution_end" || event.event.type === "agent_settled")) || event.type === "sessions_changed") {
 		assetsChanged();
