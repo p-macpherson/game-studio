@@ -173,6 +173,11 @@ export const isOpenProjectWorktree = (w: WorktreeSummary) => w.target === "proje
 /** Open in any repo: the game's, the engine's or the studio's. */
 export const isOpenWorktree = (w: WorktreeSummary) => w.status === "active";
 
+/** The worktree a session's work is in while it's open; null (main) once it's merged or discarded. */
+export function sessionWorktree(s: Pick<SessionSummary, "worktreeId" | "worktree">, worktrees: WorktreeSummary[]): string | null {
+	return s.worktree === "active" && worktrees.some((w) => w.id === s.worktreeId && isOpenWorktree(w)) ? s.worktreeId : null;
+}
+
 let noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
 /** Undoes or redoes a manual edit in the selected worktree, then refreshes what shows it. */
@@ -303,12 +308,16 @@ export const useStudio = create<State>((set, get) => ({
 			else localStorage.removeItem(`worktree:${project.path}`);
 		}
 		if (id === get().selected) return;
+		// Nothing of the last worktree stays open: the section's asset (its view starts afresh, keyed by the worktree in
+		// main.tsx) and a session of another worktree. A session being opened is the reason for the switch, so it stays.
+		const open = get().sessions.find((x) => x.id === get().selectedSession);
+		const reset = { focus: null, ...(open && sessionWorktree(open, get().worktrees) === id ? {} : { selectedSession: null }) };
 		// The sections show a game worktree; an engine or studio worktree leaves them on the game's main.
 		const w = id ? get().worktrees.find((x) => x.id === id) : undefined;
 		const game = w && w.target !== "project" ? null : id;
-		if (game === get().worktree) return set({ selected: id });
+		if (game === get().worktree) return set({ selected: id, ...reset });
 		// Play & Test follows the game selection.
-		set((s) => ({ selected: id, worktree: game, playCheckout: game, worktreeChanges: [], assetsVersion: s.assetsVersion + 1 }));
+		set((s) => ({ selected: id, worktree: game, playCheckout: game, worktreeChanges: [], assetsVersion: s.assetsVersion + 1, ...reset }));
 	},
 	async refreshSessions() {
 		const sessions = await call("sessions.list");
@@ -331,7 +340,16 @@ export const useStudio = create<State>((set, get) => ({
 	goForward: () => navigate(1),
 	selectSession(id) {
 		set({ selectedSession: id, view: "sessions" });
-		if (id) void get().loadTranscript(id);
+		if (!id) return;
+		// Opening a session selects the worktree its work is in (main once that's merged), from wherever it was opened.
+		const follow = () => {
+			const session = get().sessions.find((x) => x.id === id);
+			if (session && get().selectedSession === id) get().selectWorktree(sessionWorktree(session, get().worktrees));
+			return !!session;
+		};
+		// A session just started (perhaps in a new worktree) may not be in the lists yet.
+		if (!follow()) void Promise.all([get().refreshSessions(), get().refreshWorktrees()]).then(follow, () => {});
+		void get().loadTranscript(id);
 	},
 	async loadTranscript(id) {
 		// Events that arrive while the snapshot is fetched are kept and applied on top of it: the snapshot and the

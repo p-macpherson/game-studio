@@ -30,7 +30,7 @@ const PAGES: Partial<Record<View, { label: string; icon: string; needsProject?: 
 };
 /** The sidebar's groups, each collapsible (remembered). A section no group names lands in Game. */
 const NAV_GROUPS: { id: string; label: string; views: View[] }[] = [
-	{ id: "project", label: "Project", views: ["sessions", "worktrees", "source-control", "module:game-code"] },
+	{ id: "project", label: "Project", views: ["sessions", "source-control", "module:game-code"] },
 	{ id: "game", label: "Game", views: ["module:design-docs", "module:scenes", "play", "module:scenarios", "release"] },
 	{ id: "visual", label: "Visual", views: ["module:images", "module:3d-models", "module:textures", "module:shaders", "module:effects", "module:ui"] },
 	{ id: "audio", label: "Audio", views: ["module:music", "module:sounds", "module:voices"] },
@@ -95,12 +95,9 @@ function UpdateNavItem() {
 }
 
 function App() {
-	const { project, view, setView, sessions, modules, error, refresh, handleEvent, newSession, run, worktreeChanges, notice, merging, selectedLabel, openWorktrees, toReview } = useStudio(
+	const { project, view, setView, sessions, modules, error, refresh, handleEvent, newSession, run, worktreeChanges, notice, merging, worktree } = useStudio(
 		useShallow((s) => ({
-			openWorktrees: s.worktrees.filter((w) => w.status === "active").length,
-			// Open worktrees with a session waiting for the person's review.
-			toReview: new Set(s.sessions.filter((x) => x.reviewRequested && x.status !== "done" && s.worktrees.some((w) => w.id === x.worktreeId && w.status === "active")).map((x) => x.worktreeId)).size,
-			selectedLabel: s.worktrees.find((w) => w.id === s.selected)?.label ?? "main",
+			worktree: s.worktree,
 			project: s.project,
 			view: s.view,
 			setView: s.setView,
@@ -125,12 +122,6 @@ function App() {
 	const [skipPicker, setSkipPicker] = useState(false);
 	// The menu can shrink to an icon rail (labels become tooltips); remembered across launches.
 	const [collapsed, setCollapsed] = useState(() => localStorage.getItem("sidebar-collapsed") === "1");
-	// The worktree bar along the bottom can be hidden (the button beside Collapse); remembered across launches.
-	const [barHidden, setBarHidden] = useState(() => localStorage.getItem("worktree-bar-hidden") === "1");
-	const toggleBar = () => {
-		localStorage.setItem("worktree-bar-hidden", barHidden ? "0" : "1");
-		setBarHidden(!barHidden);
-	};
 	// Which of the sidebar's groups are folded away; remembered across launches.
 	const [folded, setFolded] = useState<string[]>(() => {
 		try {
@@ -175,16 +166,6 @@ function App() {
 				<span className="nav-label">{label}</span>
 				{changes && <ChangeCountsLabel {...changes} />}
 				{v === "sessions" && active > 0 && <span className="count">{active}</span>}
-				{v === "worktrees" && toReview > 0 && (
-					<span className="count review-count" title={`${toReview} waiting for your review`} data-testid="review-count">
-						● {toReview}
-					</span>
-				)}
-				{v === "worktrees" && openWorktrees > 0 && (
-					<span className="count" data-testid="worktrees-count">
-						{openWorktrees}
-					</span>
-				)}
 				{v === "play" && run?.state === "running" && <span className="count">●</span>}
 			</button>
 		);
@@ -197,6 +178,8 @@ function App() {
 					{!collapsed && <ProjectMenu />}
 					<NavButtons />
 				</div>
+				{/* Which worktree the sections show and edit; it also publishes the worktree's changes for the sections' counts. */}
+				{project && <WorktreePicker collapsed={collapsed} />}
 				{NAV_GROUPS.map((g) => {
 					const views = [...g.views, ...(g.id === "game" ? modules.map((x): View => `module:${x.id}`).filter((v) => !GROUPED.has(v)) : [])];
 					const items = views.map(navItem).filter((x) => x !== null);
@@ -233,19 +216,6 @@ function App() {
 							<span className="nav-icon">{collapsed ? "»" : "«"}</span>
 							<span className="nav-label">Collapse</span>
 						</button>
-						{project && (
-							<button
-								className={`nav-item bar-toggle ${barHidden ? "" : "on"}`}
-								data-testid="worktree-bar-toggle"
-								title={barHidden ? `Show the worktree bar (now: ${selectedLabel})` : "Hide the worktree bar"}
-								aria-label={barHidden ? "Show the worktree bar" : "Hide the worktree bar"}
-								aria-pressed={!barHidden}
-								onClick={toggleBar}
-							>
-								<span className="nav-icon">⎇</span>
-								{barHidden && selectedLabel !== "main" && <span className="count">●</span>}
-							</button>
-						)}
 					</div>
 				</div>
 			</nav>
@@ -266,10 +236,9 @@ function App() {
 				{view === "release" && project && <Release />}
 				{activeModule && project && (() => {
 					const ModuleView = MODULE_VIEWS[activeModule.id];
-					return <ModuleView key={activeModule.id} module={activeModule} />;
+					// Keyed by the worktree too: switching worktrees starts the section afresh, so nothing of the last one stays on screen.
+					return <ModuleView key={`${activeModule.id}:${worktree ?? "main"}`} module={activeModule} />;
 				})()}
-				{/* Kept mounted while hidden: it also publishes the worktree's changes for the sidebar's counts. */}
-				<WorktreePicker hidden={barHidden} />
 			</main>
 			{newSession && <NewSessionDialog preset={newSession} />}
 			{merging && <MergeDialog key={merging} worktreeId={merging} />}

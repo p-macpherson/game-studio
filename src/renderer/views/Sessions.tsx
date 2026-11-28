@@ -308,7 +308,7 @@ export function Sessions() {
 								sections.map((sec) => {
 									const closed = closedSections.has(sec.id);
 									return (
-										<div key={sec.id} className="session-section" data-testid="session-section">
+										<div key={sec.id} className="session-section" data-testid="session-section" data-label={sec.label}>
 											<div className="session-section-head" onClick={() => toggleSection(sec.id)} title={closed ? "Show its sessions" : "Hide its sessions"}>
 												<span className="tree-toggle">{closed ? "▸" : "▾"}</span>
 												<span className="grow ellipsis" title={sec.label}>

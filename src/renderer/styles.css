@@ -132,7 +132,7 @@ a {
 /* Shell */
 .shell {
 	display: grid;
-	grid-template-columns: 210px 1fr;
+	grid-template-columns: 232px 1fr;
 	height: 100%;
 }
 .sidebar {
@@ -144,6 +144,7 @@ a {
 	gap: 2px;
 	min-height: 0;
 	overflow-y: auto;
+	overflow-x: hidden;
 }
 .sidebar .project {
 	padding: 6px 8px 12px;
@@ -2752,60 +2753,88 @@ button.link {
 
 /* Worktree selector (sidebar) */
 /* The worktree bar: along the bottom of the window, under every section; its popovers open upwards */
-.worktree-bar {
-	display: flex;
-	align-items: center;
-	gap: 10px;
-	min-height: 44px;
-	padding: 6px 14px;
-	background: var(--panel);
-	border-top: 1px solid var(--border);
-	flex-shrink: 0;
-	min-width: 0;
-	margin-top: auto;
-}
-.worktree-bar[hidden] {
-	display: none;
-}
-/* Collapse, and beside it the button that hides or shows the worktree bar */
+/* The worktree panel, under the project in the sidebar: the selector, then the selected worktree's state and actions,
+   one short row each. */
 .sidebar-toggles {
 	display: flex;
 	gap: 2px;
 }
-.bar-toggle {
-	position: relative;
-	padding: 7px 8px;
-}
-.bar-toggle.on {
-	color: var(--text);
-}
-.shell.collapsed .sidebar-toggles {
-	flex-direction: column;
-}
-.worktree-select,
-.worktree-more,
-.worktree-unsaved {
-	position: relative;
+.worktree-panel {
 	display: flex;
-	align-items: center;
+	flex-direction: column;
 	gap: 6px;
+	padding: 0 0 10px;
+	margin-bottom: 4px;
+	border-bottom: 1px solid var(--border);
 	min-width: 0;
 }
+.worktree-panel.on {
+	padding: 6px;
+	margin: 0 0 6px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--panel-2);
+}
+.worktree-panel.collapsed {
+	border-bottom: none;
+	padding: 0;
+}
+.wt-line {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+}
+.wt-line > button {
+	flex-shrink: 0;
+}
+.wt-line > button.small {
+	padding: 3px 8px;
+}
+.wt-line > .worktree-fact {
+	flex-shrink: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
 .worktree-select {
-	flex: 0 1 auto;
+	display: flex;
+	min-width: 0;
 }
 .worktree-current {
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	max-width: 460px;
+	width: 100%;
 	min-width: 0;
 	font-weight: 600;
-	padding: 5px 10px;
+	padding: 5px 8px;
+	text-align: left;
+}
+.worktree-current.open {
+	border-color: var(--accent);
+}
+.shell.collapsed .worktree-current {
+	justify-content: center;
+	padding: 8px 0;
+	font-weight: 400;
 }
 .worktree-current .count {
 	color: var(--accent);
 	font-size: 10px;
+}
+.worktree-current .count.review-count {
+	color: var(--green);
+	font-size: 11px;
+}
+.shell.collapsed .worktree-current .count {
+	position: absolute;
+	top: 1px;
+	right: 2px;
+}
+.worktree-select {
+	position: relative;
 }
 .worktree-glyph {
 	color: var(--muted);
@@ -2818,47 +2847,32 @@ button.link {
 	flex-shrink: 1;
 }
 .worktree-naming {
-	flex: 0 1 380px;
-	min-width: 160px;
+	width: 100%;
+	min-width: 0;
 }
 .worktree-status {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	flex-shrink: 0;
-	white-space: nowrap;
-	padding-left: 10px;
-	border-left: 1px solid var(--border);
+	gap: 6px;
 }
 .worktree-status.conflict {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
 	color: var(--yellow);
 	font-size: 12px;
 }
-.worktree-unsaved {
-	flex-shrink: 0;
-	padding-right: 10px;
-	border-right: 1px solid var(--border);
+.wt-more {
+	justify-content: flex-end;
 }
-.worktree-more-menu {
-	position: absolute;
-	z-index: 30;
-	bottom: calc(100% + 6px);
-	right: 0;
-	min-width: 150px;
-	padding: 6px;
-	display: flex;
-	flex-direction: column;
-	gap: 2px;
-	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+.worktree-merge {
+	width: 100%;
 }
 .danger-text {
 	color: var(--red);
 }
+/* Wider than the sidebar, so placed against the window (top and left set from the selector). */
 .worktree-menu {
-	position: absolute;
-	z-index: 30;
-	bottom: calc(100% + 6px);
-	left: 0;
+	position: fixed;
+	z-index: 40;
 	width: 320px;
 	padding: 6px;
 	display: flex;
@@ -3179,12 +3193,6 @@ textarea {
 	color: var(--muted);
 }
 .history-list {
-	position: absolute;
-	z-index: 30;
-	bottom: calc(100% + 6px);
-	right: 0;
-	width: 300px;
-	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 	display: flex;
 	flex-direction: column;
 	gap: 2px;

@@ -86,6 +86,12 @@ const selectMain = async (page: Page) => {
 	await page.getByTestId("worktree-menu").getByRole("button", { name: /^main/ }).click();
 	await page.getByTestId("worktree-current").filter({ hasText: "main" }).waitFor();
 };
+/** The Worktrees page, from the sidebar's worktree selector (it has no sidebar entry of its own). */
+const openWorktreesPage = async (page: Page, waitFor = "worktrees-page") => {
+	await page.getByTestId("worktree-current").click();
+	await page.getByTestId("worktree-manage").click();
+	await page.getByTestId(waitFor).waitFor();
+};
 const step = async (name: string, page: Page) => {
 	await page.screenshot({ path: join(shots, `${name}.png`) });
 	console.log(`✓ ${name}`);
@@ -964,12 +970,10 @@ try {
 	await page.getByTestId("nav-group-toggle-audio").click();
 	await page.getByTestId("nav-group-toggle-visual").click();
 	await nav.getByRole("button", { name: "Music" }).waitFor();
-	// The worktree bar hides with the button beside Collapse, and comes back.
-	await page.getByTestId("worktree-bar-toggle").click();
-	await page.getByTestId("worktree-picker").waitFor({ state: "hidden" });
-	await step("27b-worktree-bar-hidden", page);
-	await page.getByTestId("worktree-bar-toggle").click();
-	await page.getByTestId("worktree-current").waitFor();
+	// The worktree selector sits in the sidebar under the project; the Worktrees page is reached from its menu, not
+	// from a sidebar entry of its own.
+	await nav.getByTestId("worktree-current").waitFor();
+	if (await nav.getByRole("button", { name: "Worktrees", exact: true }).count()) throw new Error("the sidebar shouldn't list Worktrees any more");
 
 	// Sound Effects: "New sound" starts a Sound Designer session whose takes (fake worker) make a sound; the section
 	// shows it, its takes and where it's used, and using a second take re-renders it with two variants.
@@ -1089,6 +1093,14 @@ try {
 	await page.getByTestId("image-record").filter({ hasText: "Top-down map of a forest glade" }).waitFor({ timeout: 60_000 });
 	await page.getByTestId("asset-item").filter({ hasText: "glade-map" }).waitFor();
 	await step("30b-images", page);
+	// Switching worktree starts the section afresh: on main, where neither image is yet, nothing of the worktree's
+	// stays on screen. Back on the worktree, its images are there again.
+	await selectMain(page);
+	await page.getByTestId("asset-item").filter({ hasText: "glade" }).first().waitFor({ state: "detached" });
+	if (await page.getByTestId("image-detail").count()) throw new Error("switching to main left the worktree's image open");
+	await page.getByTestId("worktree-current").click();
+	await page.getByTestId("worktree-group-project").getByRole("button", { name: "Images", exact: true }).click();
+	await page.getByTestId("asset-item").filter({ hasText: "glade-map" }).waitFor();
 	await page.getByTestId("worktree-merge").click();
 	await page.getByTestId("merge-confirm").filter({ hasText: "Save and merge" }).click();
 	await page.getByTestId("asset-item").filter({ hasText: "glade-map" }).getByTestId("change-label").waitFor({ state: "detached", timeout: 30_000 });
@@ -1171,8 +1183,7 @@ try {
 	await page.getByTestId("session-tab-chat").click();
 	// An unsent message is still there after a visit elsewhere.
 	await page.getByTestId("composer").fill("an unsent thought");
-	await nav.getByRole("button", { name: "Worktrees" }).click();
-	await page.getByTestId("worktrees-page").waitFor();
+	await openWorktreesPage(page);
 	await nav.getByRole("button", { name: "Sessions" }).click();
 	if ((await page.getByTestId("composer").inputValue()) !== "an unsent thought") throw new Error("the unsent message was lost");
 	await page.getByTestId("composer").fill("");
@@ -1242,6 +1253,16 @@ try {
 	await page.getByTestId("sessions-all").click();
 	await page.getByTestId("session-section").nth(1).waitFor();
 	await step("65-sessions-all-worktrees", page);
+	// Opening a session of another worktree selects that worktree; Back returns to the session (and worktree) before.
+	const here = await page.getByTestId("worktree-current").locator(".ellipsis").innerText();
+	const elsewhere = page.getByTestId("session-section").filter({ has: page.getByTestId("section-switch") }).first();
+	const elsewhereLabel = (await elsewhere.getAttribute("data-label")) ?? "";
+	await elsewhere.getByTestId("session-item").first().click();
+	await page.getByTestId("worktree-current").filter({ hasText: elsewhereLabel }).waitFor();
+	await step("65b-session-selects-its-worktree", page);
+	await page.waitForTimeout(300); // the visit is noted once things settle
+	await page.getByTestId("nav-back").click();
+	await page.getByTestId("worktree-current").filter({ hasText: here }).waitFor();
 	await page.getByTestId("sessions-all").click();
 	await page.getByTestId("session-section").first().waitFor({ state: "detached" });
 	// A question from the agent: picking a suggestion puts it in the answer box, where it can be reworded; what's in
@@ -1334,7 +1355,6 @@ try {
 	await page.getByTestId("worktree-manage").click();
 	await page.getByTestId("worktrees-page").waitFor();
 	await page.getByTestId("worktrees-main").getByText("current").waitFor();
-	await nav.getByTestId("worktrees-count").waitFor();
 	const noteRow = page.getByTestId("worktrees-row").filter({ hasText: "add a note" });
 	await noteRow.getByTestId("worktrees-size").filter({ hasText: "MB" }).waitFor({ timeout: 15_000 });
 	await page.getByTestId("worktrees-space-total").waitFor();
@@ -1640,8 +1660,8 @@ try {
 		const s = await sessionOf(reviewed.id);
 		return s.status === "idle" && s.reviewRequested;
 	});
-	await nav.getByRole("button", { name: "Worktrees" }).click();
 	await nav.getByTestId("review-count").waitFor();
+	await openWorktreesPage(page);
 	const queued = page.getByTestId("review-queue-row").filter({ hasText: "Wrote the review notes" });
 	await queued.waitFor();
 	// The studio checked the worktree itself when the review was asked for: it builds, and its test passes.
@@ -1662,8 +1682,7 @@ try {
 	await step("83a-play-from-here", page);
 	await page.evaluate(() => window.studio.call("run.stop"));
 	await page.getByTestId("run-state").getByText("Stopped").waitFor();
-	await nav.getByRole("button", { name: "Worktrees" }).click();
-	await page.getByTestId("review").waitFor(); // back on the review it was started from
+	await openWorktreesPage(page, "review"); // back on the review it was started from
 	const reviewCard = page.locator('[data-testid=review-card][data-path="docs/design/Review Notes.md"]');
 	await reviewCard.waitFor();
 	await reviewCard.getByTestId("review-redo").click();
