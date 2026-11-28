@@ -8,7 +8,7 @@ import { net, protocol } from "electron";
 import { safeJoin } from "./assets";
 
 export const STUDIO_FILE_SCHEME = "studio-file";
-const SERVED = new Set([".png", ".jpg", ".jpeg", ".webp", ".glb", ".gltf", ".bin", ".json", ".ogg", ".wav", ".webm"]);
+const SERVED = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".glb", ".gltf", ".bin", ".json", ".ogg", ".wav", ".webm"]);
 
 /** Must run before the app is ready. */
 export function registerStudioFileScheme(): void {

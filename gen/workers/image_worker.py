@@ -81,7 +81,9 @@ def contact_sheet(paths: list[str]) -> str:
     draw = ImageDraw.Draw(sheet)
     for i, path in enumerate(paths):
         x, y = (i % cols) * size, (i // cols) * size
-        sheet.paste(Image.open(path).convert("RGB").resize((size, size)), (x, y))
+        thumb = Image.open(path).convert("RGB")
+        thumb.thumbnail((size, size))  # keeps its shape: a landscape image isn't squashed square
+        sheet.paste(thumb, (x + (size - thumb.width) // 2, y + (size - thumb.height) // 2))
         draw.rectangle((x + 6, y + 6, x + 34, y + 34), fill="black")
         draw.text((x + 15, y + 12), str(i + 1), fill="white")
     fd, out = tempfile.mkstemp(prefix="gs-concepts-", suffix=".jpg")

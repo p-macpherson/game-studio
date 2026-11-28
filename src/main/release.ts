@@ -70,7 +70,8 @@ export function releaseManifest(root: string, config: ReleaseConfig): ReleaseMan
 		const parts = p.split("/");
 		const file = parts[parts.length - 1];
 		const name = file.includes(".") ? file.slice(0, file.lastIndexOf(".")) : file;
-		if (parts.length === 2 || (parts.length === 3 && parts[1] === name)) byName.set(name, [...(byName.get(name) ?? []), p]);
+		// Images (concept art, maps, mockups) ship only by their path: a word in the code that happens to match one doesn't.
+		if (parts[0] !== "images" && (parts.length === 2 || (parts.length === 3 && parts[1] === name))) byName.set(name, [...(byName.get(name) ?? []), p]);
 	}
 	const reached = new Map<string, string>();
 	const queue: string[] = [];

@@ -23,6 +23,7 @@ import { sceneRequests } from "./scenes";
 import { SoundPipeline, soundRequests, soundUsages } from "./sounds";
 import { VoicePipeline, voiceRequests } from "./voices";
 import { studioRequests } from "./studio-requests";
+import { ImagePipeline, imageRequests } from "./images";
 import { TexturePipeline, textureRequests } from "./textures";
 import { effectRequests, ParticleTexturePipeline } from "./effects";
 import { ReleaseService, releaseRequests } from "./release-service";
@@ -132,6 +133,7 @@ async function main(): Promise<void> {
 	const voices = new VoicePipeline({ gen, audio });
 	const textures = new TexturePipeline(gen);
 	const uiArt = new UiArtPipeline(gen);
+	const imagePipeline = new ImagePipeline(gen);
 	// Every part of the studio brings its own requests: a new section adds a line here.
 	const moduleInfos = MODULES.map((m) => m.info);
 	const particles = new ParticleTexturePipeline(gen);
@@ -142,6 +144,7 @@ async function main(): Promise<void> {
 		soundRequests(sounds),
 		voiceRequests(voices),
 		textureRequests(textures),
+		imageRequests(imagePipeline),
 		sceneRequests((sessionId, p) => runner.previewScene(sessionId, String(p.scene), p.views as SceneView[] | undefined)),
 		uiRequests(uiArt, (sessionId, p) => runner.previewUi(sessionId, p.screen, p.values)),
 		shaderRequests({ check: (sessionId, name) => runner.checkShader(sessionId, name), preview: (sessionId, p) => runner.previewShader(sessionId, p) }),

@@ -1069,6 +1069,30 @@ try {
 	await page.getByTestId("variant-row").nth(1).waitFor();
 	await step("30-sound-merged", page);
 
+	// Images: a person's own picture added into a folder they name, then one generated beside it (fake worker), each
+	// shown large; the generated one with the prompt it carries inside the file. Saved and merged like any edit.
+	await nav.getByRole("button", { name: "Images" }).click();
+	await page.getByRole("button", { name: "+ New image" }).click();
+	await page.getByTestId("new-images-folder").fill("concept/places");
+	await page.locator("[data-testid=new-images] input[type=file]").setInputFiles({ name: "Glade Sketch.png", mimeType: "image/png", buffer: readFileSync(resolve("gen/workers/fixtures/concept.png")) });
+	await page.getByTestId("asset-item").filter({ hasText: "glade-sketch" }).waitFor({ timeout: 30_000 });
+	const large = page.getByTestId("image-large");
+	for (let i = 0; !(await large.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0).catch(() => false)); i++) {
+		if (i > 50) throw new Error("the added image didn't load");
+		await page.waitForTimeout(100);
+	}
+	await page.getByTestId("images-add-here").click();
+	if ((await page.getByTestId("new-images-folder").inputValue()) !== "concept/places") throw new Error("+ Add here should start in the image's folder");
+	await page.getByTestId("new-images-prompt").fill("Top-down map of a forest glade with a stream, ink and watercolour");
+	await page.getByTestId("new-images-name").fill("glade-map");
+	await page.getByTestId("new-images-generate").click();
+	await page.getByTestId("image-record").filter({ hasText: "Top-down map of a forest glade" }).waitFor({ timeout: 60_000 });
+	await page.getByTestId("asset-item").filter({ hasText: "glade-map" }).waitFor();
+	await step("30b-images", page);
+	await page.getByTestId("worktree-merge").click();
+	await page.getByTestId("merge-confirm").filter({ hasText: "Save and merge" }).click();
+	await page.getByTestId("asset-item").filter({ hasText: "glade-map" }).getByTestId("change-label").waitFor({ state: "detached", timeout: 30_000 });
+
 	// Voice Lines: "New voice" starts a Voice Director session that performs a line (fake worker); the section shows the
 	// voice and the line's takes; a second line is added and performed by hand there, and another take of it is chosen.
 	await nav.getByRole("button", { name: "Voice Lines" }).click();

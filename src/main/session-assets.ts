@@ -11,7 +11,7 @@ import type { SessionService } from "./sessions";
 /** A picture of the asset, or its sound: `thumbnail.png` or a file named like the asset, in its folder or beside it. */
 export function previewOf(root: string, path: string, module: ModuleInfo): AssetCard["preview"] {
 	const has = (p: string) => existsSync(join(root, p));
-	if (/\.(png|jpe?g|webp)$/i.test(path)) return { kind: "image", path };
+	if (/\.(png|jpe?g|webp|gif)$/i.test(path)) return { kind: "image", path };
 	const dir = path.slice(0, path.lastIndexOf("/"));
 	const file = path.slice(dir.length + 1);
 	const manifest = module.extensions.some((e) => e === `/${file}`);

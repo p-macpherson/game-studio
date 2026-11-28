@@ -71,6 +71,19 @@ describe("releaseManifest", () => {
 		expect(m.leftOut.map((f) => f.path).sort()).toEqual(["assets/sounds/horn/horn.ogg", "assets/voices/guide/outtake.ogg"]);
 	});
 
+	it("ships an image only when the game uses its path, never because a word in the code matches its name", () => {
+		const root = project({
+			"game/main.odin": 'engine.ui_show("title")\nbg := engine.load_texture("images/backdrops/sky.png")',
+			"assets/ui/title.json": "{}",
+			"assets/images/title.png": "png",
+			"assets/images/backdrops/sky.png": "png",
+			"assets/images/concept/knight.png": "png",
+		});
+		const m = releaseManifest(root, config);
+		expect(m.files.map((f) => f.path).sort()).toEqual(["assets/images/backdrops/sky.png", "assets/ui/title.json"]);
+		expect(m.leftOut.map((f) => f.path).sort()).toEqual(["assets/images/concept/knight.png", "assets/images/title.png"]);
+	});
+
 	it("follows release.json's include and exclude", () => {
 		const root = project({
 			"game/main.odin": '"sounds/a/a.ogg"',

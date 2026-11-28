@@ -32,7 +32,7 @@ const PAGES: Partial<Record<View, { label: string; icon: string; needsProject?: 
 const NAV_GROUPS: { id: string; label: string; views: View[] }[] = [
 	{ id: "project", label: "Project", views: ["sessions", "worktrees", "source-control", "module:game-code"] },
 	{ id: "game", label: "Game", views: ["module:design-docs", "module:scenes", "play", "module:scenarios", "release"] },
-	{ id: "visual", label: "Visual", views: ["module:3d-models", "module:textures", "module:shaders", "module:effects", "module:ui"] },
+	{ id: "visual", label: "Visual", views: ["module:images", "module:3d-models", "module:textures", "module:shaders", "module:effects", "module:ui"] },
 	{ id: "audio", label: "Audio", views: ["module:music", "module:sounds", "module:voices"] },
 ];
 const GROUPED = new Set(NAV_GROUPS.flatMap((g) => g.views));

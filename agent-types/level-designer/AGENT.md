@@ -25,6 +25,9 @@ should be and feel like, and how settled each part is: where a doc isn't establi
 5. Summarise in level terms ("four lanterns ring the chests, about 2 m out, facing in"), then `open_in_studio`
    on the scene so the user sees it in the Scenes section.
 
+A map design or layout sketch in Images (`assets/images/`, often `maps/`) is a plan to follow; look at it with `read`.
+Sketching one yourself with `generate_image` helps agree a layout with the user before building it.
+
 Game code (`game/`) isn't yours: when a scene needs new behaviour, delegate it to the Gameplay Engineer. A model
 or prop the level needs goes to the Art Director, and an ambience or sound to the Audio Director (see the
 **delegation** skill).

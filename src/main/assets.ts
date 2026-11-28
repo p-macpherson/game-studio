@@ -15,14 +15,26 @@ import { effects, summarizeEffect } from "../modules/effects/info";
 import { shaders, summarizeShader } from "../modules/shaders/info";
 import { scenarios, summarizeScenario } from "../modules/scenarios/info";
 import { summarizeUi, ui } from "../modules/ui/info";
+import { images, summarizeImage } from "../modules/images/info";
 import type { AssetLinks } from "../shared/asset-links";
 import { assetLinks } from "./asset-links";
 import { moveAsset } from "./asset-move";
 import type { SessionService } from "./sessions";
 
+type Summary = { title: string; excerpt: string; status?: string };
+
+/** A module summarizes its assets from their text, or (pictures) from their bytes, never read as text. */
 export interface ModuleBackend {
 	info: ModuleInfo;
-	summarize(text: string, path: string): { title: string; excerpt: string; status?: string };
+	summarize?(text: string, path: string): Summary;
+	summarizeBytes?(bytes: Buffer, path: string): Summary;
+}
+
+const isBinary = (m: ModuleBackend) => !!m.summarizeBytes;
+
+function summaryOf(m: ModuleBackend, full: string, path: string): Summary {
+	if (m.summarizeBytes) return m.summarizeBytes(readFileSync(full), path);
+	return m.summarize ? m.summarize(readFileSync(full, "utf8"), path) : { title: path, excerpt: "" };
 }
 
 export const MODULES: ModuleBackend[] = [
@@ -38,6 +50,7 @@ export const MODULES: ModuleBackend[] = [
 	{ info: shaders, summarize: summarizeShader },
 	{ info: effects, summarize: summarizeEffect },
 	{ info: scenarios, summarize: summarizeScenario },
+	{ info: images, summarizeBytes: summarizeImage },
 ];
 
 export function walk(dir: string, base: string, out: string[] = []): string[] {
@@ -90,7 +103,7 @@ export class AssetService {
 			const st = statSync(full);
 			let known = this.summaries.get(full);
 			if (!known || known.size !== st.size || known.mtimeMs !== st.mtimeMs) {
-				known = { size: st.size, mtimeMs: st.mtimeMs, summary: m.summarize(readFileSync(full, "utf8"), path) };
+				known = { size: st.size, mtimeMs: st.mtimeMs, summary: summaryOf(m, full, path) };
 				this.summaries.set(full, known);
 			}
 			return {
@@ -104,15 +117,17 @@ export class AssetService {
 		// What the worktree removed: listed from main, so it can be seen (and the removal merged or undone).
 		const removed: AssetSummary[] = [...changes]
 			.filter(([path, change]) => change === "deleted" && moduleOwns(m.info, path) && existsSync(join(main, path)))
-			.map(([path]) => ({ path, ...m.summarize(readFileSync(join(main, path), "utf8"), path), inMain: true, change: "deleted" as const }));
+			.map(([path]) => ({ path, ...summaryOf(m, join(main, path), path), inMain: true, change: "deleted" as const }));
 		return [...present, ...removed].sort((a, b) => a.path.localeCompare(b.path));
 	}
 
 	/** Reads an asset from a checkout (the main one by default). */
 	read(path: string, checkout: string | null = null): string {
-		if (!MODULES.some((m) => moduleOwns(m.info, path))) throw new Error(`${path} isn't a studio asset`);
+		const m = MODULES.find((b) => moduleOwns(b.info, path));
+		if (!m) throw new Error(`${path} isn't a studio asset`);
 		const full = safeJoin(this.checkoutRoot(checkout), path);
-		return existsSync(full) ? readFileSync(full, "utf8") : "";
+		// A picture isn't text: its view shows the file itself (studioFile).
+		return existsSync(full) && !isBinary(m) ? readFileSync(full, "utf8") : "";
 	}
 
 	/** Which assets use which in a checkout (scenes, prefabs, manifests, game code and tests; see asset-links.ts). */
@@ -132,7 +147,16 @@ export class AssetService {
 		if (!q) return [];
 		const root = this.checkoutRoot(checkout);
 		const hits: AssetSearchHit[] = [];
-		for (const path of this.files(this.backend(moduleId), root)) {
+		const m = this.backend(moduleId);
+		if (isBinary(m)) {
+			// Pictures are found by their path and what they show (a generated one's prompt).
+			for (const path of this.files(m, root)) {
+				const { excerpt } = summaryOf(m, join(root, path), path);
+				if (`${path} ${excerpt}`.toLowerCase().includes(q)) hits.push({ path, line: 1, text: excerpt.slice(0, 200) });
+			}
+			return hits.slice(0, 200);
+		}
+		for (const path of this.files(m, root)) {
 			readFileSync(join(root, path), "utf8")
 				.split("\n")
 				.forEach((text, i) => {

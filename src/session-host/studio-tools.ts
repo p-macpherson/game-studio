@@ -106,6 +106,30 @@ export function studioTools(ctx: StudioToolContext) {
 			},
 		}),
 		defineTool({
+			name: "generate_image",
+			label: "Generate image",
+			description:
+				"Generate an image into the project's Images (assets/images/) with a local image model (FLUX.2 Klein): concept art, a map design, a UI mockup, a mood " +
+				"board, a storyboard frame, a keyframe, or art the game shows. The prompt is used as written (no style added): say what it shows, the view (top-down " +
+				"map, front view, screen layout…) and the style. `path` is where it goes, without extension: organise Images in folders that suit this project " +
+				"(look at the folders already in assets/images/ first and use them; start new ones by kind and subject, e.g. 'concept/characters/knight', " +
+				"'maps/level-1', 'ui/mockups/main-menu'). One image is <path>.png; several are <path>-1.png, -2.png…: keep the ones that work (rename with move_asset) " +
+				"and delete the rest. Each PNG records its prompt and seed inside it. `references` (repo paths) make variations or keep a look. Returns the paths and a " +
+				"numbered sheet of them all.",
+			parameters: Type.Object({
+				path: Type.String({ description: "Under assets/images/, lower-kebab-case folders and name, no extension: e.g. 'concept/creatures/swamp-troll'" }),
+				prompt: Type.String(),
+				count: Type.Optional(Type.Number({ description: "How many variations (1-8, default 1)" })),
+				aspect: Type.Optional(Type.Union([Type.Literal("square"), Type.Literal("landscape"), Type.Literal("portrait"), Type.Literal("wide")], { description: "square 1024x1024 (default), landscape 1344x768, portrait 768x1344, wide 1536x640" })),
+				references: Type.Optional(Type.Array(Type.String(), { description: "Repo-relative reference images" })),
+				seed: Type.Optional(Type.Number()),
+				replace: Type.Optional(Type.Boolean({ description: "Write over images already at those paths" })),
+			}),
+			async execute(_id, params, signal, onUpdate) {
+				return pictured(await ctx.request("generate_image", params, signal, progressTo(onUpdate)), "sheet", "All of them, numbered in the order above:");
+			},
+		}),
+		defineTool({
 			name: "generate_model",
 			label: "Generate 3D model",
 			description:
